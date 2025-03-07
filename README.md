@@ -9,7 +9,3 @@ TODO
 ## LICENSE
 
 MIT
-
-## Author
-
-fujiwara

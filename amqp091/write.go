@@ -16,13 +16,13 @@ import (
 	"time"
 )
 
-func (w *writer) WriteFrameNoFlush(frame frame) (err error) {
-	err = frame.write(w.w)
+func (w *Writer) WriteFrameNoFlush(frame Frame) (err error) {
+	err = frame.Write(w.w)
 	return
 }
 
-func (w *writer) WriteFrame(frame frame) (err error) {
-	if err = frame.write(w.w); err != nil {
+func (w *Writer) WriteFrame(frame Frame) (err error) {
+	if err = frame.Write(w.w); err != nil {
 		return
 	}
 
@@ -33,14 +33,14 @@ func (w *writer) WriteFrame(frame frame) (err error) {
 	return
 }
 
-func (f *methodFrame) write(w io.Writer) (err error) {
+func (f *MethodFrame) Write(w io.Writer) (err error) {
 	var payload bytes.Buffer
 
 	if f.Method == nil {
 		return errors.New("malformed frame: missing method")
 	}
 
-	class, method := f.Method.id()
+	class, method := f.Method.ID()
 
 	if err = binary.Write(&payload, binary.BigEndian, class); err != nil {
 		return
@@ -50,7 +50,7 @@ func (f *methodFrame) write(w io.Writer) (err error) {
 		return
 	}
 
-	if err = f.Method.write(&payload); err != nil {
+	if err = f.Method.Write(&payload); err != nil {
 		return
 	}
 
@@ -60,7 +60,7 @@ func (f *methodFrame) write(w io.Writer) (err error) {
 // Heartbeat
 //
 // Payload is empty
-func (f *heartbeatFrame) write(w io.Writer) (err error) {
+func (f *HeartbeatFrame) Write(w io.Writer) (err error) {
 	return writeFrame(w, frameHeartbeat, f.ChannelId, []byte{})
 }
 
@@ -71,7 +71,7 @@ func (f *heartbeatFrame) write(w io.Writer) (err error) {
 // +----------+--------+-----------+----------------+------------- - -
 //
 //	short     short    long long       short        remainder...
-func (f *headerFrame) write(w io.Writer) (err error) {
+func (f *HeaderFrame) Write(w io.Writer) (err error) {
 	var payload bytes.Buffer
 
 	if err = binary.Write(&payload, binary.BigEndian, f.ClassId); err != nil {
@@ -208,7 +208,7 @@ func (f *headerFrame) write(w io.Writer) (err error) {
 //
 // Payload is one byterange from the full body who's size is declared in the
 // Header frame
-func (f *bodyFrame) write(w io.Writer) (err error) {
+func (f *BodyFrame) Write(w io.Writer) (err error) {
 	return writeFrame(w, frameBody, f.ChannelId, f.Body)
 }
 
