@@ -1,3 +1,8 @@
+// Copyright (c) 2021 VMware, Inc. or its affiliates. All Rights Reserved.
+// Copyright (c) 2012-2021, Sean Treadway, SoundCloud Ltd.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package amqp091
 
 import (
@@ -46,17 +51,25 @@ type properties struct {
 	reserved1       string    // was cluster-id - process for buffer consumption
 }
 
-type reader struct {
+type Reader struct {
 	r io.Reader
 }
 
-type writer struct {
+type Writer struct {
 	w io.Writer
 }
 
-type frame interface {
-	write(io.Writer) error
-	channel() uint16
+func NewReader(r io.Reader) *Reader {
+	return &Reader{r: r}
+}
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{w: w}
+}
+
+type Frame interface {
+	Write(io.Writer) error
+	Channel() uint16
 }
 
 var (
@@ -129,26 +142,26 @@ Method frame bodies are constructed as a list of AMQP data fields (bits,
 integers, strings and string tables).  The marshalling code is trivially
 generated directly from the protocol specifications, and can be very rapid.
 */
-type methodFrame struct {
+type MethodFrame struct {
 	ChannelId uint16
 	ClassId   uint16
 	MethodId  uint16
-	Method    message
+	Method    Message
 }
 
-func (f *methodFrame) channel() uint16 { return f.ChannelId }
+func (f *MethodFrame) Channel() uint16 { return f.ChannelId }
 
-type message interface {
-	id() (uint16, uint16)
-	wait() bool
-	read(io.Reader) error
-	write(io.Writer) error
+type Message interface {
+	ID() (uint16, uint16)
+	Wait() bool
+	Read(io.Reader) error
+	Write(io.Writer) error
 }
 
-type messageWithContent interface {
-	message
-	getContent() (properties, []byte)
-	setContent(properties, []byte)
+type MessageWithContent interface {
+	Message
+	GetContent() (properties, []byte)
+	SetContent(properties, []byte)
 }
 
 /*
@@ -160,11 +173,11 @@ Since heartbeating can be done at a low level, we implement this as a special
 type of frame that peers exchange at the transport level, rather than as a
 class method.
 */
-type heartbeatFrame struct {
+type HeartbeatFrame struct {
 	ChannelId uint16
 }
 
-func (f *heartbeatFrame) channel() uint16 { return f.ChannelId }
+func (f *HeartbeatFrame) Channel() uint16 { return f.ChannelId }
 
 /*
 Certain methods (such as Basic.Publish, Basic.Deliver, etc.) are formally
@@ -185,7 +198,7 @@ never marshalled or encoded.  We place the content properties in their own
 frame so that recipients can selectively discard contents they do not want to
 process
 */
-type headerFrame struct {
+type HeaderFrame struct {
 	ChannelId  uint16
 	ClassId    uint16
 	weight     uint16
@@ -193,7 +206,7 @@ type headerFrame struct {
 	Properties properties
 }
 
-func (f *headerFrame) channel() uint16 { return f.ChannelId }
+func (f *HeaderFrame) Channel() uint16 { return f.ChannelId }
 
 /*
 Content is the application data we carry from client-to-client via the AMQP
@@ -210,9 +223,9 @@ might see something like this:
 	[method]
 	...
 */
-type bodyFrame struct {
+type BodyFrame struct {
 	ChannelId uint16
 	Body      []byte
 }
 
-func (f *bodyFrame) channel() uint16 { return f.ChannelId }
+func (f *BodyFrame) Channel() uint16 { return f.ChannelId }

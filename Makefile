@@ -1,6 +1,6 @@
 .PHONY: clean test
 
-trabbits: go.* *.go
+trabbits: gen go.* *.go
 	go build -o $@ ./cmd/trabbits
 
 clean:

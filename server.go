@@ -7,30 +7,45 @@ package trabbits
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"reflect"
+
+	"github.com/fujiwara/trabbits/amqp091"
 )
 
-func RunServer() {
+func Run(ctx context.Context) error {
 	listener, err := net.Listen("tcp", ":5672")
 	if err != nil {
-		fmt.Println("Failed to start AMQP server:", err)
-		return
+		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
 	defer listener.Close()
 
-	fmt.Println("AMQP Server started on port 5672...")
+	log.Println("AMQP Server started on port 5672...")
+
+	go func() {
+		<-ctx.Done()
+		if err := listener.Close(); err != nil {
+			log.Println("Failed to close listener:", err)
+		}
+	}()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Failed to accept connection:", err)
+			select {
+			case <-ctx.Done():
+				log.Println("AMQP server stopped")
+				return nil
+			default:
+			}
+			log.Println("Failed to accept connection:", err)
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(ctx, conn)
 	}
 }
 
@@ -41,7 +56,7 @@ type Client struct {
 
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
-func handleConnection(conn net.Conn) {
+func handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	_ = &Client{
@@ -63,7 +78,7 @@ func handleConnection(conn net.Conn) {
 
 	s := NewServer(conn)
 	// Connection.Start 送信
-	start := &connectionStart{
+	start := &amqp091.ConnectionStart{
 		VersionMajor: 0,
 		VersionMinor: 9,
 		Mechanisms:   "PLAIN",
@@ -75,7 +90,7 @@ func handleConnection(conn net.Conn) {
 	}
 
 	// Connection.Start-Ok 受信（認証情報含む）
-	msg := connectionStartOk{}
+	msg := amqp091.ConnectionStartOk{}
 	_, err := s.recv(0, &msg)
 	if err != nil {
 		fmt.Println("Failed to read Connection.Start-Ok:", err)
@@ -85,7 +100,7 @@ func handleConnection(conn net.Conn) {
 	// TODO authentificate
 
 	// Connection.Tune 送信
-	tune := &connectionTune{
+	tune := &amqp091.ConnectionTune{
 		ChannelMax: 1023,
 		FrameMax:   131072, // 128KB
 		Heartbeat:  60,
@@ -96,7 +111,7 @@ func handleConnection(conn net.Conn) {
 	}
 
 	// Connection.Tune-Ok 受信
-	okmsg := connectionTuneOk{}
+	okmsg := amqp091.ConnectionTuneOk{}
 	_, err = s.recv(0, &okmsg)
 	if err != nil {
 		fmt.Println("Failed to read Connection.Tune-Ok:", err)
@@ -105,7 +120,7 @@ func handleConnection(conn net.Conn) {
 	log.Printf("Connection.Tune-Ok: %#v", okmsg)
 
 	// Connection.Open 受信
-	openmsg := connectionOpen{}
+	openmsg := amqp091.ConnectionOpen{}
 	_, err = s.recv(0, &openmsg)
 	if err != nil {
 		fmt.Println("Failed to read Connection.Open:", err)
@@ -114,7 +129,7 @@ func handleConnection(conn net.Conn) {
 	log.Printf("Connection.Open: %#v", openmsg)
 
 	// Connection.Open-Ok 送信
-	openOk := &connectionOpenOk{}
+	openOk := &amqp091.ConnectionOpenOk{}
 	if err := s.send(0, openOk); err != nil {
 		fmt.Println("Failed to write Connection.Open-Ok:", err)
 		return
@@ -123,30 +138,28 @@ func handleConnection(conn net.Conn) {
 }
 
 type Server struct {
-	r reader             // framer <- client
-	w writer             // framer -> client
-	S io.ReadWriteCloser // Server IO
-	C io.ReadWriteCloser // Client IO
+	r *amqp091.Reader // framer <- client
+	w *amqp091.Writer // framer -> client
 }
 
 func NewServer(serverIO io.ReadWriteCloser) *Server {
 	return &Server{
-		r: reader{serverIO},
-		w: writer{serverIO},
+		r: amqp091.NewReader(serverIO),
+		w: amqp091.NewWriter(serverIO),
 	}
 }
 
-func (t *Server) send(channel int, m message) error {
-	if msg, ok := m.(messageWithContent); ok {
-		props, body := msg.getContent()
-		class, _ := msg.id()
-		if err := t.w.WriteFrame(&methodFrame{
+func (t *Server) send(channel int, m amqp091.Message) error {
+	if msg, ok := m.(amqp091.MessageWithContent); ok {
+		props, body := msg.GetContent()
+		class, _ := msg.ID()
+		if err := t.w.WriteFrame(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    msg,
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
-		if err := t.w.WriteFrame(&headerFrame{
+		if err := t.w.WriteFrame(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
 			ClassId:    class,
 			Size:       uint64(len(body)),
@@ -154,14 +167,14 @@ func (t *Server) send(channel int, m message) error {
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
-		if err := t.w.WriteFrame(&bodyFrame{
+		if err := t.w.WriteFrame(&amqp091.BodyFrame{
 			ChannelId: uint16(channel),
 			Body:      body,
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
 	} else {
-		if err := t.w.WriteFrame(&methodFrame{
+		if err := t.w.WriteFrame(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    m,
 		}); err != nil {
@@ -171,9 +184,9 @@ func (t *Server) send(channel int, m message) error {
 	return nil
 }
 
-func (t *Server) recv(channel int, m message) (message, error) {
+func (t *Server) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var remaining int
-	var header *headerFrame
+	var header *amqp091.HeaderFrame
 	var body []byte
 
 	for {
@@ -182,38 +195,38 @@ func (t *Server) recv(channel int, m message) (message, error) {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
 
-		if frame.channel() != uint16(channel) {
-			return nil, fmt.Errorf("expected frame on channel %d, got channel %d", channel, frame.channel())
+		if frame.Channel() != uint16(channel) {
+			return nil, fmt.Errorf("expected frame on channel %d, got channel %d", channel, frame.Channel())
 		}
 
 		switch f := frame.(type) {
-		case *heartbeatFrame:
+		case *amqp091.HeartbeatFrame:
 			// drop
 
-		case *headerFrame:
+		case *amqp091.HeaderFrame:
 			// start content state
 			header = f
 			remaining = int(header.Size)
 			if remaining == 0 {
-				m.(messageWithContent).setContent(header.Properties, nil)
+				m.(amqp091.MessageWithContent).SetContent(header.Properties, nil)
 				return m, nil
 			}
 
-		case *bodyFrame:
+		case *amqp091.BodyFrame:
 			// continue until terminated
 			body = append(body, f.Body...)
 			remaining -= len(f.Body)
 			if remaining <= 0 {
-				m.(messageWithContent).setContent(header.Properties, body)
+				m.(amqp091.MessageWithContent).SetContent(header.Properties, body)
 				return m, nil
 			}
 
-		case *methodFrame:
+		case *amqp091.MethodFrame:
 			if reflect.TypeOf(m) == reflect.TypeOf(f.Method) {
 				wantv := reflect.ValueOf(m).Elem()
 				havev := reflect.ValueOf(f.Method).Elem()
 				wantv.Set(havev)
-				if _, ok := m.(messageWithContent); !ok {
+				if _, ok := m.(amqp091.MessageWithContent); !ok {
 					return m, nil
 				}
 			} else {

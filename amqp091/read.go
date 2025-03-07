@@ -43,7 +43,7 @@ In realistic implementations where performance is a concern, we would use
 
 “gathering reads” to avoid doing three separate system calls to read a frame.
 */
-func (r *reader) ReadFrame() (frame frame, err error) {
+func (r *Reader) ReadFrame() (frame Frame, err error) {
 	var scratch [7]byte
 
 	if _, err = io.ReadFull(r.r, scratch[:7]); err != nil {
@@ -56,7 +56,7 @@ func (r *reader) ReadFrame() (frame frame, err error) {
 
 	switch typ {
 	case frameMethod:
-		if frame, err = r.parseMethodFrame(channel, size); err != nil {
+		if frame, err = r.ParseMethodFrame(channel, size); err != nil {
 			return
 		}
 
@@ -321,8 +321,8 @@ func hasProperty(mask uint16, prop int) bool {
 	return int(mask)&prop > 0
 }
 
-func (r *reader) parseHeaderFrame(channel uint16, size uint32) (frame frame, err error) {
-	hf := &headerFrame{
+func (r *Reader) parseHeaderFrame(channel uint16, size uint32) (frame Frame, err error) {
+	hf := &HeaderFrame{
 		ChannelId: channel,
 	}
 
@@ -418,8 +418,8 @@ func (r *reader) parseHeaderFrame(channel uint16, size uint32) (frame frame, err
 	return hf, nil
 }
 
-func (r *reader) parseBodyFrame(channel uint16, size uint32) (frame frame, err error) {
-	bf := &bodyFrame{
+func (r *Reader) parseBodyFrame(channel uint16, size uint32) (frame Frame, err error) {
+	bf := &BodyFrame{
 		ChannelId: channel,
 		Body:      make([]byte, size),
 	}
@@ -433,8 +433,8 @@ func (r *reader) parseBodyFrame(channel uint16, size uint32) (frame frame, err e
 
 var errHeartbeatPayload = errors.New("Heartbeats should not have a payload")
 
-func (r *reader) parseHeartbeatFrame(channel uint16, size uint32) (frame frame, err error) {
-	hf := &heartbeatFrame{
+func (r *Reader) parseHeartbeatFrame(channel uint16, size uint32) (frame Frame, err error) {
+	hf := &HeartbeatFrame{
 		ChannelId: channel,
 	}
 
