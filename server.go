@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"reflect"
 
@@ -24,12 +24,12 @@ func Run(ctx context.Context) error {
 	}
 	defer listener.Close()
 
-	log.Println("AMQP Server started on port 5672...")
+	slog.Info("AMQP Server started on port 5672...")
 
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			log.Println("Failed to close listener:", err)
+			slog.Error("Failed to close listener", "error", err)
 		}
 	}()
 
@@ -38,11 +38,11 @@ func Run(ctx context.Context) error {
 		if err != nil {
 			select {
 			case <-ctx.Done():
-				log.Println("AMQP server stopped")
+				slog.Info("AMQP server stopped")
 				return nil
 			default:
 			}
-			log.Println("Failed to accept connection:", err)
+			slog.Warn("Failed to accept connection", "error", err)
 			continue
 		}
 		go handleConnection(ctx, conn)
@@ -67,14 +67,14 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	// AMQP プロトコルヘッダー受信
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
-		fmt.Println("Failed to read AMQP header:", err)
+		slog.Warn("Failed to read AMQP header:", "error", err)
 		return
 	}
 	if !bytes.Equal(header, amqpHeader) {
-		fmt.Println("Invalid AMQP protocol header")
+		slog.Warn("Invalid AMQP protocol header", "header", header)
 		return
 	}
-	log.Printf("connected from %s", conn.RemoteAddr())
+	slog.Info("connected from", "addr", conn.RemoteAddr())
 
 	s := NewServer(conn)
 	// Connection.Start 送信
@@ -85,7 +85,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		Locales:      "en_US",
 	}
 	if err := s.send(0, start); err != nil {
-		fmt.Println("Failed to write Connection.Start:", err)
+		slog.Warn("Failed to write Connection.Start:", "error", err)
 		return
 	}
 
@@ -93,10 +93,9 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	msg := amqp091.ConnectionStartOk{}
 	_, err := s.recv(0, &msg)
 	if err != nil {
-		fmt.Println("Failed to read Connection.Start-Ok:", err)
+		slog.Warn("Failed to read Connection.Start-Ok:", "error", err)
 		return
 	}
-	log.Printf("Connection.Start-Ok: %#v", msg)
 	// TODO authentificate
 
 	// Connection.Tune 送信
@@ -106,7 +105,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		Heartbeat:  60,
 	}
 	if err := s.send(0, tune); err != nil {
-		fmt.Println("Failed to write Connection.Tune:", err)
+		slog.Warn("Failed to write Connection.Tune:", "error", err)
 		return
 	}
 
@@ -114,27 +113,25 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	okmsg := amqp091.ConnectionTuneOk{}
 	_, err = s.recv(0, &okmsg)
 	if err != nil {
-		fmt.Println("Failed to read Connection.Tune-Ok:", err)
+		slog.Warn("Failed to read Connection.Tune-Ok:", "error", err)
 		return
 	}
-	log.Printf("Connection.Tune-Ok: %#v", okmsg)
 
 	// Connection.Open 受信
 	openmsg := amqp091.ConnectionOpen{}
 	_, err = s.recv(0, &openmsg)
 	if err != nil {
-		fmt.Println("Failed to read Connection.Open:", err)
+		slog.Warn("Failed to read Connection.Open:", "error", err)
 		return
 	}
-	log.Printf("Connection.Open: %#v", openmsg)
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
 	if err := s.send(0, openOk); err != nil {
-		fmt.Println("Failed to write Connection.Open-Ok:", err)
+		slog.Warn("Failed to write Connection.Open-Ok:", "error", err)
 		return
 	}
-	log.Printf("Connection opened: %#v", openOk)
+	slog.Info("Connection opened, To Be Continued...")
 }
 
 type Server struct {
@@ -150,6 +147,7 @@ func NewServer(serverIO io.ReadWriteCloser) *Server {
 }
 
 func (t *Server) send(channel int, m amqp091.Message) error {
+	slog.Info("send", "channel", channel, "message", m)
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
@@ -188,6 +186,9 @@ func (t *Server) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var remaining int
 	var header *amqp091.HeaderFrame
 	var body []byte
+	defer func() {
+		slog.Info("recv", "channel", channel, "message", m)
+	}()
 
 	for {
 		frame, err := t.r.ReadFrame()
