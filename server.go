@@ -23,8 +23,12 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
 	defer listener.Close()
+	return bootServer(ctx, listener)
+}
 
-	slog.Info("AMQP Server started on port 5672...")
+func bootServer(ctx context.Context, listener net.Listener) error {
+	port := listener.Addr().(*net.TCPAddr).Port
+	slog.Info("AMQP Server started", "port", port)
 
 	go func() {
 		<-ctx.Done()
@@ -131,6 +135,22 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		slog.Warn("Failed to write Connection.Open-Ok:", "error", err)
 		return
 	}
+
+	// とりあえずここまで実装したのでConnection.Closeする
+	close := &amqp091.ConnectionClose{}
+	if err := s.send(0, close); err != nil {
+		slog.Warn("Failed to write Connection.Close:", "error", err)
+		return
+	}
+	// Connection.Close-Ok 受信
+	closeOk := amqp091.ConnectionCloseOk{}
+	_, err = s.recv(0, &closeOk)
+	if err != nil {
+		slog.Warn("Failed to read Connection.Close-Ok:", "error", err)
+		return
+	}
+	// この後TCPコネクションは切断される
+
 	slog.Info("Connection opened, To Be Continued...")
 }
 
