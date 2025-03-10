@@ -13,8 +13,15 @@ import (
 	"log/slog"
 	"net"
 	"reflect"
+	"strings"
 
 	"github.com/fujiwara/trabbits/amqp091"
+)
+
+const (
+	ChannelMax        = 1023
+	HeartbeatInterval = 60
+	FrameMax          = 128 * 1024
 )
 
 func Run(ctx context.Context) error {
@@ -56,17 +63,14 @@ func bootServer(ctx context.Context, listener net.Listener) error {
 type Client struct {
 	conn    net.Conn
 	channel map[uint16]bool
+	user    string
+	pass    string
 }
 
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 func handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-
-	_ = &Client{
-		conn:    conn,
-		channel: make(map[uint16]bool),
-	}
 
 	// AMQP プロトコルヘッダー受信
 	header := make([]byte, 8)
@@ -81,6 +85,29 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	slog.Info("connected from", "addr", conn.RemoteAddr())
 
 	s := NewServer(conn)
+	client, err := s.handshake(ctx)
+	if err != nil {
+		slog.Warn("Failed to handshake", "error", err)
+		return
+	}
+	slog.Info("Handshake done", "user", client.user)
+	// ここからクライアントのリクエストを待ち受ける
+	for {
+		break
+	}
+	slog.Info("goodbye", "addr", conn.RemoteAddr())
+}
+
+type Server struct {
+	r *amqp091.Reader // framer <- client
+	w *amqp091.Writer // framer -> client
+}
+
+func (s *Server) handshake(_ context.Context) (*Client, error) {
+	client := &Client{
+		channel: make(map[uint16]bool),
+	}
+
 	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
 		VersionMajor: 0,
@@ -89,74 +116,60 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		Locales:      "en_US",
 	}
 	if err := s.send(0, start); err != nil {
-		slog.Warn("Failed to write Connection.Start:", "error", err)
-		return
+		return nil, fmt.Errorf("failed to write Connection.Start: %w", err)
 	}
 
 	// Connection.Start-Ok 受信（認証情報含む）
 	msg := amqp091.ConnectionStartOk{}
 	_, err := s.recv(0, &msg)
 	if err != nil {
-		slog.Warn("Failed to read Connection.Start-Ok:", "error", err)
-		return
+		return nil, fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
-	// TODO authentificate
+	auth := msg.Mechanism
+	if auth != "PLAIN" {
+		return nil, fmt.Errorf("unsupported auth mechanism: %s", auth)
+	}
+	if msg.Response == "" {
+		return nil, fmt.Errorf("no auth response")
+	} else {
+		p := strings.SplitN(msg.Response, "\x00", 3) // null, user, pass
+		if len(p) != 3 {
+			return nil, fmt.Errorf("invalid auth response %s", msg.Response)
+		}
+		client.user, client.pass = p[1], p[2]
+	}
 
 	// Connection.Tune 送信
 	tune := &amqp091.ConnectionTune{
-		ChannelMax: 1023,
-		FrameMax:   131072, // 128KB
-		Heartbeat:  60,
+		ChannelMax: ChannelMax,
+		FrameMax:   FrameMax,
+		Heartbeat:  HeartbeatInterval,
 	}
 	if err := s.send(0, tune); err != nil {
-		slog.Warn("Failed to write Connection.Tune:", "error", err)
-		return
+		return nil, fmt.Errorf("failed to write Connection.Tune: %w", err)
 	}
 
 	// Connection.Tune-Ok 受信
 	okmsg := amqp091.ConnectionTuneOk{}
 	_, err = s.recv(0, &okmsg)
 	if err != nil {
-		slog.Warn("Failed to read Connection.Tune-Ok:", "error", err)
-		return
+		return nil, fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
 
 	// Connection.Open 受信
 	openmsg := amqp091.ConnectionOpen{}
 	_, err = s.recv(0, &openmsg)
 	if err != nil {
-		slog.Warn("Failed to read Connection.Open:", "error", err)
-		return
+		return nil, fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
 	if err := s.send(0, openOk); err != nil {
-		slog.Warn("Failed to write Connection.Open-Ok:", "error", err)
-		return
+		return nil, fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
-	// とりあえずここまで実装したのでConnection.Closeする
-	close := &amqp091.ConnectionClose{}
-	if err := s.send(0, close); err != nil {
-		slog.Warn("Failed to write Connection.Close:", "error", err)
-		return
-	}
-	// Connection.Close-Ok 受信
-	closeOk := amqp091.ConnectionCloseOk{}
-	_, err = s.recv(0, &closeOk)
-	if err != nil {
-		slog.Warn("Failed to read Connection.Close-Ok:", "error", err)
-		return
-	}
-	// この後TCPコネクションは切断される
-
-	slog.Info("Connection opened, To Be Continued...")
-}
-
-type Server struct {
-	r *amqp091.Reader // framer <- client
-	w *amqp091.Writer // framer -> client
+	return client, nil
 }
 
 func NewServer(serverIO io.ReadWriteCloser) *Server {
