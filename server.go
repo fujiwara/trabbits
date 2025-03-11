@@ -16,6 +16,8 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/google/uuid"
@@ -30,7 +32,7 @@ func init() {
 
 const (
 	ChannelMax        = 1023
-	HeartbeatInterval = 60
+	HeartbeatInterval = 10
 	FrameMax          = 128 * 1024
 )
 
@@ -48,10 +50,10 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
 	defer listener.Close()
-	return bootProxy(ctx, listener)
+	return boot(ctx, listener)
 }
 
-func bootProxy(ctx context.Context, listener net.Listener) error {
+func boot(ctx context.Context, listener net.Listener) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	slog.Info("trabbits started", "port", port)
 
@@ -96,7 +98,9 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	s := NewProxy(conn)
+	defer s.Close()
 	slog.Info("proxy created", "proxy", s.id, "addr", conn.RemoteAddr())
+
 	client, err := s.handshake(ctx)
 	if err != nil {
 		slog.Warn("Failed to handshake", "error", err)
@@ -114,9 +118,6 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		}
 		if err := s.process(ctx, client); err != nil {
 			slog.Warn("failed to process", "error", err)
-			if err := s.upstream.Close(); err != nil {
-				slog.Warn("failed to close upstream", "error", err)
-			}
 			break
 		}
 	}
@@ -124,11 +125,24 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 }
 
 type Proxy struct {
-	id string
-	r  *amqp091.Reader // framer <- client
-	w  *amqp091.Writer // framer -> client
+	id   string
+	conn io.ReadWriteCloser
+	r    *amqp091.Reader // framer <- client
+	w    *amqp091.Writer // framer -> client
 
+	mu       sync.Mutex
 	upstream *rabbitmq.Connection
+}
+
+func (s *Proxy) Close() {
+	if s.upstream != nil {
+		if err := s.upstream.Close(); err != nil {
+			slog.Warn("failed to close upstream", "error", err)
+		}
+	}
+	if s.conn != nil {
+		s.conn.Close()
+	}
 }
 
 func (s *Proxy) ConnectToUpstream(addr string, user, pass string) error {
@@ -219,7 +233,34 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 	}
 	slog.Info("connected to upstream", "url", config.Upstream.URL)
 
+	go s.runHeartbeat(ctx, HeartbeatInterval)
+
 	return client, nil
+}
+
+func (s *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
+	if interval == 0 {
+		interval = HeartbeatInterval
+	}
+	slog.Debug("start heartbeat", "interval", interval, "proxy", s.id)
+	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			slog.Debug("send heartbeat", "proxy", s.id)
+			if err := s.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
+				s.mu.Unlock()
+				slog.Warn("failed to send heartbeat", "error", err)
+				s.shutdown(ctx)
+				return
+			}
+			s.mu.Unlock()
+		}
+	}
 }
 
 func (s *Proxy) shutdown(ctx context.Context) error {
@@ -320,26 +361,29 @@ func (s *Proxy) dispatch0(ctx context.Context, client *Client, frame amqp091.Fra
 	return nil
 }
 
-func NewProxy(serverIO io.ReadWriteCloser) *Proxy {
+func NewProxy(conn io.ReadWriteCloser) *Proxy {
 	return &Proxy{
-		id: uuid.New().String(),
-		r:  amqp091.NewReader(serverIO),
-		w:  amqp091.NewWriter(serverIO),
+		conn: conn,
+		id:   uuid.New().String(),
+		r:    amqp091.NewReader(conn),
+		w:    amqp091.NewWriter(conn),
 	}
 }
 
-func (t *Proxy) send(channel uint16, m amqp091.Message) error {
+func (s *Proxy) send(channel uint16, m amqp091.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	slog.Debug("send", "channel", channel, "message", m)
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
-		if err := t.w.WriteFrame(&amqp091.MethodFrame{
+		if err := s.w.WriteFrame(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    msg,
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
-		if err := t.w.WriteFrame(&amqp091.HeaderFrame{
+		if err := s.w.WriteFrame(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
 			ClassId:    class,
 			Size:       uint64(len(body)),
@@ -347,14 +391,14 @@ func (t *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
-		if err := t.w.WriteFrame(&amqp091.BodyFrame{
+		if err := s.w.WriteFrame(&amqp091.BodyFrame{
 			ChannelId: uint16(channel),
 			Body:      body,
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
 	} else {
-		if err := t.w.WriteFrame(&amqp091.MethodFrame{
+		if err := s.w.WriteFrame(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    m,
 		}); err != nil {
@@ -364,7 +408,7 @@ func (t *Proxy) send(channel uint16, m amqp091.Message) error {
 	return nil
 }
 
-func (t *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
+func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var remaining int
 	var header *amqp091.HeaderFrame
 	var body []byte
@@ -373,7 +417,7 @@ func (t *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	}()
 
 	for {
-		frame, err := t.r.ReadFrame()
+		frame, err := s.r.ReadFrame()
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
