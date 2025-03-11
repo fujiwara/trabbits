@@ -12,16 +12,20 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
+	"os"
 	"reflect"
 	"strings"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/google/uuid"
+
+	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
 func init() {
-	//	handler := slog.Default().Handler()
-	// slog.SetDefault(slog.New(handler).With("server", "trabbits"))
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
 }
 
 const (
@@ -30,8 +34,16 @@ const (
 	FrameMax          = 128 * 1024
 )
 
+var Debug = true
+
+var config = &Config{
+	Upstream: UpstreamConfig{
+		"amqp://127.0.0.1:5672/",
+	},
+}
+
 func Run(ctx context.Context) error {
-	listener, err := net.Listen("tcp", ":5672")
+	listener, err := net.Listen("tcp", ":5673")
 	if err != nil {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
@@ -41,7 +53,7 @@ func Run(ctx context.Context) error {
 
 func bootProxy(ctx context.Context, listener net.Listener) error {
 	port := listener.Addr().(*net.TCPAddr).Port
-	slog.Info("AMQP Proxy started", "port", port)
+	slog.Info("trabbits started", "port", port)
 
 	go func() {
 		<-ctx.Done()
@@ -55,7 +67,7 @@ func bootProxy(ctx context.Context, listener net.Listener) error {
 		if err != nil {
 			select {
 			case <-ctx.Done():
-				slog.Info("AMQP server stopped")
+				slog.Info("trabbits server stopped")
 				return nil
 			default:
 			}
@@ -101,9 +113,11 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		default:
 		}
 		if err := s.process(ctx, client); err != nil {
-			slog.Warn("failed to dispatch", "error", err)
-			s.shutdown(ctx)
-			return
+			slog.Warn("failed to process", "error", err)
+			if err := s.upstream.Close(); err != nil {
+				slog.Warn("failed to close upstream", "error", err)
+			}
+			break
 		}
 	}
 	slog.Info("goodbye", "addr", conn.RemoteAddr())
@@ -113,6 +127,27 @@ type Proxy struct {
 	id string
 	r  *amqp091.Reader // framer <- client
 	w  *amqp091.Writer // framer -> client
+
+	upstream *rabbitmq.Connection
+}
+
+func (s *Proxy) ConnectToUpstream(addr string, user, pass string) error {
+	slog.Info("connect to upstream", "addr", addr, "proxy", s.id)
+	u, err := url.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("failed to parse upstream address %s %w", addr, err)
+	}
+	if u.Scheme != "amqp" {
+		return fmt.Errorf("unsupported upstream scheme %s %s", addr, u.Scheme)
+	}
+	u.User = url.UserPassword(user, pass)
+
+	conn, err := rabbitmq.Dial(u.String())
+	if err != nil {
+		return fmt.Errorf("failed to connect to upstream %s %w", addr, err)
+	}
+	s.upstream = conn
+	return nil
 }
 
 func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
@@ -179,6 +214,11 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
+	if err := s.ConnectToUpstream(config.Upstream.URL, client.user, client.pass); err != nil {
+		return nil, fmt.Errorf("failed to connect to upstream: %w", err)
+	}
+	slog.Info("connected to upstream", "url", config.Upstream.URL)
+
 	return client, nil
 }
 
@@ -206,15 +246,23 @@ func (s *Proxy) process(ctx context.Context, client *Client) error {
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		slog.Info("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method))
+		slog.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method))
 	} else {
-		slog.Info("read frame", "frame", frame, "type", reflect.TypeOf(frame))
+		slog.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame))
 	}
 	if frame.Channel() == 0 {
-		return s.dispatch0(ctx, client, frame)
+		err = s.dispatch0(ctx, client, frame)
 	} else {
-		return s.dispatchN(ctx, client, frame)
+		err = s.dispatchN(ctx, client, frame)
 	}
+	if err != nil {
+		if e, ok := err.(AMQPError); ok {
+			slog.Warn("AMQPError", "error", e)
+			return s.send(frame.Channel(), e.AMQPMessage())
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Frame) error {
@@ -222,11 +270,13 @@ func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Fra
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
-			return s.replyChannelOpen(client, frame.Channel())
+			return s.replyChannelOpen(client, f)
 		case *amqp091.ChannelClose:
-			return s.replyChannelClose(client, frame.Channel())
+			return s.replyChannelClose(client, f)
+		case *amqp091.QueueDeclare:
+			return s.replyQueueDeclare(client, f)
 		default:
-			return fmt.Errorf("unsupported method: %T", m)
+			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
 	case *amqp091.HeartbeatFrame:
 		slog.Debug("heartbeat")
@@ -242,7 +292,7 @@ func (s *Proxy) dispatch0(ctx context.Context, client *Client, frame amqp091.Fra
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
 		case *amqp091.ConnectionClose:
-			return s.replyConnectionClose(m)
+			return s.replyConnectionClose(client, f)
 		default:
 			return fmt.Errorf("unsupported method: %T", m)
 		}
@@ -267,7 +317,7 @@ func NewProxy(serverIO io.ReadWriteCloser) *Proxy {
 }
 
 func (t *Proxy) send(channel uint16, m amqp091.Message) error {
-	slog.Info("send", "channel", channel, "message", m)
+	slog.Debug("send", "channel", channel, "message", m)
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
@@ -307,7 +357,7 @@ func (t *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		slog.Info("recv", "channel", channel, "message", m)
+		slog.Debug("recv", "channel", channel, "message", m)
 	}()
 
 	for {
