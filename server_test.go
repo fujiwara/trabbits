@@ -51,6 +51,47 @@ func TestProxyConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger.Info("channel opened", "ch", ch)
+}
+
+func TestProxyPublish(t *testing.T) {
+	conn, err := amqp091.Dial(fmt.Sprintf("amqp://guest:guest@127.0.0.1:%d/", testProxyPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.Info("connected", "conn", conn)
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.Info("channel opened", "ch", ch)
+
+	q, err := ch.QueueDeclare(
+		"hello", // name
+		false,   // durable
+		false,   // delete when unused
+		false,   // exclusive
+		false,   // no-wait
+		nil,     // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ch.Publish(
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		amqp091.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte("Hello World!"),
+		},
+	); err != nil {
+		t.Fatal(err)
+	} else {
+		logger.Info("message published")
+	}
+
 	defer ch.Close()
 	defer conn.Close()
 }
