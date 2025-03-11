@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/google/uuid"
 )
 
 func init() {
@@ -35,12 +36,12 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
 	defer listener.Close()
-	return bootServer(ctx, listener)
+	return bootProxy(ctx, listener)
 }
 
-func bootServer(ctx context.Context, listener net.Listener) error {
+func bootProxy(ctx context.Context, listener net.Listener) error {
 	port := listener.Addr().(*net.TCPAddr).Port
-	slog.Info("AMQP Server started", "port", port)
+	slog.Info("AMQP Proxy started", "port", port)
 
 	go func() {
 		<-ctx.Done()
@@ -70,6 +71,7 @@ var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 func handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
+	slog.Info("new connection", "addr", conn.RemoteAddr())
 	// AMQP プロトコルヘッダー受信
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
@@ -80,15 +82,15 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		slog.Warn("Invalid AMQP protocol header", "header", header)
 		return
 	}
-	slog.Info("connected from", "addr", conn.RemoteAddr())
 
-	s := NewServer(conn)
+	s := NewProxy(conn)
+	slog.Info("proxy created", "proxy", s.id, "addr", conn.RemoteAddr())
 	client, err := s.handshake(ctx)
 	if err != nil {
 		slog.Warn("Failed to handshake", "error", err)
 		return
 	}
-	slog.Info("Handshake done", "user", client.user)
+	slog.Info("handshake done", "proxy", s.id, "client", client.id, "user", client.user, "addr", conn.RemoteAddr())
 	// ここからクライアントのリクエストを待ち受ける
 	for {
 		select {
@@ -107,12 +109,13 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	slog.Info("goodbye", "addr", conn.RemoteAddr())
 }
 
-type Server struct {
-	r *amqp091.Reader // framer <- client
-	w *amqp091.Writer // framer -> client
+type Proxy struct {
+	id string
+	r  *amqp091.Reader // framer <- client
+	w  *amqp091.Writer // framer -> client
 }
 
-func (s *Server) handshake(ctx context.Context) (*Client, error) {
+func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 	client := NewClient(nil)
 
 	// Connection.Start 送信
@@ -179,7 +182,7 @@ func (s *Server) handshake(ctx context.Context) (*Client, error) {
 	return client, nil
 }
 
-func (s *Server) shutdown(ctx context.Context) error {
+func (s *Proxy) shutdown(ctx context.Context) error {
 	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
@@ -197,7 +200,7 @@ func (s *Server) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) process(ctx context.Context, client *Client) error {
+func (s *Proxy) process(ctx context.Context, client *Client) error {
 	frame, err := s.r.ReadFrame()
 	if err != nil {
 		return fmt.Errorf("failed to read frame: %w", err)
@@ -214,7 +217,7 @@ func (s *Server) process(ctx context.Context, client *Client) error {
 	}
 }
 
-func (s *Server) dispatchN(ctx context.Context, client *Client, frame amqp091.Frame) error {
+func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
@@ -234,7 +237,7 @@ func (s *Server) dispatchN(ctx context.Context, client *Client, frame amqp091.Fr
 	return nil
 }
 
-func (s *Server) dispatch0(ctx context.Context, client *Client, frame amqp091.Frame) error {
+func (s *Proxy) dispatch0(ctx context.Context, client *Client, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
@@ -255,14 +258,15 @@ func (s *Server) dispatch0(ctx context.Context, client *Client, frame amqp091.Fr
 	return nil
 }
 
-func NewServer(serverIO io.ReadWriteCloser) *Server {
-	return &Server{
-		r: amqp091.NewReader(serverIO),
-		w: amqp091.NewWriter(serverIO),
+func NewProxy(serverIO io.ReadWriteCloser) *Proxy {
+	return &Proxy{
+		id: uuid.New().String(),
+		r:  amqp091.NewReader(serverIO),
+		w:  amqp091.NewWriter(serverIO),
 	}
 }
 
-func (t *Server) send(channel uint16, m amqp091.Message) error {
+func (t *Proxy) send(channel uint16, m amqp091.Message) error {
 	slog.Info("send", "channel", channel, "message", m)
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
@@ -298,7 +302,7 @@ func (t *Server) send(channel uint16, m amqp091.Message) error {
 	return nil
 }
 
-func (t *Server) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
+func (t *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var remaining int
 	var header *amqp091.HeaderFrame
 	var body []byte

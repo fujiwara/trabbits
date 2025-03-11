@@ -7,7 +7,7 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 )
 
-func (s *Server) replyChannelOpen(client *Client, id uint16) error {
+func (s *Proxy) replyChannelOpen(client *Client, id uint16) error {
 	slog.Info("Channel.Open", "channel", id, "client", client.id)
 	_, err := client.NewChannel(id)
 	if err != nil {
@@ -19,7 +19,7 @@ func (s *Server) replyChannelOpen(client *Client, id uint16) error {
 	return nil
 }
 
-func (s *Server) replyChannelClose(client *Client, id uint16) error {
+func (s *Proxy) replyChannelClose(client *Client, id uint16) error {
 	slog.Info("Channel.Close", "channel", id, "client", client.id)
 	if err := client.CloseChannel(id); err != nil {
 		return err
@@ -28,6 +28,6 @@ func (s *Server) replyChannelClose(client *Client, id uint16) error {
 	return s.send(id, &amqp091.ChannelCloseOk{})
 }
 
-func (s *Server) replyConnectionClose(msg *amqp091.ConnectionClose) error {
+func (s *Proxy) replyConnectionClose(msg *amqp091.ConnectionClose) error {
 	return s.send(0, &amqp091.ConnectionCloseOk{})
 }
