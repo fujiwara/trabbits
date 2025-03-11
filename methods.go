@@ -52,7 +52,7 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, client *Client, f *amqp091.
 		m.AutoDelete,
 		m.Exclusive,
 		false, // no-wait
-		nil,   // args
+		rabbitmq.Table(m.Arguments),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare queue on upstream: %w", err)
@@ -100,4 +100,68 @@ func (s *Proxy) replyBasicPublish(ctx context.Context, client *Client, f *amqp09
 		return NewError(amqp091.InternalError, fmt.Sprintf("failed to publish message: %v", err))
 	}
 	return nil
+}
+
+func (s *Proxy) replyBasicConsume(ctx context.Context, client *Client, f *amqp091.MethodFrame, m *amqp091.BasicConsume) error {
+	id := f.Channel()
+	ch, err := client.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	slog.Debug("Basic.Consume", "queue", m.Queue, "client", client.id)
+	consume, err := ch.Consume(
+		m.Queue,
+		m.ConsumerTag,
+		m.NoAck,
+		m.Exclusive,
+		m.NoLocal,
+		m.NoWait,
+		rabbitmq.Table(m.Arguments),
+	)
+	if err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume: %v", err))
+	}
+	if err := s.send(id, &amqp091.BasicConsumeOk{
+		ConsumerTag: m.ConsumerTag,
+	}); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to send Basic.ConsumeOk: %v", err))
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case msg, ok := <-consume:
+			if !ok {
+				slog.Debug("Basic.Consume closed", "queue", m.Queue, "client", client.id)
+			}
+			slog.Debug("Basic.Deliver", "msg", msg)
+			err := s.send(id, &amqp091.BasicDeliver{
+				ConsumerTag: m.ConsumerTag,
+				DeliveryTag: msg.DeliveryTag,
+				Redelivered: msg.Redelivered,
+				Exchange:    msg.Exchange,
+				RoutingKey:  msg.RoutingKey,
+				Body:        msg.Body,
+				Properties: amqp091.Properties{
+					ContentType:     msg.ContentType,
+					ContentEncoding: msg.ContentEncoding,
+					DeliveryMode:    msg.DeliveryMode,
+					Priority:        msg.Priority,
+					CorrelationId:   msg.CorrelationId,
+					ReplyTo:         msg.ReplyTo,
+					Expiration:      msg.Expiration,
+					MessageId:       msg.MessageId,
+					Timestamp:       msg.Timestamp,
+					Type:            msg.Type,
+					UserId:          msg.UserId,
+					AppId:           msg.AppId,
+					Headers:         amqp091.Table(msg.Headers),
+				},
+			})
+			if err != nil {
+				return NewError(amqp091.InternalError, fmt.Sprintf("failed to deliver message: %v", err))
+			}
+		}
+	}
 }
