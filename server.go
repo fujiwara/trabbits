@@ -268,13 +268,23 @@ func (s *Proxy) process(ctx context.Context, client *Client) error {
 func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
+		if m, ok := f.Method.(amqp091.MessageWithContent); ok {
+			// read header and body frames until frame-end
+			_, err := s.recv(int(f.Channel()), m)
+			if err != nil {
+				return NewError(amqp091.FrameError, fmt.Sprintf("failed to read frames: %s", err))
+			}
+			f.Method = m // replace method with message
+		}
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
-			return s.replyChannelOpen(client, f)
+			return s.replyChannelOpen(ctx, client, f, m)
 		case *amqp091.ChannelClose:
-			return s.replyChannelClose(client, f)
+			return s.replyChannelClose(ctx, client, f, m)
 		case *amqp091.QueueDeclare:
-			return s.replyQueueDeclare(client, f)
+			return s.replyQueueDeclare(ctx, client, f, m)
+		case *amqp091.BasicPublish:
+			return s.replyBasicPublish(ctx, client, f, m)
 		default:
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
@@ -292,7 +302,7 @@ func (s *Proxy) dispatch0(ctx context.Context, client *Client, frame amqp091.Fra
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
 		case *amqp091.ConnectionClose:
-			return s.replyConnectionClose(client, f)
+			return s.replyConnectionClose(ctx, client, f, m)
 		default:
 			return fmt.Errorf("unsupported method: %T", m)
 		}

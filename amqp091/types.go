@@ -34,7 +34,7 @@ const (
 type Table map[string]interface{}
 
 // Used by header frames to capture routing and header information
-type properties struct {
+type Properties struct {
 	ContentType     string    // MIME content type
 	ContentEncoding string    // MIME content encoding
 	Headers         Table     // Application or header exchange table
@@ -160,8 +160,8 @@ type Message interface {
 
 type MessageWithContent interface {
 	Message
-	GetContent() (properties, []byte)
-	SetContent(properties, []byte)
+	GetContent() (Properties, []byte)
+	SetContent(Properties, []byte)
 }
 
 /*
@@ -203,7 +203,7 @@ type HeaderFrame struct {
 	ClassId    uint16
 	weight     uint16
 	Size       uint64
-	Properties properties
+	Properties Properties
 }
 
 func (f *HeaderFrame) Channel() uint16 { return f.ChannelId }

@@ -187,7 +187,7 @@ var (
       type {{$struct}} struct {
         {{range .Fields}}
         {{$.FieldName .}} {{$.FieldType . | $.NativeType}} {{if .Label}}// {{.Label}}{{end}}{{end}}
-				{{if .Content}}Properties properties
+				{{if .Content}}Properties Properties
 				Body []byte{{end}}
       }
 
@@ -200,19 +200,19 @@ var (
 			}
 
 			{{if .Content}}
-      func (msg *{{$struct}}) GetContent() (properties, []byte) {
-        return msg.Properties, msg.Body
-      }
+			func (msg *{{$struct}}) GetContent() (Properties, []byte) {
+				return msg.Properties, msg.Body
+			}
 
-      func (msg *{{$struct}}) SetContent(props properties, body []byte) {
-        msg.Properties, msg.Body = props, body
-      }
+			func (msg *{{$struct}}) SetContent(props Properties, body []byte) {
+				msg.Properties, msg.Body = props, body
+			}
 			{{end}}
-      func (msg *{{$struct}}) Write(w io.Writer) (err error) {
+			func (msg *{{$struct}}) Write(w io.Writer) (err error) {
 				{{if $.HasType "bit" $method}}var bits byte{{end}}
-        {{.Fields | $.Fieldsets | $.Partial "enc-"}}
-        return
-      }
+				{{.Fields | $.Fieldsets | $.Partial "enc-"}}
+				return
+			}
 
       func (msg *{{$struct}}) Read(r io.Reader) (err error) {
 				{{if $.HasType "bit" $method}}var bits byte{{end}}
