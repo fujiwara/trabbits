@@ -18,6 +18,11 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 )
 
+func init() {
+	//	handler := slog.Default().Handler()
+	// slog.SetDefault(slog.New(handler).With("server", "trabbits"))
+}
+
 const (
 	ChannelMax        = 1023
 	HeartbeatInterval = 60
@@ -60,13 +65,6 @@ func bootServer(ctx context.Context, listener net.Listener) error {
 	}
 }
 
-type Client struct {
-	conn    net.Conn
-	channel map[uint16]bool
-	user    string
-	pass    string
-}
-
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 func handleConnection(ctx context.Context, conn net.Conn) {
@@ -93,7 +91,18 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	slog.Info("Handshake done", "user", client.user)
 	// ここからクライアントのリクエストを待ち受ける
 	for {
-		break
+		select {
+		case <-ctx.Done():
+			slog.Info("context done")
+			s.shutdown(ctx)
+			return
+		default:
+		}
+		if err := s.process(ctx, client); err != nil {
+			slog.Warn("failed to dispatch", "error", err)
+			s.shutdown(ctx)
+			return
+		}
 	}
 	slog.Info("goodbye", "addr", conn.RemoteAddr())
 }
@@ -103,10 +112,8 @@ type Server struct {
 	w *amqp091.Writer // framer -> client
 }
 
-func (s *Server) handshake(_ context.Context) (*Client, error) {
-	client := &Client{
-		channel: make(map[uint16]bool),
-	}
+func (s *Server) handshake(ctx context.Context) (*Client, error) {
+	client := NewClient(nil)
 
 	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
@@ -120,21 +127,21 @@ func (s *Server) handshake(_ context.Context) (*Client, error) {
 	}
 
 	// Connection.Start-Ok 受信（認証情報含む）
-	msg := amqp091.ConnectionStartOk{}
-	_, err := s.recv(0, &msg)
+	startOk := amqp091.ConnectionStartOk{}
+	_, err := s.recv(0, &startOk)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
-	auth := msg.Mechanism
+	auth := startOk.Mechanism
 	if auth != "PLAIN" {
 		return nil, fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
-	if msg.Response == "" {
+	if res := startOk.Response; res == "" {
 		return nil, fmt.Errorf("no auth response")
 	} else {
-		p := strings.SplitN(msg.Response, "\x00", 3) // null, user, pass
+		p := strings.SplitN(res, "\x00", 3) // null, user, pass
 		if len(p) != 3 {
-			return nil, fmt.Errorf("invalid auth response %s", msg.Response)
+			return nil, fmt.Errorf("invalid auth response %s", res)
 		}
 		client.user, client.pass = p[1], p[2]
 	}
@@ -150,15 +157,15 @@ func (s *Server) handshake(_ context.Context) (*Client, error) {
 	}
 
 	// Connection.Tune-Ok 受信
-	okmsg := amqp091.ConnectionTuneOk{}
-	_, err = s.recv(0, &okmsg)
+	tuneOk := amqp091.ConnectionTuneOk{}
+	_, err = s.recv(0, &tuneOk)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
 
 	// Connection.Open 受信
-	openmsg := amqp091.ConnectionOpen{}
-	_, err = s.recv(0, &openmsg)
+	open := amqp091.ConnectionOpen{}
+	_, err = s.recv(0, &open)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
@@ -172,6 +179,82 @@ func (s *Server) handshake(_ context.Context) (*Client, error) {
 	return client, nil
 }
 
+func (s *Server) shutdown(ctx context.Context) error {
+	// Connection.Close 送信
+	close := &amqp091.ConnectionClose{
+		ReplyCode: 200,
+		ReplyText: "Goodbye",
+	}
+	if err := s.send(0, close); err != nil {
+		return fmt.Errorf("failed to write Connection.Close: %w", err)
+	}
+	// Connection.Close-Ok 受信
+	msg := amqp091.ConnectionCloseOk{}
+	_, err := s.recv(0, &msg)
+	if err != nil {
+		slog.Warn("failed to read Connection.Close-Ok", "error", err)
+	}
+	return nil
+}
+
+func (s *Server) process(ctx context.Context, client *Client) error {
+	frame, err := s.r.ReadFrame()
+	if err != nil {
+		return fmt.Errorf("failed to read frame: %w", err)
+	}
+	if mf, ok := frame.(*amqp091.MethodFrame); ok {
+		slog.Info("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method))
+	} else {
+		slog.Info("read frame", "frame", frame, "type", reflect.TypeOf(frame))
+	}
+	if frame.Channel() == 0 {
+		return s.dispatch0(ctx, client, frame)
+	} else {
+		return s.dispatchN(ctx, client, frame)
+	}
+}
+
+func (s *Server) dispatchN(ctx context.Context, client *Client, frame amqp091.Frame) error {
+	switch f := frame.(type) {
+	case *amqp091.MethodFrame:
+		switch m := f.Method.(type) {
+		case *amqp091.ChannelOpen:
+			return s.replyChannelOpen(client, frame.Channel())
+		case *amqp091.ChannelClose:
+			return s.replyChannelClose(client, frame.Channel())
+		default:
+			return fmt.Errorf("unsupported method: %T", m)
+		}
+	case *amqp091.HeartbeatFrame:
+		slog.Debug("heartbeat")
+		// drop
+	default:
+		return fmt.Errorf("unsupported frame: %#v", f)
+	}
+	return nil
+}
+
+func (s *Server) dispatch0(ctx context.Context, client *Client, frame amqp091.Frame) error {
+	switch f := frame.(type) {
+	case *amqp091.MethodFrame:
+		switch m := f.Method.(type) {
+		case *amqp091.ConnectionClose:
+			return s.replyConnectionClose(m)
+		default:
+			return fmt.Errorf("unsupported method: %T", m)
+		}
+	case *amqp091.HeartbeatFrame:
+		slog.Debug("heartbeat")
+		// drop
+	default:
+		return fmt.Errorf("unsupported frame: %#v", f)
+	}
+	//if err := s.dispatch(ctx, client, frame); err != nil {
+	//	return fmt.Errorf("failed to dispatch: %w", err)
+	//}
+	return nil
+}
+
 func NewServer(serverIO io.ReadWriteCloser) *Server {
 	return &Server{
 		r: amqp091.NewReader(serverIO),
@@ -179,7 +262,7 @@ func NewServer(serverIO io.ReadWriteCloser) *Server {
 	}
 }
 
-func (t *Server) send(channel int, m amqp091.Message) error {
+func (t *Server) send(channel uint16, m amqp091.Message) error {
 	slog.Info("send", "channel", channel, "message", m)
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
