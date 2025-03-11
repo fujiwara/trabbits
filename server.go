@@ -285,6 +285,8 @@ func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Fra
 			return s.replyQueueDeclare(ctx, client, f, m)
 		case *amqp091.BasicPublish:
 			return s.replyBasicPublish(ctx, client, f, m)
+		case *amqp091.BasicConsume:
+			return s.replyBasicConsume(ctx, client, f, m)
 		default:
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
