@@ -17,7 +17,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -103,8 +102,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	defer s.Close()
 	slog.Info("proxy created", "proxy", s.id, "addr", conn.RemoteAddr())
 
-	client, err := s.handshake(ctx)
-	if err != nil {
+	if err := s.handshake(ctx); err != nil {
 		slog.Warn("Failed to handshake", "error", err)
 		return
 	}
@@ -113,7 +111,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	defer cancel()
 	go s.runHeartbeat(hCtx, uint16(HeartbeatInterval))
 
-	slog.Info("handshake done", "proxy", s.id, "client", client.id, "user", client.user, "addr", conn.RemoteAddr())
+	slog.Info("handshake done", "proxy", s.id, "addr", conn.RemoteAddr())
 	// ここからクライアントのリクエストを待ち受ける
 	for {
 		select {
@@ -123,7 +121,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 			return
 		default:
 		}
-		if err := s.process(ctx, client); err != nil {
+		if err := s.process(ctx); err != nil {
 			if errors.Is(err, io.EOF) {
 				slog.Info("closed connection", "addr", conn.RemoteAddr())
 			} else {
@@ -131,39 +129,6 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 			}
 			break
 		}
-	}
-}
-
-type Proxy struct {
-	VirtualHost string
-
-	id   string
-	conn io.ReadWriteCloser
-	r    *amqp091.Reader // framer <- client
-	w    *amqp091.Writer // framer -> client
-
-	mu       sync.Mutex
-	upstream *rabbitmq.Connection
-}
-
-func (s *Proxy) ClientAddr() string {
-	if s.conn == nil {
-		return ""
-	}
-	if tcpConn, ok := s.conn.(*net.TCPConn); ok {
-		return tcpConn.RemoteAddr().String()
-	}
-	return ""
-}
-
-func (s *Proxy) Close() {
-	if s.upstream != nil {
-		if err := s.upstream.Close(); err != nil {
-			slog.Warn("failed to close upstream", "error", err)
-		}
-	}
-	if s.conn != nil {
-		s.conn.Close()
 	}
 }
 
@@ -184,8 +149,7 @@ func (s *Proxy) ConnectToUpstream(_ context.Context, u string, props amqp091.Tab
 	return nil
 }
 
-func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
-	client := NewClient(nil)
+func (s *Proxy) handshake(ctx context.Context) error {
 
 	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
@@ -195,28 +159,28 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 		Locales:      "en_US",
 	}
 	if err := s.send(0, start); err != nil {
-		return nil, fmt.Errorf("failed to write Connection.Start: %w", err)
+		return fmt.Errorf("failed to write Connection.Start: %w", err)
 	}
 
 	// Connection.Start-Ok 受信（認証情報含む）
 	startOk := amqp091.ConnectionStartOk{}
 	_, err := s.recv(0, &startOk)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
+		return fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
 	clientProps := startOk.ClientProperties
 	auth := startOk.Mechanism
 	if auth != "PLAIN" {
-		return nil, fmt.Errorf("unsupported auth mechanism: %s", auth)
+		return fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
 	if res := startOk.Response; res == "" {
-		return nil, fmt.Errorf("no auth response")
+		return fmt.Errorf("no auth response")
 	} else {
 		p := strings.SplitN(res, "\x00", 3) // null, user, pass
 		if len(p) != 3 {
-			return nil, fmt.Errorf("invalid auth response %s", res)
+			return fmt.Errorf("invalid auth response %s", res)
 		}
-		client.user, client.pass = p[1], p[2]
+		s.user, s.password = p[1], p[2]
 	}
 
 	// Connection.Tune 送信
@@ -226,43 +190,43 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 		Heartbeat:  uint16(HeartbeatInterval),
 	}
 	if err := s.send(0, tune); err != nil {
-		return nil, fmt.Errorf("failed to write Connection.Tune: %w", err)
+		return fmt.Errorf("failed to write Connection.Tune: %w", err)
 	}
 
 	// Connection.Tune-Ok 受信
 	tuneOk := amqp091.ConnectionTuneOk{}
 	_, err = s.recv(0, &tuneOk)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
+		return fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
 
 	// Connection.Open 受信
 	open := amqp091.ConnectionOpen{}
 	_, err = s.recv(0, &open)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read Connection.Open: %w", err)
+		return fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
 	s.VirtualHost = open.VirtualHost
-	slog.Info("Connection.Open", "vhost", s.VirtualHost, "client", client.id)
+	slog.Info("Connection.Open", "vhost", s.VirtualHost)
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
 	if err := s.send(0, openOk); err != nil {
-		return nil, fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
+		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
 	u := &url.URL{
 		Scheme: "amqp",
-		User:   url.UserPassword(client.user, client.pass),
+		User:   url.UserPassword(s.user, s.password),
 		Host:   net.JoinHostPort(config.Upstream.Host, fmt.Sprintf("%d", config.Upstream.Port)),
 		Path:   s.VirtualHost,
 	}
 	if err := s.ConnectToUpstream(ctx, u.String(), clientProps); err != nil {
-		return nil, fmt.Errorf("failed to connect to upstream: %w", err)
+		return fmt.Errorf("failed to connect to upstream: %w", err)
 	}
 	slog.Info("connected to upstream")
 
-	return client, nil
+	return nil
 }
 
 func (s *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
@@ -308,7 +272,7 @@ func (s *Proxy) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *Proxy) process(ctx context.Context, client *Client) error {
+func (s *Proxy) process(ctx context.Context) error {
 	frame, err := s.r.ReadFrame()
 	if err != nil {
 		return fmt.Errorf("failed to read frame: %w", err)
@@ -319,9 +283,9 @@ func (s *Proxy) process(ctx context.Context, client *Client) error {
 		slog.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame))
 	}
 	if frame.Channel() == 0 {
-		err = s.dispatch0(ctx, client, frame)
+		err = s.dispatch0(ctx, frame)
 	} else {
-		err = s.dispatchN(ctx, client, frame)
+		err = s.dispatchN(ctx, frame)
 	}
 	if err != nil {
 		if e, ok := err.(AMQPError); ok {
@@ -333,7 +297,7 @@ func (s *Proxy) process(ctx context.Context, client *Client) error {
 	return nil
 }
 
-func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Frame) error {
+func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
 		if m, ok := f.Method.(amqp091.MessageWithContent); ok {
@@ -346,17 +310,17 @@ func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Fra
 		}
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
-			return s.replyChannelOpen(ctx, client, f, m)
+			return s.replyChannelOpen(ctx, f, m)
 		case *amqp091.ChannelClose:
-			return s.replyChannelClose(ctx, client, f, m)
+			return s.replyChannelClose(ctx, f, m)
 		case *amqp091.QueueDeclare:
-			return s.replyQueueDeclare(ctx, client, f, m)
+			return s.replyQueueDeclare(ctx, f, m)
 		case *amqp091.BasicPublish:
-			return s.replyBasicPublish(ctx, client, f, m)
+			return s.replyBasicPublish(ctx, f, m)
 		case *amqp091.BasicConsume:
-			return s.replyBasicConsume(ctx, client, f, m)
+			return s.replyBasicConsume(ctx, f, m)
 		case *amqp091.BasicGet:
-			return s.replyBasicGet(ctx, client, f, m)
+			return s.replyBasicGet(ctx, f, m)
 		default:
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
@@ -369,12 +333,12 @@ func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Fra
 	return nil
 }
 
-func (s *Proxy) dispatch0(ctx context.Context, client *Client, frame amqp091.Frame) error {
+func (s *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
 		case *amqp091.ConnectionClose:
-			return s.replyConnectionClose(ctx, client, f, m)
+			return s.replyConnectionClose(ctx, f, m)
 		default:
 			return fmt.Errorf("unsupported method: %T", m)
 		}
@@ -392,10 +356,11 @@ func (s *Proxy) dispatch0(ctx context.Context, client *Client, frame amqp091.Fra
 
 func NewProxy(conn io.ReadWriteCloser) *Proxy {
 	return &Proxy{
-		conn: conn,
-		id:   uuid.New().String(),
-		r:    amqp091.NewReader(conn),
-		w:    amqp091.NewWriter(conn),
+		conn:    conn,
+		id:      uuid.New().String(),
+		r:       amqp091.NewReader(conn),
+		w:       amqp091.NewWriter(conn),
+		channel: make(map[uint16]*rabbitmq.Channel, 2), // most clients will use a few channels
 	}
 }
 
@@ -428,7 +393,6 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 			if end > len(body) {
 				end = len(body)
 			}
-			slog.Debug("send body", "offset", offset, "end", end)
 			if err := s.w.WriteFrame(&amqp091.BodyFrame{
 				ChannelId: uint16(channel),
 				Body:      body[offset:end],
