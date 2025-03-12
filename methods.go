@@ -143,25 +143,55 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, client *Client, f *amqp09
 				Exchange:    msg.Exchange,
 				RoutingKey:  msg.RoutingKey,
 				Body:        msg.Body,
-				Properties: amqp091.Properties{
-					ContentType:     msg.ContentType,
-					ContentEncoding: msg.ContentEncoding,
-					DeliveryMode:    msg.DeliveryMode,
-					Priority:        msg.Priority,
-					CorrelationId:   msg.CorrelationId,
-					ReplyTo:         msg.ReplyTo,
-					Expiration:      msg.Expiration,
-					MessageId:       msg.MessageId,
-					Timestamp:       msg.Timestamp,
-					Type:            msg.Type,
-					UserId:          msg.UserId,
-					AppId:           msg.AppId,
-					Headers:         amqp091.Table(msg.Headers),
-				},
+				Properties: deliveryToProps(msg),
 			})
 			if err != nil {
 				return NewError(amqp091.InternalError, fmt.Sprintf("failed to deliver message: %v", err))
 			}
 		}
+	}
+}
+
+func (s *Proxy) replyBasicGet(ctx context.Context, client *Client, f *amqp091.MethodFrame, m *amqp091.BasicGet) error {
+	id := f.Channel()
+	ch, err := client.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	slog.Debug("Basic.Get", "queue", m.Queue, "client", client.id)
+	msg, ok, err := ch.Get(m.Queue, m.NoAck)
+	if err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to get message: %v", err))
+	}
+	if !ok {
+		return s.send(id, &amqp091.BasicGetEmpty{})
+	}
+	slog.Debug("Basic.Get", "msg", msg)
+	return s.send(id, &amqp091.BasicGetOk{
+		DeliveryTag:  msg.DeliveryTag,
+		Redelivered:  msg.Redelivered,
+		Exchange:     msg.Exchange,
+		RoutingKey:   msg.RoutingKey,
+		MessageCount: uint32(msg.MessageCount),
+		Body:         msg.Body,
+		Properties:   deliveryToProps(msg),
+	})
+}
+
+func deliveryToProps(msg rabbitmq.Delivery) amqp091.Properties {
+	return amqp091.Properties{
+		ContentType:     msg.ContentType,
+		ContentEncoding: msg.ContentEncoding,
+		DeliveryMode:    msg.DeliveryMode,
+		Priority:        msg.Priority,
+		CorrelationId:   msg.CorrelationId,
+		ReplyTo:         msg.ReplyTo,
+		Expiration:      msg.Expiration,
+		MessageId:       msg.MessageId,
+		Timestamp:       msg.Timestamp,
+		Type:            msg.Type,
+		UserId:          msg.UserId,
+		AppId:           msg.AppId,
+		Headers:         amqp091.Table(msg.Headers),
 	}
 }
