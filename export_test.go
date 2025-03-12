@@ -1,5 +1,5 @@
 package trabbits
 
 var (
-	BootProxy = bootProxy
+	Boot = boot
 )

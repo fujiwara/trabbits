@@ -14,5 +14,6 @@ type AuthConfig struct {
 
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
-	URL string `yaml:"url" json:"url"` // amqp://{host}:{port}/
+	Host string `yaml:"host" json:"host"`
+	Port int    `yaml:"port" json:"port"`
 }
