@@ -101,9 +101,9 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	hCtx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go s.runHeartbeat(hCtx, uint16(HeartbeatInterval))
+	go s.runHeartbeat(ctx, uint16(HeartbeatInterval))
 
 	s.logger.Info("handshake completed", "client", conn.RemoteAddr())
 	// ここからクライアントのリクエストを待ち受ける
@@ -270,9 +270,9 @@ func (s *Proxy) process(ctx context.Context) error {
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		s.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method))
+		s.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method).String())
 	} else {
-		s.logger.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame))
+		s.logger.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame).String())
 	}
 	if frame.Channel() == 0 {
 		err = s.dispatch0(ctx, frame)
@@ -307,12 +307,20 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return s.replyChannelClose(ctx, f, m)
 		case *amqp091.QueueDeclare:
 			return s.replyQueueDeclare(ctx, f, m)
+		case *amqp091.QueueDelete:
+			return s.replyQueueDelete(ctx, f, m)
 		case *amqp091.BasicPublish:
 			return s.replyBasicPublish(ctx, f, m)
 		case *amqp091.BasicConsume:
 			return s.replyBasicConsume(ctx, f, m)
 		case *amqp091.BasicGet:
 			return s.replyBasicGet(ctx, f, m)
+		case *amqp091.BasicAck:
+			return s.replyBasicAck(ctx, f, m)
+		case *amqp091.BasicNack:
+			return s.replyBasicNack(ctx, f, m)
+		case *amqp091.BasicCancel:
+			return s.replyBasicCancel(ctx, f, m)
 		default:
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
@@ -357,7 +365,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 			ChannelId: uint16(channel),
 			Method:    msg,
 		}); err != nil {
-			return fmt.Errorf("WriteFrame error: %w", err)
+			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
 		if err := s.w.WriteFrame(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
@@ -365,7 +373,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 			Size:       uint64(len(body)),
 			Properties: props,
 		}); err != nil {
-			return fmt.Errorf("WriteFrame error: %w", err)
+			return fmt.Errorf("failed to write HeaderFrame: %w", err)
 		}
 		// split body frame is it is too large (>= FrameMax)
 		// The overhead of BodyFrame is 8 bytes
@@ -379,7 +387,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 				ChannelId: uint16(channel),
 				Body:      body[offset:end],
 			}); err != nil {
-				return fmt.Errorf("WriteFrame error: %w", err)
+				return fmt.Errorf("failed to write BodyFrame: %w", err)
 			}
 			offset = end
 		}
@@ -388,7 +396,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 			ChannelId: uint16(channel),
 			Method:    m,
 		}); err != nil {
-			return fmt.Errorf("WriteFrame error: %w", err)
+			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
 	}
 	return nil
@@ -399,7 +407,7 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		s.logger.Debug("recv", "channel", channel, "message", m, "type", reflect.TypeOf(m))
+		s.logger.Debug("recv", "channel", channel, "message", m, "type", reflect.TypeOf(m).String())
 	}()
 
 	for {

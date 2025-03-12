@@ -3,7 +3,6 @@ package trabbits
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
@@ -11,7 +10,7 @@ import (
 
 func (s *Proxy) replyChannelOpen(ctx context.Context, f *amqp091.MethodFrame, _ *amqp091.ChannelOpen) error {
 	id := f.Channel()
-	slog.Debug("Channel.Open", "channel", id, "proxy", s.id)
+	s.logger.Debug("Channel.Open", "channel", id, "proxy", s.id)
 
 	ch, err := s.upstream.Channel()
 	if err != nil {
@@ -29,7 +28,7 @@ func (s *Proxy) replyChannelOpen(ctx context.Context, f *amqp091.MethodFrame, _ 
 
 func (s *Proxy) replyChannelClose(_ context.Context, f *amqp091.MethodFrame, _ *amqp091.ChannelClose) error {
 	id := f.Channel()
-	slog.Debug("Channel.Close", "channel", id)
+	s.logger.Debug("Channel.Close", "channel", id)
 	if err := s.CloseChannel(id); err != nil {
 		return err
 	}
@@ -57,7 +56,7 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 	if err != nil {
 		return fmt.Errorf("failed to declare queue on upstream: %w", err)
 	}
-	slog.Debug("Queue.Declare", "queue", q)
+	s.logger.Debug("Queue.Declare", "queue", q)
 	return s.send(id, &amqp091.QueueDeclareOk{
 		Queue:         q.Name,
 		MessageCount:  uint32(q.Messages),
@@ -71,7 +70,7 @@ func (s *Proxy) replyBasicPublish(ctx context.Context, f *amqp091.MethodFrame, m
 	if err != nil {
 		return err
 	}
-	slog.Debug("Basic.Publish",
+	s.logger.Debug("Basic.Publish",
 		"exchange", m.Exchange, "routing_key", m.RoutingKey,
 		"body", string(m.Body), "properties", m.Properties,
 	)
@@ -108,8 +107,9 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 	if err != nil {
 		return err
 	}
-	slog.Debug("Basic.Consume", "queue", m.Queue)
-	consume, err := ch.Consume(
+	s.logger.Debug("Basic.Consume", "queue", m.Queue)
+	consume, err := ch.ConsumeWithContext(
+		ctx,
 		m.Queue,
 		m.ConsumerTag,
 		m.NoAck,
@@ -127,29 +127,32 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		return NewError(amqp091.InternalError, fmt.Sprintf("failed to send Basic.ConsumeOk: %v", err))
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case msg, ok := <-consume:
-			if !ok {
-				slog.Debug("Basic.Consume closed", "queue", m.Queue)
-			}
-			slog.Debug("Basic.Deliver", "msg", msg)
-			err := s.send(id, &amqp091.BasicDeliver{
-				ConsumerTag: m.ConsumerTag,
-				DeliveryTag: msg.DeliveryTag,
-				Redelivered: msg.Redelivered,
-				Exchange:    msg.Exchange,
-				RoutingKey:  msg.RoutingKey,
-				Body:        msg.Body,
-				Properties:  deliveryToProps(&msg),
-			})
-			if err != nil {
-				return NewError(amqp091.InternalError, fmt.Sprintf("failed to deliver message: %v", err))
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-consume:
+				if !ok {
+					s.logger.Debug("Basic.Consume closed", "queue", m.Queue)
+				}
+				s.logger.Debug("Basic.Deliver", "msg", msg)
+				err := s.send(id, &amqp091.BasicDeliver{
+					ConsumerTag: m.ConsumerTag,
+					DeliveryTag: msg.DeliveryTag,
+					Redelivered: msg.Redelivered,
+					Exchange:    msg.Exchange,
+					RoutingKey:  msg.RoutingKey,
+					Body:        msg.Body,
+					Properties:  deliveryToProps(&msg),
+				})
+				if err != nil {
+					s.logger.Warn("failed to deliver message", "error", err)
+				}
 			}
 		}
-	}
+	}()
+	return nil
 }
 
 func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicGet) error {
@@ -158,7 +161,7 @@ func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 	if err != nil {
 		return err
 	}
-	slog.Debug("Basic.Get", "queue", m.Queue)
+	s.logger.Debug("Basic.Get", "queue", m.Queue)
 	msg, ok, err := ch.Get(m.Queue, m.NoAck)
 	if err != nil {
 		return NewError(amqp091.InternalError, fmt.Sprintf("failed to get message: %v", err))
@@ -166,7 +169,7 @@ func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 	if !ok {
 		return s.send(id, &amqp091.BasicGetEmpty{})
 	}
-	slog.Debug("Basic.Get", "msg", msg)
+	s.logger.Debug("Basic.Get", "msg", msg)
 	return s.send(id, &amqp091.BasicGetOk{
 		DeliveryTag:  msg.DeliveryTag,
 		Redelivered:  msg.Redelivered,
@@ -176,6 +179,26 @@ func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 		Body:         msg.Body,
 		Properties:   deliveryToProps(&msg),
 	})
+}
+
+func (s *Proxy) replyBasicAck(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicAck) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Basic.Ack", "delivery_tag", m.DeliveryTag, "multiple", m.Multiple)
+	return ch.Ack(m.DeliveryTag, m.Multiple)
+}
+
+func (s *Proxy) replyBasicNack(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicNack) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Basic.Nack", "delivery_tag", m.DeliveryTag, "multiple", m.Multiple, "requeue", m.Requeue)
+	return ch.Nack(m.DeliveryTag, m.Multiple, m.Requeue)
 }
 
 func deliveryToProps(msg *rabbitmq.Delivery) amqp091.Properties {
@@ -194,4 +217,32 @@ func deliveryToProps(msg *rabbitmq.Delivery) amqp091.Properties {
 		AppId:           msg.AppId,
 		Headers:         amqp091.Table(msg.Headers),
 	}
+}
+
+func (s *Proxy) replyBasicCancel(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicCancel) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Basic.Cancel", "consumer_tag", m.ConsumerTag)
+	return ch.Cancel(m.ConsumerTag, false)
+}
+
+func (s *Proxy) replyQueueDelete(_ context.Context, f *amqp091.MethodFrame, m *amqp091.QueueDelete) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Queue.Delete", "queue", m.Queue)
+	if _, err := ch.QueueDelete(
+		m.Queue,
+		m.IfUnused,
+		m.IfEmpty,
+		m.NoWait,
+	); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to delete queue: %v", err))
+	}
+	return s.send(id, &amqp091.QueueDeleteOk{})
 }

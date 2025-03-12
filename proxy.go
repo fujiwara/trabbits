@@ -86,7 +86,10 @@ func (s *Proxy) CloseChannel(id uint16) error {
 	if ch, ok := s.channel[id]; !ok {
 		return fmt.Errorf("channel %d not found", id)
 	} else {
-		ch.Close()
+		s.logger.Debug("closing upstream channel", "channel", id)
+		if err := ch.Close(); err != nil {
+			return fmt.Errorf("failed to close channel %d: %w", id, err)
+		}
 	}
 	delete(s.channel, id)
 	return nil
