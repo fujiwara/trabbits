@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +35,8 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	debug, _ := strconv.ParseBool(os.Getenv("DEBUG"))
+	trabbits.SetupLogger(debug)
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
 

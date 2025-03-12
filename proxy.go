@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/google/uuid"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -22,8 +23,21 @@ type Proxy struct {
 	mu       sync.Mutex
 	upstream *rabbitmq.Connection
 	channel  map[uint16]*rabbitmq.Channel
+	logger   *slog.Logger
 	user     string
 	password string
+}
+
+func NewProxy(conn io.ReadWriteCloser) *Proxy {
+	id := uuid.New().String()
+	return &Proxy{
+		conn:    conn,
+		id:      id,
+		r:       amqp091.NewReader(conn),
+		w:       amqp091.NewWriter(conn),
+		channel: make(map[uint16]*rabbitmq.Channel, 2), // most clients will use a few channels
+		logger:  slog.New(slog.Default().Handler()).With("proxy", id),
+	}
 }
 
 func (s *Proxy) ClientAddr() string {
@@ -39,7 +53,7 @@ func (s *Proxy) ClientAddr() string {
 func (s *Proxy) Close() {
 	if s.upstream != nil {
 		if err := s.upstream.Close(); err != nil {
-			slog.Warn("failed to close upstream", "error", err)
+			s.logger.Warn("failed to close upstream", "error", err)
 		}
 	}
 	if s.conn != nil {
