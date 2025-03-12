@@ -92,6 +92,17 @@ func TestProxyPublish(t *testing.T) {
 		logger.Info("message published")
 	}
 
+	time.Sleep(100 * time.Millisecond) // Wait for the message to be delivered
+
+	m, ok, err := ch.Get(q.Name, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("message not found")
+	}
+	logger.Info("message received", "message", m)
+
 	defer ch.Close()
 	defer conn.Close()
 }

@@ -31,7 +31,7 @@ func init() {
 	slog.SetDefault(slog.New(handler))
 }
 
-const (
+var (
 	ChannelMax        = 1023
 	HeartbeatInterval = 60
 	FrameMax          = 128 * 1024
@@ -111,7 +111,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 
 	hCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go s.runHeartbeat(hCtx, HeartbeatInterval)
+	go s.runHeartbeat(hCtx, uint16(HeartbeatInterval))
 
 	slog.Info("handshake done", "proxy", s.id, "client", client.id, "user", client.user, "addr", conn.RemoteAddr())
 	// ここからクライアントのリクエストを待ち受ける
@@ -221,9 +221,9 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 
 	// Connection.Tune 送信
 	tune := &amqp091.ConnectionTune{
-		ChannelMax: ChannelMax,
-		FrameMax:   FrameMax,
-		Heartbeat:  HeartbeatInterval,
+		ChannelMax: uint16(ChannelMax),
+		FrameMax:   uint32(FrameMax),
+		Heartbeat:  uint16(HeartbeatInterval),
 	}
 	if err := s.send(0, tune); err != nil {
 		return nil, fmt.Errorf("failed to write Connection.Tune: %w", err)
@@ -267,7 +267,7 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 
 func (s *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 	if interval == 0 {
-		interval = HeartbeatInterval
+		interval = uint16(HeartbeatInterval)
 	}
 	slog.Debug("start heartbeat", "interval", interval, "proxy", s.id)
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
@@ -355,6 +355,8 @@ func (s *Proxy) dispatchN(ctx context.Context, client *Client, frame amqp091.Fra
 			return s.replyBasicPublish(ctx, client, f, m)
 		case *amqp091.BasicConsume:
 			return s.replyBasicConsume(ctx, client, f, m)
+		case *amqp091.BasicGet:
+			return s.replyBasicGet(ctx, client, f, m)
 		default:
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
