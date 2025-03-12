@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,18 +66,32 @@ func TestProxyPublish(t *testing.T) {
 	}
 	logger.Info("channel opened", "ch", ch)
 
+	qName := "hello"
+	/*
+		// Purge the queue before publishing
+		if n, err := ch.QueuePurge(qName, false); err != nil {
+			t.Fatal(err)
+		} else {
+			t.Log("purged", n, "messages")
+		}
+	*/
+
 	q, err := ch.QueueDeclare(
-		"hello", // name
-		false,   // durable
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no-wait
-		nil,     // arguments
+		qName, // name
+		false, // durable
+		false, // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	body := strings.Repeat("Hello World!", 30)
+	if len(body) < trabbits.FrameMax {
+		t.Fatal("message is too short")
+	}
 	if err := ch.Publish(
 		"",     // exchange
 		q.Name, // routing key
@@ -84,7 +99,7 @@ func TestProxyPublish(t *testing.T) {
 		false,  // immediate
 		amqp091.Publishing{
 			ContentType: "text/plain",
-			Body:        []byte("Hello World!"),
+			Body:        []byte(body),
 		},
 	); err != nil {
 		t.Fatal(err)
@@ -96,12 +111,15 @@ func TestProxyPublish(t *testing.T) {
 
 	m, ok, err := ch.Get(q.Name, true)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 	if !ok {
-		t.Fatal("message not found")
+		t.Errorf("message not found")
 	}
 	logger.Info("message received", "message", m)
+	if string(m.Body) != body {
+		t.Errorf("unexpected message: %s", string(m.Body))
+	}
 
 	defer ch.Close()
 	defer conn.Close()

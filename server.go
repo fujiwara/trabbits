@@ -420,11 +420,22 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("WriteFrame error: %w", err)
 		}
-		if err := s.w.WriteFrame(&amqp091.BodyFrame{
-			ChannelId: uint16(channel),
-			Body:      body,
-		}); err != nil {
-			return fmt.Errorf("WriteFrame error: %w", err)
+		// split body frame is it is too large (>= FrameMax)
+		// The overhead of BodyFrame is 8 bytes
+		offset := 0
+		for offset < len(body) {
+			end := offset + FrameMax - 8
+			if end > len(body) {
+				end = len(body)
+			}
+			slog.Debug("send body", "offset", offset, "end", end)
+			if err := s.w.WriteFrame(&amqp091.BodyFrame{
+				ChannelId: uint16(channel),
+				Body:      body[offset:end],
+			}); err != nil {
+				return fmt.Errorf("WriteFrame error: %w", err)
+			}
+			offset = end
 		}
 	} else {
 		if err := s.w.WriteFrame(&amqp091.MethodFrame{
