@@ -7,7 +7,7 @@ clean:
 	rm -rf trabbits dist/
 
 test:
-	go test -v ./...
+	go test -v ./... -count=1
 
 install:
 	go install github.com/fujiwara/trabbits/cmd/trabbits

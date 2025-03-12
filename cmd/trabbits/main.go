@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 
 	"github.com/fujiwara/trabbits"
@@ -12,7 +13,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), signals()...)
 	defer stop()
 	if err := run(ctx); err != nil {
-		log.Fatal(err)
+		slog.Error("failed to run", "error", err)
+		os.Exit(1)
 	}
 }
 

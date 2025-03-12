@@ -2,6 +2,7 @@ package trabbits
 
 var (
 	Boot = boot
+	SetupLogger = setupLogger
 )
 
 func init() {
