@@ -9,15 +9,15 @@ import (
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
-func (s *Proxy) replyChannelOpen(ctx context.Context, client *Client, f *amqp091.MethodFrame, _ *amqp091.ChannelOpen) error {
+func (s *Proxy) replyChannelOpen(ctx context.Context, f *amqp091.MethodFrame, _ *amqp091.ChannelOpen) error {
 	id := f.Channel()
-	slog.Debug("Channel.Open", "channel", id, "client", client.id)
+	slog.Debug("Channel.Open", "channel", id, "proxy", s.id)
 
 	ch, err := s.upstream.Channel()
 	if err != nil {
 		return fmt.Errorf("failed to create upstream channel: %w", err)
 	}
-	if _, err := client.NewChannel(id, ch); err != nil {
+	if _, err := s.NewChannel(id, ch); err != nil {
 		return fmt.Errorf("failed to create channel: %w", err)
 	}
 
@@ -27,22 +27,22 @@ func (s *Proxy) replyChannelOpen(ctx context.Context, client *Client, f *amqp091
 	return nil
 }
 
-func (s *Proxy) replyChannelClose(_ context.Context, client *Client, f *amqp091.MethodFrame, _ *amqp091.ChannelClose) error {
+func (s *Proxy) replyChannelClose(_ context.Context, f *amqp091.MethodFrame, _ *amqp091.ChannelClose) error {
 	id := f.Channel()
-	slog.Debug("Channel.Close", "channel", id, "client", client.id)
-	if err := client.CloseChannel(id); err != nil {
+	slog.Debug("Channel.Close", "channel", id)
+	if err := s.CloseChannel(id); err != nil {
 		return err
 	}
 	return s.send(id, &amqp091.ChannelCloseOk{})
 }
 
-func (s *Proxy) replyConnectionClose(_ context.Context, _ *Client, _ *amqp091.MethodFrame, _ *amqp091.ConnectionClose) error {
+func (s *Proxy) replyConnectionClose(_ context.Context, _ *amqp091.MethodFrame, _ *amqp091.ConnectionClose) error {
 	return s.send(0, &amqp091.ConnectionCloseOk{})
 }
 
-func (s *Proxy) replyQueueDeclare(_ context.Context, client *Client, f *amqp091.MethodFrame, m *amqp091.QueueDeclare) error {
+func (s *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *amqp091.QueueDeclare) error {
 	id := f.Channel()
-	ch, err := client.GetChannel(id)
+	ch, err := s.GetChannel(id)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, client *Client, f *amqp091.
 	if err != nil {
 		return fmt.Errorf("failed to declare queue on upstream: %w", err)
 	}
-	slog.Debug("Queue.Declare", "queue", q, "client", client.id)
+	slog.Debug("Queue.Declare", "queue", q)
 	return s.send(id, &amqp091.QueueDeclareOk{
 		Queue:         q.Name,
 		MessageCount:  uint32(q.Messages),
@@ -65,14 +65,14 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, client *Client, f *amqp091.
 	})
 }
 
-func (s *Proxy) replyBasicPublish(ctx context.Context, client *Client, f *amqp091.MethodFrame, m *amqp091.BasicPublish) error {
+func (s *Proxy) replyBasicPublish(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicPublish) error {
 	id := f.Channel()
-	ch, err := client.GetChannel(id)
+	ch, err := s.GetChannel(id)
 	if err != nil {
 		return err
 	}
 	slog.Debug("Basic.Publish",
-		"exchange", m.Exchange, "routing_key", m.RoutingKey, "client", client.id,
+		"exchange", m.Exchange, "routing_key", m.RoutingKey,
 		"body", string(m.Body), "properties", m.Properties,
 	)
 	if err := ch.PublishWithContext(
@@ -102,13 +102,13 @@ func (s *Proxy) replyBasicPublish(ctx context.Context, client *Client, f *amqp09
 	return nil
 }
 
-func (s *Proxy) replyBasicConsume(ctx context.Context, client *Client, f *amqp091.MethodFrame, m *amqp091.BasicConsume) error {
+func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicConsume) error {
 	id := f.Channel()
-	ch, err := client.GetChannel(id)
+	ch, err := s.GetChannel(id)
 	if err != nil {
 		return err
 	}
-	slog.Debug("Basic.Consume", "queue", m.Queue, "client", client.id)
+	slog.Debug("Basic.Consume", "queue", m.Queue)
 	consume, err := ch.Consume(
 		m.Queue,
 		m.ConsumerTag,
@@ -133,7 +133,7 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, client *Client, f *amqp09
 			return nil
 		case msg, ok := <-consume:
 			if !ok {
-				slog.Debug("Basic.Consume closed", "queue", m.Queue, "client", client.id)
+				slog.Debug("Basic.Consume closed", "queue", m.Queue)
 			}
 			slog.Debug("Basic.Deliver", "msg", msg)
 			err := s.send(id, &amqp091.BasicDeliver{
@@ -152,13 +152,13 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, client *Client, f *amqp09
 	}
 }
 
-func (s *Proxy) replyBasicGet(ctx context.Context, client *Client, f *amqp091.MethodFrame, m *amqp091.BasicGet) error {
+func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicGet) error {
 	id := f.Channel()
-	ch, err := client.GetChannel(id)
+	ch, err := s.GetChannel(id)
 	if err != nil {
 		return err
 	}
-	slog.Debug("Basic.Get", "queue", m.Queue, "client", client.id)
+	slog.Debug("Basic.Get", "queue", m.Queue)
 	msg, ok, err := ch.Get(m.Queue, m.NoAck)
 	if err != nil {
 		return NewError(amqp091.InternalError, fmt.Sprintf("failed to get message: %v", err))
