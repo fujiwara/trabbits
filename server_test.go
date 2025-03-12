@@ -21,7 +21,7 @@ func runTestProxy(ctx context.Context) error {
 		return err
 	}
 	testProxyPort = listener.Addr().(*net.TCPAddr).Port
-	go trabbits.BootProxy(ctx, listener)
+	go trabbits.Boot(ctx, listener)
 	time.Sleep(100 * time.Millisecond) // Wait for the server to start
 	return nil
 }
@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestProxyConnect(t *testing.T) {
-	conn, err := amqp091.Dial(fmt.Sprintf("amqp://guest:guest@127.0.0.1:%d/", testProxyPort))
+	conn, err := amqp091.Dial(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestProxyConnect(t *testing.T) {
 }
 
 func TestProxyPublish(t *testing.T) {
-	conn, err := amqp091.Dial(fmt.Sprintf("amqp://guest:guest@127.0.0.1:%d/", testProxyPort))
+	conn, err := amqp091.Dial(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort))
 	if err != nil {
 		t.Fatal(err)
 	}

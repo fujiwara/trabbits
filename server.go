@@ -8,6 +8,7 @@ package trabbits
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -32,7 +33,7 @@ func init() {
 
 const (
 	ChannelMax        = 1023
-	HeartbeatInterval = 10
+	HeartbeatInterval = 60
 	FrameMax          = 128 * 1024
 )
 
@@ -40,7 +41,8 @@ var Debug = true
 
 var config = &Config{
 	Upstream: UpstreamConfig{
-		"amqp://127.0.0.1:5672/",
+		Host: "127.0.0.1",
+		Port: 5672,
 	},
 }
 
@@ -106,6 +108,11 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		slog.Warn("Failed to handshake", "error", err)
 		return
 	}
+
+	hCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go s.runHeartbeat(hCtx, HeartbeatInterval)
+
 	slog.Info("handshake done", "proxy", s.id, "client", client.id, "user", client.user, "addr", conn.RemoteAddr())
 	// ここからクライアントのリクエストを待ち受ける
 	for {
@@ -117,14 +124,19 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		default:
 		}
 		if err := s.process(ctx, client); err != nil {
-			slog.Warn("failed to process", "error", err)
+			if errors.Is(err, io.EOF) {
+				slog.Info("closed connection", "addr", conn.RemoteAddr())
+			} else {
+				slog.Warn("failed to process", "error", err)
+			}
 			break
 		}
 	}
-	slog.Info("goodbye", "addr", conn.RemoteAddr())
 }
 
 type Proxy struct {
+	VirtualHost string
+
 	id   string
 	conn io.ReadWriteCloser
 	r    *amqp091.Reader // framer <- client
@@ -132,6 +144,16 @@ type Proxy struct {
 
 	mu       sync.Mutex
 	upstream *rabbitmq.Connection
+}
+
+func (s *Proxy) ClientAddr() string {
+	if s.conn == nil {
+		return ""
+	}
+	if tcpConn, ok := s.conn.(*net.TCPConn); ok {
+		return tcpConn.RemoteAddr().String()
+	}
+	return ""
 }
 
 func (s *Proxy) Close() {
@@ -145,20 +167,18 @@ func (s *Proxy) Close() {
 	}
 }
 
-func (s *Proxy) ConnectToUpstream(addr string, user, pass string) error {
-	slog.Info("connect to upstream", "addr", addr, "proxy", s.id)
-	u, err := url.Parse(addr)
-	if err != nil {
-		return fmt.Errorf("failed to parse upstream address %s %w", addr, err)
+func (s *Proxy) ConnectToUpstream(_ context.Context, u string, props amqp091.Table) error {
+	slog.Info("connect to upstream", "url", u, "props", props)
+	cfg := rabbitmq.Config{
+		Properties: rabbitmq.Table{
+			"version":  props["version"],
+			"platform": props["platform"],
+			"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
+		},
 	}
-	if u.Scheme != "amqp" {
-		return fmt.Errorf("unsupported upstream scheme %s %s", addr, u.Scheme)
-	}
-	u.User = url.UserPassword(user, pass)
-
-	conn, err := rabbitmq.Dial(u.String())
+	conn, err := rabbitmq.DialConfig(u, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to upstream %s %w", addr, err)
+		return fmt.Errorf("failed to open upstream %s %w", u, err)
 	}
 	s.upstream = conn
 	return nil
@@ -184,6 +204,7 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
+	clientProps := startOk.ClientProperties
 	auth := startOk.Mechanism
 	if auth != "PLAIN" {
 		return nil, fmt.Errorf("unsupported auth mechanism: %s", auth)
@@ -221,6 +242,8 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
+	s.VirtualHost = open.VirtualHost
+	slog.Info("Connection.Open", "vhost", s.VirtualHost, "client", client.id)
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
@@ -228,12 +251,16 @@ func (s *Proxy) handshake(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
-	if err := s.ConnectToUpstream(config.Upstream.URL, client.user, client.pass); err != nil {
+	u := &url.URL{
+		Scheme: "amqp",
+		User:   url.UserPassword(client.user, client.pass),
+		Host:   net.JoinHostPort(config.Upstream.Host, fmt.Sprintf("%d", config.Upstream.Port)),
+		Path:   s.VirtualHost,
+	}
+	if err := s.ConnectToUpstream(ctx, u.String(), clientProps); err != nil {
 		return nil, fmt.Errorf("failed to connect to upstream: %w", err)
 	}
-	slog.Info("connected to upstream", "url", config.Upstream.URL)
-
-	go s.runHeartbeat(ctx, HeartbeatInterval)
+	slog.Info("connected to upstream")
 
 	return client, nil
 }
@@ -413,7 +440,7 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		slog.Debug("recv", "channel", channel, "message", m)
+		slog.Debug("recv", "channel", channel, "message", m, "type", reflect.TypeOf(m))
 	}()
 
 	for {
