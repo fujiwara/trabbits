@@ -2,6 +2,7 @@ package trabbits_test
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net"
@@ -92,7 +93,7 @@ func TestProxyPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := strings.Repeat("Hello World!", 30)
+	body := strings.Repeat(rand.Text(), 10)
 	if len(body) < trabbits.FrameMax {
 		t.Fatal("message is too short")
 	}
