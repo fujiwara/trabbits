@@ -5,5 +5,5 @@ var (
 )
 
 func init() {
-	FrameMax = 1024 // for testing
+	FrameMax = 256 // for testing
 }

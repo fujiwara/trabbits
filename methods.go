@@ -143,7 +143,7 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, client *Client, f *amqp09
 				Exchange:    msg.Exchange,
 				RoutingKey:  msg.RoutingKey,
 				Body:        msg.Body,
-				Properties: deliveryToProps(msg),
+				Properties:  deliveryToProps(&msg),
 			})
 			if err != nil {
 				return NewError(amqp091.InternalError, fmt.Sprintf("failed to deliver message: %v", err))
@@ -174,11 +174,11 @@ func (s *Proxy) replyBasicGet(ctx context.Context, client *Client, f *amqp091.Me
 		RoutingKey:   msg.RoutingKey,
 		MessageCount: uint32(msg.MessageCount),
 		Body:         msg.Body,
-		Properties:   deliveryToProps(msg),
+		Properties:   deliveryToProps(&msg),
 	})
 }
 
-func deliveryToProps(msg rabbitmq.Delivery) amqp091.Properties {
+func deliveryToProps(msg *rabbitmq.Delivery) amqp091.Properties {
 	return amqp091.Properties{
 		ContentType:     msg.ContentType,
 		ContentEncoding: msg.ContentEncoding,
