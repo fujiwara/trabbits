@@ -20,9 +20,14 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-var testProxyPort int
+var testProxyPort = 5672
 
 func runTestProxy(ctx context.Context) error {
+	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
+		slog.Info("skipping test server, use real RabbitMQ")
+		return nil
+	}
+	slog.Info("starting test server")
 	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
 	if err != nil {
 		slog.Error("Failed to start test server", "error", err)
