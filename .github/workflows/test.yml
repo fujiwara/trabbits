@@ -24,8 +24,12 @@ jobs:
           go-version: ${{ matrix.go }}
         id: go
 
-      - name: Build & Test
+      - name: test
         run: |
-          go test -race ./... -v
+          make test
+
+      - name: test rabbitmq directly
+        run: |
+          make test
         env:
-          GO111MODULE: on
+          TEST_RABBITMQ: t

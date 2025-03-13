@@ -48,6 +48,11 @@ func TestMain(m *testing.M) {
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
 
+	// escape if the test is taking too long
+	time.AfterFunc(60*time.Second, func() {
+		panic("timeout")
+	})
+
 	runTestProxy(serverCtx)
 	defer cancel()
 	m.Run()
@@ -258,7 +263,12 @@ func TestProxyQos(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	for i := range 5 {
+	defer func() {
+		ch.QueueDelete(qName, false, false, false)
+	}()
+	var messages = 5
+	var consumers = 3
+	for i := range messages {
 		if err := ch.Publish(
 			"",    // exchange
 			qName, // routing key
@@ -274,7 +284,7 @@ func TestProxyQos(t *testing.T) {
 	}
 	wg := sync.WaitGroup{}
 	processed := sync.Map{}
-	for i := range 3 {
+	for i := range consumers {
 		wg.Add(1)
 		// run consumers concurrently
 		go func(id int) {
@@ -282,12 +292,11 @@ func TestProxyQos(t *testing.T) {
 			conn := mustTestConn(t)
 			defer conn.Close()
 			ch, _ := conn.Channel()
-			defer ch.Close()
 			if err := ch.Qos(1, 0, false); err != nil { // prefetch only 1 message
 				t.Error(err)
 				return
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 			d, err := ch.ConsumeWithContext(ctx, qName, "", false, false, false, false, nil)
 			if err != nil {
@@ -297,6 +306,7 @@ func TestProxyQos(t *testing.T) {
 			for {
 				select {
 				case <-ctx.Done():
+					logger.Info("context done", "id", id)
 					return
 				case msg := <-d:
 					logger.Info("message received", "body", string(msg.Body), "id", id)
@@ -316,8 +326,12 @@ func TestProxyQos(t *testing.T) {
 		return true
 	})
 	sort.Ints(processedIDs)
-	t.Logf("processed IDs: %v", processedIDs)
-	if cmp.Diff(processedIDs, []int{0, 1, 2}) != "" {
+	var expected = []int{}
+	for i := range consumers {
+		expected = append(expected, i)
+	}
+	t.Logf("processed IDs: %v expected IDs: %v", processedIDs, expected)
+	if cmp.Diff(processedIDs, expected) != "" {
 		t.Errorf("unexpected processed IDs: %v", processedIDs)
 	}
 }
