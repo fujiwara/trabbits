@@ -54,12 +54,9 @@ func TestMain(m *testing.M) {
 
 func TestProxyConnect(t *testing.T) {
 	conn := mustTestConn(t)
-	logger.Info("connected", "conn", conn)
-	ch, err := conn.Channel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	logger.Info("channel opened", "ch", ch)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
 }
 
 func TestProxyChannel(t *testing.T) {
@@ -68,10 +65,7 @@ func TestProxyChannel(t *testing.T) {
 	logger.Info("connected", "conn", conn)
 
 	for i := 0; i < 3; i++ {
-		ch, err := conn.Channel()
-		if err != nil {
-			t.Fatal(err)
-		}
+		ch := mustTestChannel(t, conn)
 		logger.Info("channel opened", "ch", ch)
 		if err := ch.Close(); err != nil {
 			t.Error("failed to close channel", "error", err)
@@ -84,12 +78,9 @@ func TestProxyChannel(t *testing.T) {
 
 func TestProxyPublishGet(t *testing.T) {
 	conn := mustTestConn(t)
-	logger.Info("connected", "conn", conn)
-	ch, err := conn.Channel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	logger.Info("channel opened", "ch", ch)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
 
 	qName := rand.Text()
 	q, err := ch.QueueDeclare(
@@ -136,9 +127,6 @@ func TestProxyPublishGet(t *testing.T) {
 	if string(m.Body) != body {
 		t.Errorf("unexpected message: %s", string(m.Body))
 	}
-
-	defer ch.Close()
-	defer conn.Close()
 }
 
 func mustTestConn(t *testing.T) *amqp091.Connection {
@@ -146,19 +134,25 @@ func mustTestConn(t *testing.T) *amqp091.Connection {
 	if err != nil {
 		t.Fatal(err)
 	}
+	logger.Info("connected", "conn", conn.Properties)
 	return conn
+}
+
+func mustTestChannel(t *testing.T, conn *amqp091.Connection) *amqp091.Channel {
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.Info("channel opened")
+	return ch
 }
 
 func TestProxyAckNack(t *testing.T) {
 	conn := mustTestConn(t)
 	defer conn.Close()
-	logger.Info("connected", "conn", conn)
-	ch, err := conn.Channel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ch := mustTestChannel(t, conn)
 	defer ch.Close()
-	logger.Info("channel opened", "ch", ch)
+
 	qName := rand.Text()
 	q, err := ch.QueueDeclare(
 		qName, // name
@@ -249,13 +243,9 @@ func TestProxyAckNack(t *testing.T) {
 func TestProxyQos(t *testing.T) {
 	conn := mustTestConn(t)
 	defer conn.Close()
-	logger.Info("connected", "conn", conn)
-	ch, err := conn.Channel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ch := mustTestChannel(t, conn)
 	defer ch.Close()
-	logger.Info("channel opened", "ch", ch)
+
 	qName := rand.Text()
 	if _, err := ch.QueueDeclare(
 		qName, // name
@@ -328,5 +318,87 @@ func TestProxyQos(t *testing.T) {
 	t.Logf("processed IDs: %v", processedIDs)
 	if cmp.Diff(processedIDs, []int{0, 1, 2}) != "" {
 		t.Errorf("unexpected processed IDs: %v", processedIDs)
+	}
+}
+
+func TestProxyExchangeDirect(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
+
+	var (
+		exchange    = "test-exchange"
+		queue       = "test-queue"
+		routingKey  = "test-routing-key"
+		testMessage = "test message" + rand.Text()
+	)
+
+	err := ch.ExchangeDeclare(
+		exchange, // name
+		"direct", // kind
+		false,    // durable
+		false,    // auto-delete
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ch.QueueDeclare(queue, false, false, false, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ch.QueueBind(queue, routingKey, exchange, false, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var gotMessage string
+	go func() {
+		defer wg.Done()
+		d, err := ch.ConsumeWithContext(ctx, queue, "", false, false, false, false, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		msg := <-d
+		logger.Info("message received", "message", msg)
+		if err := ch.Ack(msg.DeliveryTag, false); err != nil {
+			t.Error(err)
+		}
+		gotMessage = string(msg.Body)
+	}()
+
+	// send message by another connection
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		conn := mustTestConn(t)
+		defer conn.Close()
+		ch := mustTestChannel(t, conn)
+		defer ch.Close()
+		if err := ch.Publish(
+			exchange,   // exchange
+			routingKey, // routing key
+			false,      // mandatory
+			false,      // immediate
+			amqp091.Publishing{
+				ContentType: "text/plain",
+				Body:        []byte(testMessage),
+			},
+		); err != nil {
+			t.Error(err)
+		}
+	}()
+	wg.Wait()
+
+	t.Logf("got message: %s", gotMessage)
+	if gotMessage != testMessage {
+		t.Errorf("unexpected message: %s", gotMessage)
 	}
 }
