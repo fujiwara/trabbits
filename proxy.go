@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
-	"github.com/google/uuid"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -29,7 +28,7 @@ type Proxy struct {
 }
 
 func NewProxy(conn io.ReadWriteCloser) *Proxy {
-	id := uuid.New().String()
+	id := generateID()
 	return &Proxy{
 		conn:    conn,
 		id:      id,

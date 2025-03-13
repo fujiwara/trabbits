@@ -7,12 +7,15 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/google/go-cmp/cmp"
 	"github.com/rabbitmq/amqp091-go"
 )
 
@@ -240,5 +243,90 @@ func TestProxyAckNack(t *testing.T) {
 		if _, err := ch2.QueueDelete(q.Name, false, false, false); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestProxyQos(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	logger.Info("connected", "conn", conn)
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ch.Close()
+	logger.Info("channel opened", "ch", ch)
+	qName := rand.Text()
+	if _, err := ch.QueueDeclare(
+		qName, // name
+		false, // durable
+		false, // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 5 {
+		if err := ch.Publish(
+			"",    // exchange
+			qName, // routing key
+			false, // mandatory
+			false, // immediate
+			amqp091.Publishing{
+				ContentType: "text/plain",
+				Body:        []byte(fmt.Sprintf("%d-%s", i, rand.Text())),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wg := sync.WaitGroup{}
+	processed := sync.Map{}
+	for i := range 3 {
+		wg.Add(1)
+		// run consumers concurrently
+		go func(id int) {
+			defer wg.Done()
+			conn := mustTestConn(t)
+			defer conn.Close()
+			ch, _ := conn.Channel()
+			defer ch.Close()
+			if err := ch.Qos(1, 0, false); err != nil { // prefetch only 1 message
+				t.Error(err)
+				return
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+			defer cancel()
+			d, err := ch.ConsumeWithContext(ctx, qName, "", false, false, false, false, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case msg := <-d:
+					logger.Info("message received", "body", string(msg.Body), "id", id)
+					time.Sleep(100 * time.Millisecond) // simulate processing
+					if err := ch.Ack(msg.DeliveryTag, false); err != nil {
+						t.Error(err)
+					}
+					processed.Store(id, true)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	processedIDs := []int{}
+	processed.Range(func(k, v interface{}) bool {
+		processedIDs = append(processedIDs, k.(int))
+		return true
+	})
+	sort.Ints(processedIDs)
+	t.Logf("processed IDs: %v", processedIDs)
+	if cmp.Diff(processedIDs, []int{0, 1, 2}) != "" {
+		t.Errorf("unexpected processed IDs: %v", processedIDs)
 	}
 }

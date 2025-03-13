@@ -2,7 +2,10 @@ package trabbits
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
@@ -147,7 +150,12 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 					Properties:  deliveryToProps(&msg),
 				})
 				if err != nil {
-					s.logger.Warn("failed to deliver message", "error", err)
+					if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || isBrokenPipe(err) {
+						// ignore
+					} else {
+						s.logger.Warn("failed to deliver message", "error", err)
+					}
+					return
 				}
 			}
 		}
@@ -226,7 +234,12 @@ func (s *Proxy) replyBasicCancel(_ context.Context, f *amqp091.MethodFrame, m *a
 		return err
 	}
 	s.logger.Debug("Basic.Cancel", "consumer_tag", m.ConsumerTag)
-	return ch.Cancel(m.ConsumerTag, false)
+	if err := ch.Cancel(m.ConsumerTag, false); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to cancel consumer: %v", err))
+	}
+	return s.send(id, &amqp091.BasicCancelOk{
+		ConsumerTag: m.ConsumerTag,
+	})
 }
 
 func (s *Proxy) replyQueueDelete(_ context.Context, f *amqp091.MethodFrame, m *amqp091.QueueDelete) error {
@@ -245,4 +258,61 @@ func (s *Proxy) replyQueueDelete(_ context.Context, f *amqp091.MethodFrame, m *a
 		return NewError(amqp091.InternalError, fmt.Sprintf("failed to delete queue: %v", err))
 	}
 	return s.send(id, &amqp091.QueueDeleteOk{})
+}
+
+func (s *Proxy) replyQueueBind(_ context.Context, f *amqp091.MethodFrame, m *amqp091.QueueBind) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Queue.Bind", "queue", m.Queue, "exchange", m.Exchange, "routing_key", m.RoutingKey)
+	if err := ch.QueueBind(
+		m.Queue,
+		m.RoutingKey,
+		m.Exchange,
+		m.NoWait,
+		rabbitmq.Table(m.Arguments),
+	); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to bind queue: %v", err))
+	}
+	return s.send(id, &amqp091.QueueBindOk{})
+}
+
+func (s *Proxy) replyBasicQos(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicQos) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Basic.Qos", "prefetch_count", m.PrefetchCount, "global", m.Global)
+	if err := ch.Qos(
+		int(m.PrefetchCount),
+		int(m.PrefetchSize),
+		m.Global,
+	); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to set QoS: %v", err))
+	}
+	return s.send(id, &amqp091.BasicQosOk{})
+}
+
+func (s *Proxy) replyExchangeDeclare(_ context.Context, f *amqp091.MethodFrame, m *amqp091.ExchangeDeclare) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Exchange.Declare", "exchange", m.Exchange)
+	if err := ch.ExchangeDeclare(
+		m.Exchange,
+		m.Type,
+		m.Durable,
+		m.AutoDelete,
+		false, // internal
+		false, // no-wait
+		rabbitmq.Table(m.Arguments),
+	); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to declare exchange: %v", err))
+	}
+	return s.send(id, &amqp091.ExchangeDeclareOk{})
 }

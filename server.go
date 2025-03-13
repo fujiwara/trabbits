@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		default:
 		}
 		if err := s.process(ctx); err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || isBrokenPipe(err) {
 				s.logger.Info("closed connection", "client", conn.RemoteAddr())
 			} else {
 				s.logger.Warn("failed to process", "error", err)
@@ -309,6 +310,10 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return s.replyQueueDeclare(ctx, f, m)
 		case *amqp091.QueueDelete:
 			return s.replyQueueDelete(ctx, f, m)
+		case *amqp091.QueueBind:
+			return s.replyQueueBind(ctx, f, m)
+		case *amqp091.ExchangeDeclare:
+			return s.replyExchangeDeclare(ctx, f, m)
 		case *amqp091.BasicPublish:
 			return s.replyBasicPublish(ctx, f, m)
 		case *amqp091.BasicConsume:
@@ -321,6 +326,8 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return s.replyBasicNack(ctx, f, m)
 		case *amqp091.BasicCancel:
 			return s.replyBasicCancel(ctx, f, m)
+		case *amqp091.BasicQos:
+			return s.replyBasicQos(ctx, f, m)
 		default:
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
 		}
