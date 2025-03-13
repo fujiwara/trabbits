@@ -279,6 +279,24 @@ func (s *Proxy) replyQueueBind(_ context.Context, f *amqp091.MethodFrame, m *amq
 	return s.send(id, &amqp091.QueueBindOk{})
 }
 
+func (s *Proxy) replyQueueUnbind(_ context.Context, f *amqp091.MethodFrame, m *amqp091.QueueUnbind) error {
+	id := f.Channel()
+	ch, err := s.GetChannel(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Queue.Unbind", "queue", m.Queue, "exchange", m.Exchange, "routing_key", m.RoutingKey)
+	if err := ch.QueueUnbind(
+		m.Queue,
+		m.RoutingKey,
+		m.Exchange,
+		rabbitmq.Table(m.Arguments),
+	); err != nil {
+		return NewError(amqp091.InternalError, fmt.Sprintf("failed to unbind queue: %v", err))
+	}
+	return s.send(id, &amqp091.QueueUnbindOk{})
+}
+
 func (s *Proxy) replyBasicQos(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicQos) error {
 	id := f.Channel()
 	ch, err := s.GetChannel(id)

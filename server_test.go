@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -328,7 +329,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 	defer ch.Close()
 
 	var (
-		exchange    = "test-exchange"
+		exchange    = "test-exchange-direct"
 		queue       = "test-queue"
 		routingKey  = "test-routing-key"
 		testMessage = "test message" + rand.Text()
@@ -400,5 +401,211 @@ func TestProxyExchangeDirect(t *testing.T) {
 	t.Logf("got message: %s", gotMessage)
 	if gotMessage != testMessage {
 		t.Errorf("unexpected message: %s", gotMessage)
+	}
+}
+
+func TestProxyExchangeBroadcast(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
+
+	var (
+		exchange         = "test-exchange-topic"
+		queuePrefix      = "test-queue."
+		routingKeyPrefix = "test-routing-key."
+		testMessage      = "test message" + rand.Text()
+	)
+
+	err := ch.ExchangeDeclare(
+		exchange, // name
+		"topic",  // kind
+		false,    // durable
+		false,    // auto-delete
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var received int64
+	consumers := 3
+	bound := make(chan struct{}, consumers)
+	for i := range consumers {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			conn := mustTestConn(t)
+			defer conn.Close()
+			ch := mustTestChannel(t, conn)
+			defer ch.Close()
+			queue, err := ch.QueueDeclare(fmt.Sprintf("%s%d", queuePrefix, id), false, false, false, false, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			key := routingKeyPrefix + "*"
+			logger.Info("queue bind", "queue", queue.Name, "key", key)
+			if err := ch.QueueBind(queue.Name, key, exchange, false, nil); err != nil {
+				t.Error(err)
+				return
+			}
+			bound <- struct{}{}
+			d, err := ch.ConsumeWithContext(ctx, queue.Name, "", false, false, false, false, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			for msg := range d {
+				logger.Info("message received", "queue", queue.Name, "message", string(msg.Body))
+				if string(msg.Body) != testMessage {
+					t.Errorf("unexpected message: %s by %d", string(msg.Body), id)
+				}
+				if err := ch.Ack(msg.DeliveryTag, false); err != nil {
+					t.Error(err)
+				}
+				atomic.AddInt64(&received, 1)
+				break // 1 message per queue
+			}
+			// cleanup, ignore errors
+			ch.QueueUnbind(queue.Name, key, exchange, nil)
+			ch.QueueDelete(queue.Name, false, false, false)
+		}(i)
+	}
+
+	// wait for all consumers to be ready
+	for range consumers {
+		<-bound
+	}
+
+	// send message
+	key := routingKeyPrefix + "xxx"
+	logger.Info("publish message", "message", testMessage, "exchange", exchange, "routingKey", key)
+	if err := ch.Publish(
+		exchange, // exchange
+		key,      // routing key
+		false,    // mandatory
+		false,    // immediate
+		amqp091.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(testMessage),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+
+	logger.Info("messages should be received by all consumers")
+	if atomic.LoadInt64(&received) != int64(consumers) {
+		t.Errorf("unexpected received: %d", received)
+	}
+}
+
+func TestProxyExchangeTopic(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
+
+	var (
+		exchange         = "test-exchange-topic"
+		queuePrefix      = "test-queue."
+		routingKeyPrefix = "test-routing-key."
+		testMessage      = "test message" + rand.Text()
+	)
+
+	err := ch.ExchangeDeclare(
+		exchange, // name
+		"topic",  // kind
+		false,    // durable
+		false,    // auto-delete
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var received int64
+	consumers := 3
+	bound := make(chan struct{}, consumers)
+	for i := range consumers {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			conn := mustTestConn(t)
+			defer conn.Close()
+			ch := mustTestChannel(t, conn)
+			defer ch.Close()
+			queue, err := ch.QueueDeclare(fmt.Sprintf("%s%d", queuePrefix, id), false, false, false, false, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			key := routingKeyPrefix + strconv.Itoa(id) // 0, 1, 2
+			logger.Info("queue bind", "queue", queue.Name, "key", key)
+			if err := ch.QueueBind(queue.Name, key, exchange, false, nil); err != nil {
+				t.Error(err)
+				return
+			}
+			bound <- struct{}{}
+			d, err := ch.ConsumeWithContext(ctx, queue.Name, "", false, false, false, false, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			for msg := range d {
+				logger.Info("message received", "queue", queue.Name, "message", string(msg.Body))
+				if string(msg.Body) != testMessage+strconv.Itoa(id) {
+					t.Errorf("unexpected message: %s by %d", string(msg.Body), id)
+				}
+				if err := ch.Ack(msg.DeliveryTag, false); err != nil {
+					t.Error(err)
+				}
+				atomic.AddInt64(&received, 1)
+				break // 1 message per queue
+			}
+			// cleanup, ignore errors
+			ch.QueueUnbind(queue.Name, key, exchange, nil)
+			ch.QueueDelete(queue.Name, false, false, false)
+		}(i)
+	}
+
+	// wait for all consumers to be ready
+	for range consumers {
+		<-bound
+	}
+
+	// send message
+	for i := range consumers {
+		key := routingKeyPrefix + strconv.Itoa(i)
+		logger.Info("publish message", "message", testMessage, "exchange", exchange, "routingKey", key)
+		if err := ch.Publish(
+			exchange, // exchange
+			key,      // routing key
+			false,    // mandatory
+			false,    // immediate
+			amqp091.Publishing{
+				ContentType: "text/plain",
+				Body:        []byte(testMessage + strconv.Itoa(i)),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wg.Wait()
+
+	logger.Info("messages should be received by all consumers")
+	if atomic.LoadInt64(&received) != int64(consumers) {
+		t.Errorf("unexpected received: %d", received)
 	}
 }
