@@ -147,9 +147,9 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreams []UpstreamConfig
 			return fmt.Errorf("failed to open upstream %s %w", u, err)
 		}
 		if upstream.Default {
-			s.defaultUpstream = NewUpstream(conn)
+			s.defaultUpstream = NewUpstream(conn, s.logger)
 		} else {
-			s.anotherUpstream = NewUpstream(conn)
+			s.anotherUpstream = NewUpstream(conn, s.logger)
 		}
 	}
 	return nil

@@ -4,6 +4,11 @@
             "host": "localhost",
             "port": 5672,
             "default": true
+        },
+        {
+            "host": "localhost",
+            "port": 5673,
+            "default": false
         }
     ]
 }
