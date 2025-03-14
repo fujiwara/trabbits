@@ -30,19 +30,17 @@ var (
 	FrameMax          = 128 * 1024
 )
 
-var Debug = true
+var Debug bool
 
-var config = &Config{
-	Upstreams: []UpstreamConfig{
-		{
-			Host:    "127.0.0.1",
-			Port:    5672,
-			Default: true,
-		},
-	},
-}
+var GlobalConfig *Config
 
 func run(ctx context.Context, opt *RunOptions) error {
+	cfg, err := LoadConfig(opt.Config)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	GlobalConfig = cfg // TODO fix
+
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", opt.Port))
 	if err != nil {
@@ -55,7 +53,6 @@ func run(ctx context.Context, opt *RunOptions) error {
 func boot(ctx context.Context, listener net.Listener) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	slog.Info("trabbits started", "port", port)
-
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
@@ -223,7 +220,8 @@ func (s *Proxy) handshake(ctx context.Context) error {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
-	if err := s.ConnectToUpstreams(ctx, config.Upstreams, clientProps); err != nil {
+	// TODO: sync globalConfig
+	if err := s.ConnectToUpstreams(ctx, GlobalConfig.Upstreams, clientProps); err != nil {
 		return fmt.Errorf("failed to connect to upstream: %w", err)
 	}
 	s.logger.Info("connected to upstream")

@@ -1,0 +1,9 @@
+{
+    "upstreams": [
+        {
+            "host": "localhost",
+            "port": 5672,
+            "default": true
+        }
+    ]
+}

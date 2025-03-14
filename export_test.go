@@ -1,7 +1,7 @@
 package trabbits
 
 var (
-	Boot = boot
+	Boot        = boot
 	SetupLogger = setupLogger
 )
 

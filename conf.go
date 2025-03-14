@@ -1,10 +1,31 @@
 package trabbits
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+)
 
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
 	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+}
+
+func LoadConfig(f string) (*Config, error) {
+	var c Config
+	slog.Info("Loading configuration", "file", f)
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	if err := json.Unmarshal(data, &c); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+	if err := c.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+	return &c, nil
 }
 
 // UpstreamConfig represents the configuration of an upstream server.

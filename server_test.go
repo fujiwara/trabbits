@@ -52,6 +52,11 @@ func TestMain(m *testing.M) {
 	trabbits.SetupLogger(debug)
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
+	var err error
+	trabbits.GlobalConfig, err = trabbits.LoadConfig("testdata/config.json")
+	if err != nil {
+		panic("failed to load config: " + err.Error())
+	}
 
 	// escape if the test is taking too long
 	time.AfterFunc(60*time.Second, func() {
