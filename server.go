@@ -33,9 +33,12 @@ var (
 var Debug = true
 
 var config = &Config{
-	Upstream: UpstreamConfig{
-		Host: "127.0.0.1",
-		Port: 5672,
+	Upstreams: []UpstreamConfig{
+		{
+			Host:    "127.0.0.1",
+			Port:    5672,
+			Default: true,
+		},
 	},
 }
 
@@ -126,20 +129,32 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (s *Proxy) ConnectToUpstream(_ context.Context, u *url.URL, props amqp091.Table) error {
-	s.logger.Info("connect to upstream", "url", safeURLString(*u), "props", props)
-	cfg := rabbitmq.Config{
-		Properties: rabbitmq.Table{
-			"version":  props["version"],
-			"platform": props["platform"],
-			"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
-		},
+func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreams []UpstreamConfig, props amqp091.Table) error {
+	for _, upstream := range upstreams {
+		u := &url.URL{
+			Scheme: "amqp",
+			User:   url.UserPassword(s.user, s.password),
+			Host:   net.JoinHostPort(upstream.Host, fmt.Sprintf("%d", upstream.Port)),
+			Path:   s.VirtualHost,
+		}
+		s.logger.Info("connect to upstream", "url", safeURLString(*u), "default", upstream.Default, "props", props)
+		cfg := rabbitmq.Config{
+			Properties: rabbitmq.Table{
+				"version":  props["version"],
+				"platform": props["platform"],
+				"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
+			},
+		}
+		conn, err := rabbitmq.DialConfig(u.String(), cfg)
+		if err != nil {
+			return fmt.Errorf("failed to open upstream %s %w", u, err)
+		}
+		if upstream.Default {
+			s.defaultUpstream = NewUpstream(conn)
+		} else {
+			s.anotherUpstream = NewUpstream(conn)
+		}
 	}
-	conn, err := rabbitmq.DialConfig(u.String(), cfg)
-	if err != nil {
-		return fmt.Errorf("failed to open upstream %s %w", u, err)
-	}
-	s.upstream = conn
 	return nil
 }
 
@@ -208,13 +223,7 @@ func (s *Proxy) handshake(ctx context.Context) error {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
-	u := &url.URL{
-		Scheme: "amqp",
-		User:   url.UserPassword(s.user, s.password),
-		Host:   net.JoinHostPort(config.Upstream.Host, fmt.Sprintf("%d", config.Upstream.Port)),
-		Path:   s.VirtualHost,
-	}
-	if err := s.ConnectToUpstream(ctx, u, clientProps); err != nil {
+	if err := s.ConnectToUpstreams(ctx, config.Upstreams, clientProps); err != nil {
 		return fmt.Errorf("failed to connect to upstream: %w", err)
 	}
 	s.logger.Info("connected to upstream")
@@ -357,9 +366,6 @@ func (s *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
 	}
-	//if err := s.dispatch(ctx, client, frame); err != nil {
-	//	return fmt.Errorf("failed to dispatch: %w", err)
-	//}
 	return nil
 }
 
