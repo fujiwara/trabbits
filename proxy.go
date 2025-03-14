@@ -14,10 +14,11 @@ import (
 type Proxy struct {
 	VirtualHost string
 
-	id   string
-	conn io.ReadWriteCloser
-	r    *amqp091.Reader // framer <- client
-	w    *amqp091.Writer // framer -> client
+	id     string
+	conn   io.ReadWriteCloser
+	r      *amqp091.Reader // framer <- client
+	w      *amqp091.Writer // framer -> client
+	config *Config
 
 	mu sync.Mutex
 
