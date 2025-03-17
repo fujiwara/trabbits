@@ -5,6 +5,7 @@ var (
 	SetupLogger        = setupLogger
 	NewDelivery        = newDelivery
 	RestoreDeliveryTag = restoreDeliveryTag
+	MatchPattern       = matchPattern
 )
 
 type Delivery = delivery

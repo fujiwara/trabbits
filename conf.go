@@ -10,6 +10,7 @@ import (
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
 	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+	Routing   RoutingConfig    `yaml:"routing" json:"routing"`
 }
 
 func LoadConfig(f string) (*Config, error) {
@@ -52,4 +53,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("default must be equal one section")
 	}
 	return nil
+}
+
+type RoutingConfig struct {
+	KeyPatterns []string `yaml:"key_patterns" json:"key_patterns"`
 }

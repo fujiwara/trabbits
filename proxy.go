@@ -28,16 +28,19 @@ type Proxy struct {
 	logger   *slog.Logger
 	user     string
 	password string
+
+	keyPatterns []string
 }
 
-func NewProxy(conn io.ReadWriteCloser) *Proxy {
+func NewProxy(conn io.ReadWriteCloser, patterns []string) *Proxy {
 	id := generateID()
 	return &Proxy{
-		conn:   conn,
-		id:     id,
-		r:      amqp091.NewReader(conn),
-		w:      amqp091.NewWriter(conn),
-		logger: slog.New(slog.Default().Handler()).With("proxy", id),
+		conn:        conn,
+		id:          id,
+		r:           amqp091.NewReader(conn),
+		w:           amqp091.NewWriter(conn),
+		logger:      slog.New(slog.Default().Handler()).With("proxy", id),
+		keyPatterns: patterns,
 	}
 }
 
@@ -65,15 +68,26 @@ func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	return chs, nil
 }
 
-func (s *Proxy) GetChannel(id uint16, _ string) (*rabbitmq.Channel, error) {
-	// TODO implement routing
+func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	us := s.defaultUpstream
-	if us == nil {
-		return nil, fmt.Errorf("default upstream not found")
+
+	var upstream *Upstream
+	for _, pattern := range s.keyPatterns {
+		if matchPattern(routingKey, pattern) {
+			upstream = s.anotherUpstream
+			upstream.logger.Debug("matched pattern", "pattern", pattern, "routing_key", routingKey)
+			break
+		}
 	}
-	if ch, ok := us.channel[id]; !ok {
+	if upstream == nil {
+		upstream = s.defaultUpstream
+		if len(s.keyPatterns) > 0 {
+			upstream.logger.Debug("not matched", "routing_key", routingKey)
+		}
+	}
+
+	if ch, ok := upstream.channel[id]; !ok {
 		return nil, fmt.Errorf("channel %d not found", id)
 	} else {
 		return ch, nil
