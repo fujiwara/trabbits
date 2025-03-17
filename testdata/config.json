@@ -1,0 +1,18 @@
+{
+    "upstreams": [
+        {
+            "host": "localhost",
+            "port": 5672,
+            "default": true
+        },
+        {
+            "host": "localhost",
+            "port": 5673
+        }
+    ],
+    "routing": {
+        "key_patterns": [
+            "test.queue.another.*"
+        ]
+    }
+}

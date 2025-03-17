@@ -52,6 +52,11 @@ func TestMain(m *testing.M) {
 	trabbits.SetupLogger(debug)
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
+	var err error
+	trabbits.GlobalConfig, err = trabbits.LoadConfig("testdata/config.json")
+	if err != nil {
+		panic("failed to load config: " + err.Error())
+	}
 
 	// escape if the test is taking too long
 	time.AfterFunc(60*time.Second, func() {
@@ -127,7 +132,7 @@ func TestProxyPublishGet(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	m, ok, err := ch.Get(q.Name, true)
+	m, ok, err := ch.Get(q.Name, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -137,6 +142,62 @@ func TestProxyPublishGet(t *testing.T) {
 	logger.Info("message received", "message", m)
 	if string(m.Body) != body {
 		t.Errorf("unexpected message: %s", string(m.Body))
+	}
+	if err := ch.Ack(m.DeliveryTag, false); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestProxyPublishPurgeGet(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
+
+	qName := rand.Text()
+	q, err := ch.QueueDeclare(
+		qName, // name
+		false, // durable
+		true,  // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := strings.Repeat(rand.Text(), 10)
+	if len(body) < trabbits.FrameMax {
+		t.Fatal("message is too short")
+	}
+	if err := ch.Publish(
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		amqp091.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(body),
+		},
+	); err != nil {
+		t.Fatal(err)
+	} else {
+		logger.Info("message published")
+	}
+
+	if _, err := ch.QueuePurge(q.Name, false); err != nil {
+		t.Error(err)
+	}
+
+	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
+
+	_, ok, err := ch.Get(q.Name, true)
+	if err != nil {
+		t.Error(err)
+	}
+	if ok {
+		t.Errorf("message should not be purged")
 	}
 }
 
@@ -419,7 +480,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 
 	t.Logf("got message: %s", gotMessage)
 	if gotMessage != testMessage {
-		t.Errorf("unexpected message: %s", gotMessage)
+		t.Errorf("unexpected message: %s expected: %s", gotMessage, testMessage)
 	}
 }
 

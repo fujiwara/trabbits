@@ -1,11 +1,21 @@
 services:
-  rabbitmq:
+  rabbitmq1:
     image: rabbitmq:3.12-management
-    container_name: rabbitmq
-    hostname: rabbitmq
+    container_name: rabbitmq1
+    hostname: rabbitmq1
     ports:
       - "5672:5672"
       - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+  rabbitmq2:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq2
+    hostname: rabbitmq2
+    ports:
+      - "5673:5672"
+      - "15673:15672"
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin
