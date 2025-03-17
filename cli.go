@@ -17,7 +17,8 @@ type CLI struct {
 }
 
 type RunOptions struct {
-	Port int `help:"Port to listen on." default:"5673" env:"TRABBITS_PORT"`
+	Port   int    `help:"Port to listen on." default:"5673" env:"TRABBITS_PORT"`
+	Config string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
 }
 
 func Run(ctx context.Context) error {

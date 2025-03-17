@@ -14,28 +14,83 @@ import (
 type Proxy struct {
 	VirtualHost string
 
-	id   string
-	conn io.ReadWriteCloser
-	r    *amqp091.Reader // framer <- client
-	w    *amqp091.Writer // framer -> client
+	id     string
+	conn   io.ReadWriteCloser
+	r      *amqp091.Reader // framer <- client
+	w      *amqp091.Writer // framer -> client
+	config *Config
 
-	mu       sync.Mutex
-	upstream *rabbitmq.Connection
-	channel  map[uint16]*rabbitmq.Channel
+	mu sync.Mutex
+
+	defaultUpstream *Upstream
+	anotherUpstream *Upstream
+
 	logger   *slog.Logger
 	user     string
 	password string
+
+	keyPatterns []string
 }
 
-func NewProxy(conn io.ReadWriteCloser) *Proxy {
+func NewProxy(conn io.ReadWriteCloser, patterns []string) *Proxy {
 	id := generateID()
 	return &Proxy{
-		conn:    conn,
-		id:      id,
-		r:       amqp091.NewReader(conn),
-		w:       amqp091.NewWriter(conn),
-		channel: make(map[uint16]*rabbitmq.Channel, 2), // most clients will use a few channels
-		logger:  slog.New(slog.Default().Handler()).With("proxy", id),
+		conn:        conn,
+		id:          id,
+		r:           amqp091.NewReader(conn),
+		w:           amqp091.NewWriter(conn),
+		logger:      slog.New(slog.Default().Handler()).With("proxy", id),
+		keyPatterns: patterns,
+	}
+}
+
+func (s *Proxy) Upstreams() []*Upstream {
+	us := make([]*Upstream, 0, 2)
+	if s.defaultUpstream == nil {
+		return nil
+	}
+	us = append(us, s.defaultUpstream)
+	if s.anotherUpstream != nil {
+		us = append(us, s.anotherUpstream)
+	}
+	return us
+}
+
+func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
+	var chs []*rabbitmq.Channel
+	for _, us := range s.Upstreams() {
+		ch, err := us.GetChannel(id)
+		if err != nil {
+			return nil, err
+		}
+		chs = append(chs, ch)
+	}
+	return chs, nil
+}
+
+func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var upstream *Upstream
+	for _, pattern := range s.keyPatterns {
+		if matchPattern(routingKey, pattern) {
+			upstream = s.anotherUpstream
+			upstream.logger.Debug("matched pattern", "pattern", pattern, "routing_key", routingKey)
+			break
+		}
+	}
+	if upstream == nil {
+		upstream = s.defaultUpstream
+		if len(s.keyPatterns) > 0 {
+			upstream.logger.Debug("not matched", "routing_key", routingKey)
+		}
+	}
+
+	if ch, ok := upstream.channel[id]; !ok {
+		return nil, fmt.Errorf("channel %d not found", id)
+	} else {
+		return ch, nil
 	}
 }
 
@@ -50,46 +105,27 @@ func (s *Proxy) ClientAddr() string {
 }
 
 func (s *Proxy) Close() {
-	if s.upstream != nil {
-		if err := s.upstream.Close(); err != nil {
-			s.logger.Warn("failed to close upstream", "error", err)
+	for _, us := range s.Upstreams() {
+		if err := us.Close(); err != nil {
+			us.logger.Warn("failed to close upstream", "error", err)
 		}
 	}
-	if s.conn != nil {
-		s.conn.Close()
-	}
 }
 
-func (s *Proxy) NewChannel(id uint16, ch *rabbitmq.Channel) (*rabbitmq.Channel, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.channel[id]; ok {
-		return nil, fmt.Errorf("channel %d already exists", id)
+func (s *Proxy) NewChannel(id uint16) error {
+	for _, us := range s.Upstreams() {
+		if _, err := us.NewChannel(id); err != nil {
+			return fmt.Errorf("failed to create channel: %w", err)
+		}
 	}
-	s.channel[id] = ch
-	return s.channel[id], nil
-}
-
-func (s *Proxy) GetChannel(id uint16) (*rabbitmq.Channel, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ch, ok := s.channel[id]; ok {
-		return ch, nil
-	}
-	return nil, fmt.Errorf("channel %d not found", id)
+	return nil
 }
 
 func (s *Proxy) CloseChannel(id uint16) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ch, ok := s.channel[id]; !ok {
-		return fmt.Errorf("channel %d not found", id)
-	} else {
-		s.logger.Debug("closing upstream channel", "channel", id)
-		if err := ch.Close(); err != nil {
-			return fmt.Errorf("failed to close channel %d: %w", id, err)
+	for _, us := range s.Upstreams() {
+		if err := us.CloseChannel(id); err != nil {
+			return err
 		}
 	}
-	delete(s.channel, id)
 	return nil
 }
