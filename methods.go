@@ -190,7 +190,7 @@ func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 	}
 	s.logger.Debug("Basic.Get", "queue", m.Queue)
 	var got bool
-	for _, ch := range chs {
+	for i, ch := range chs {
 		msg, ok, err := ch.Get(m.Queue, m.NoAck)
 		if err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to get message: %v", err))
@@ -199,9 +199,10 @@ func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 			continue
 		}
 		got = true
-		s.logger.Debug("Basic.Get", "msg", msg)
+		dTag := s.newDelivery(nil, i).Tag(msg.DeliveryTag)
+		s.logger.Debug("Basic.Get", "msg", msg, "client.DeliveryTag", dTag, "upstream.DeliveryTag", msg.DeliveryTag)
 		s.send(id, &amqp091.BasicGetOk{
-			DeliveryTag:  msg.DeliveryTag,
+			DeliveryTag:  dTag,
 			Redelivered:  msg.Redelivered,
 			Exchange:     msg.Exchange,
 			RoutingKey:   msg.RoutingKey,
