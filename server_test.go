@@ -132,7 +132,7 @@ func TestProxyPublishGet(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	m, ok, err := ch.Get(q.Name, true)
+	m, ok, err := ch.Get(q.Name, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -142,6 +142,9 @@ func TestProxyPublishGet(t *testing.T) {
 	logger.Info("message received", "message", m)
 	if string(m.Body) != body {
 		t.Errorf("unexpected message: %s", string(m.Body))
+	}
+	if err := ch.Ack(m.DeliveryTag, false); err != nil {
+		t.Error(err)
 	}
 }
 
