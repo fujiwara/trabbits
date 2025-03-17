@@ -64,7 +64,7 @@ func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	return chs, nil
 }
 
-func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
+func (s *Proxy) GetChannel(id uint16, _ string) (*rabbitmq.Channel, error) {
 	// TODO implement routing
 	us := s.defaultUpstream
 	if us == nil {

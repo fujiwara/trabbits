@@ -375,3 +375,21 @@ func (s *Proxy) replyExchangeDeclare(_ context.Context, f *amqp091.MethodFrame, 
 	}
 	return s.send(id, &amqp091.ExchangeDeclareOk{})
 }
+
+func (s *Proxy) replyQueuePurge(_ context.Context, f *amqp091.MethodFrame, m *amqp091.QueuePurge) error {
+	id := f.Channel()
+	chs, err := s.GetChannels(id)
+	if err != nil {
+		return err
+	}
+	s.logger.Debug("Queue.Purge", "queue", m.Queue)
+	for _, ch := range chs {
+		// always wait upstream response
+		if _, err := ch.QueuePurge(m.Queue, true); err != nil {
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to purge queue: %v", err))
+		}
+	}
+	return s.send(id, &amqp091.QueuePurgeOk{
+		MessageCount: 0,
+	})
+}

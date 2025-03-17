@@ -321,6 +321,8 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return s.replyQueueBind(ctx, f, m)
 		case *amqp091.QueueUnbind:
 			return s.replyQueueUnbind(ctx, f, m)
+		case *amqp091.QueuePurge:
+			return s.replyQueuePurge(ctx, f, m)
 		case *amqp091.ExchangeDeclare:
 			return s.replyExchangeDeclare(ctx, f, m)
 		case *amqp091.BasicPublish:
