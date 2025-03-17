@@ -24,13 +24,13 @@ func (d *delivery) Tag(s uint64) uint64 {
 	return s*uint64(d.n) + uint64(d.i)
 }
 
-func deliveryTagToIndex(tag uint64, n int) int {
-	return int(tag % uint64(n))
+func restoreDeliveryTag(tag uint64, n int) (t uint64, index int) {
+	return tag / uint64(n), int(tag % uint64(n))
 }
 
 func (s *Proxy) UpstreamDeliveryTag(tag uint64) uint64 {
-	n := len(s.Upstreams())
-	return tag / uint64(n)
+	t, _ := restoreDeliveryTag(tag, len(s.Upstreams()))
+	return t
 }
 
 func (s *Proxy) GetChannelByDeliveryTag(channelID uint16, tag uint64) (*rabbitmq.Channel, error) {
@@ -38,13 +38,13 @@ func (s *Proxy) GetChannelByDeliveryTag(channelID uint16, tag uint64) (*rabbitmq
 	if err != nil {
 		return nil, err
 	}
-	i := deliveryTagToIndex(tag, len(chs))
-	if len(chs) <= i {
+	_, index := restoreDeliveryTag(tag, len(s.Upstreams()))
+	if len(chs) <= index {
 		return nil, fmt.Errorf("channel not found: id=%d, tag=%d", channelID, tag)
 	}
-	return chs[i], nil
+	return chs[index], nil
 }
 
-func (s *Proxy) newDelivery(ch <-chan rabbitmq.Delivery, channelID uint16, index int) *delivery {
+func (s *Proxy) newDelivery(ch <-chan rabbitmq.Delivery, index int) *delivery {
 	return newDelivery(ch, index, len(s.Upstreams()))
 }

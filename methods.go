@@ -128,7 +128,7 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		if err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume: %v", err))
 		}
-		d := s.newDelivery(consume, id, i)
+		d := s.newDelivery(consume, i)
 		deliveries = append(deliveries, d)
 	}
 	if err := s.send(id, &amqp091.BasicConsumeOk{

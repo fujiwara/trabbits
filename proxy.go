@@ -43,9 +43,10 @@ func NewProxy(conn io.ReadWriteCloser) *Proxy {
 
 func (s *Proxy) Upstreams() []*Upstream {
 	us := make([]*Upstream, 0, 2)
-	if s.defaultUpstream != nil {
-		us = append(us, s.defaultUpstream)
+	if s.defaultUpstream == nil {
+		return nil
 	}
+	us = append(us, s.defaultUpstream)
 	if s.anotherUpstream != nil {
 		us = append(us, s.anotherUpstream)
 	}
@@ -66,6 +67,8 @@ func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 
 func (s *Proxy) GetChannel(id uint16, _ string) (*rabbitmq.Channel, error) {
 	// TODO implement routing
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	us := s.defaultUpstream
 	if us == nil {
 		return nil, fmt.Errorf("default upstream not found")
