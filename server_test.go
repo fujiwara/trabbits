@@ -145,6 +145,59 @@ func TestProxyPublishGet(t *testing.T) {
 	}
 }
 
+func TestProxyPublishPurgeGet(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
+
+	qName := rand.Text()
+	q, err := ch.QueueDeclare(
+		qName, // name
+		false, // durable
+		true,  // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := strings.Repeat(rand.Text(), 10)
+	if len(body) < trabbits.FrameMax {
+		t.Fatal("message is too short")
+	}
+	if err := ch.Publish(
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		amqp091.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(body),
+		},
+	); err != nil {
+		t.Fatal(err)
+	} else {
+		logger.Info("message published")
+	}
+
+	if _, err := ch.QueuePurge(q.Name, false); err != nil {
+		t.Error(err)
+	}
+
+	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
+
+	_, ok, err := ch.Get(q.Name, true)
+	if err != nil {
+		t.Error(err)
+	}
+	if ok {
+		t.Errorf("message should not be purged")
+	}
+}
+
 func mustTestConn(t *testing.T) *amqp091.Connection {
 	conn, err := amqp091.Dial(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort))
 	if err != nil {
@@ -424,7 +477,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 
 	t.Logf("got message: %s", gotMessage)
 	if gotMessage != testMessage {
-		t.Errorf("unexpected message: %s", gotMessage)
+		t.Errorf("unexpected message: %s expected: %s", gotMessage, testMessage)
 	}
 }
 
