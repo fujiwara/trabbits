@@ -93,7 +93,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	s := NewProxy(conn)
+	s := NewProxy(conn, GlobalConfig.Routing.KeyPatterns)
 	defer s.Close()
 	s.logger.Info("proxy created", "client", conn.RemoteAddr())
 

@@ -7,8 +7,12 @@
         },
         {
             "host": "localhost",
-            "port": 5673,
-            "default": false
+            "port": 5673
         }
-    ]
+    ],
+    "routing": {
+        "key_patterns": [
+            "test.queue.another.*"
+        ]
+    }
 }
