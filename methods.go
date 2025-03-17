@@ -113,8 +113,8 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		return err
 	}
 	s.logger.Debug("Basic.Consume", "queue", m.Queue)
-	consumes := make([]<-chan rabbitmq.Delivery, 0, len(chs))
-	for _, ch := range chs {
+	deliveries := make([]*delivery, 0, len(chs))
+	for i, ch := range chs {
 		consume, err := ch.ConsumeWithContext(
 			ctx,
 			m.Queue,
@@ -128,7 +128,8 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		if err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume: %v", err))
 		}
-		consumes = append(consumes, consume)
+		d := s.newDelivery(consume, id, i)
+		deliveries = append(deliveries, d)
 	}
 	if err := s.send(id, &amqp091.BasicConsumeOk{
 		ConsumerTag: m.ConsumerTag,
@@ -139,30 +140,30 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 	tag := m.ConsumerTag
 	q := m.Queue
 	var wg sync.WaitGroup
-	for _, consumer := range consumes {
-		c := consumer
+	for _, d := range deliveries {
+		d := d
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.consume(ctx, id, q, tag, c)
+			s.consume(ctx, id, q, tag, d)
 		}()
 	}
 	return nil
 }
 
-func (s *Proxy) consume(ctx context.Context, id uint16, queue, tag string, consume <-chan rabbitmq.Delivery) {
+func (s *Proxy) consume(ctx context.Context, id uint16, queue, tag string, d *delivery) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case msg, ok := <-consume:
+		case msg, ok := <-d.ch:
 			if !ok {
 				s.logger.Debug("Basic.Consume closed", "queue", queue)
 			}
 			s.logger.Debug("Basic.Deliver", "msg", msg)
 			err := s.send(id, &amqp091.BasicDeliver{
 				ConsumerTag: tag,
-				DeliveryTag: msg.DeliveryTag,
+				DeliveryTag: d.Tag(msg.DeliveryTag), // rewrite delivery tag
 				Redelivered: msg.Redelivered,
 				Exchange:    msg.Exchange,
 				RoutingKey:  msg.RoutingKey,
@@ -220,22 +221,24 @@ func (s *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 
 func (s *Proxy) replyBasicAck(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicAck) error {
 	id := f.Channel()
-	ch, err := s.GetChannel(id, "TODO")
+	ch, err := s.GetChannelByDeliveryTag(id, m.DeliveryTag)
 	if err != nil {
 		return err
 	}
-	s.logger.Debug("Basic.Ack", "delivery_tag", m.DeliveryTag, "multiple", m.Multiple)
-	return ch.Ack(m.DeliveryTag, m.Multiple)
+	tag := s.UpstreamDeliveryTag(m.DeliveryTag)
+	s.logger.Debug("Basic.Ack", "client.DeliveryTag", m.DeliveryTag, "upstream.DeliveryTag", tag, "multiple", m.Multiple)
+	return ch.Ack(tag, m.Multiple)
 }
 
 func (s *Proxy) replyBasicNack(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicNack) error {
 	id := f.Channel()
-	ch, err := s.GetChannel(id, "TODO")
+	ch, err := s.GetChannelByDeliveryTag(id, m.DeliveryTag)
 	if err != nil {
 		return err
 	}
-	s.logger.Debug("Basic.Nack", "delivery_tag", m.DeliveryTag, "multiple", m.Multiple, "requeue", m.Requeue)
-	return ch.Nack(m.DeliveryTag, m.Multiple, m.Requeue)
+	tag := s.UpstreamDeliveryTag(m.DeliveryTag)
+	s.logger.Debug("Basic.Nack", "client.DeliveryTag", m.DeliveryTag, "upstream.DeliveryTag", tag, "multiple", m.Multiple, "requeue", m.Requeue)
+	return ch.Nack(tag, m.Multiple, m.Requeue)
 }
 
 func deliveryToProps(msg *rabbitmq.Delivery) amqp091.Properties {
