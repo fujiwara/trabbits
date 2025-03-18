@@ -25,9 +25,16 @@ var testProxyPort = 5672
 func runTestProxy(ctx context.Context) error {
 	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
 		slog.Info("skipping test server, use real RabbitMQ")
+		trabbits.StoreConfig(&trabbits.Config{})
 		return nil
 	}
 	slog.Info("starting test server")
+	cfg, err := trabbits.LoadConfig("testdata/config.json")
+	if err != nil {
+		panic("failed to load config: " + err.Error())
+	}
+	trabbits.StoreConfig(cfg)
+
 	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
 	if err != nil {
 		slog.Error("Failed to start test server", "error", err)
@@ -52,11 +59,6 @@ func TestMain(m *testing.M) {
 	trabbits.SetupLogger(debug)
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
-	var err error
-	trabbits.GlobalConfig, err = trabbits.LoadConfig("testdata/config.json")
-	if err != nil {
-		panic("failed to load config: " + err.Error())
-	}
 
 	// escape if the test is taking too long
 	time.AfterFunc(60*time.Second, func() {

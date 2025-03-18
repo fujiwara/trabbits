@@ -17,72 +17,48 @@ var testConfigSuites = []struct {
 		false,
 	},
 	{
-		"default one upstream",
+		"one upstream",
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Host:    "localhost",
-					Port:    5672,
-					Default: true,
+					Host: "localhost",
+					Port: 5672,
 				},
 			},
 		},
 		true,
 	},
 	{
-		"default two upstreams",
+		"two upstream",
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Host:    "localhost",
-					Port:    5672,
-					Default: true,
+					Host: "localhost",
+					Port: 5672,
 				},
 				{
-					Host:    "localhost",
-					Port:    5673,
-					Default: true,
+					Host: "localhost",
+					Port: 5673,
 				},
 			},
 		},
-		false,
-	},
-	{
-		"no default",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
-				{
-					Host:    "localhost",
-					Port:    5672,
-					Default: false,
-				},
-				{
-					Host:    "localhost",
-					Port:    5673,
-					Default: false,
-				},
-			},
-		},
-		false,
+		true,
 	},
 	{
 		"three upstreams",
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Host:    "localhost",
-					Port:    5672,
-					Default: true,
+					Host: "localhost",
+					Port: 5672,
 				},
 				{
-					Host:    "localhost",
-					Port:    5673,
-					Default: false,
+					Host: "localhost",
+					Port: 5673,
 				},
 				{
-					Host:    "localhost",
-					Port:    5674,
-					Default: false,
+					Host: "localhost",
+					Port: 5674,
 				},
 			},
 		},
