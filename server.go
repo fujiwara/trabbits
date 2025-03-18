@@ -32,14 +32,12 @@ var (
 
 var Debug bool
 
-var GlobalConfig *Config
-
 func run(ctx context.Context, opt *RunOptions) error {
 	cfg, err := LoadConfig(opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	GlobalConfig = cfg // TODO fix
+	storeConfig(cfg)
 
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", opt.Port))
@@ -93,7 +91,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	s := NewProxy(conn, GlobalConfig.Routing.KeyPatterns)
+	s := NewProxy(conn)
 	defer s.Close()
 	s.logger.Info("proxy created", "client", conn.RemoteAddr())
 
@@ -126,15 +124,15 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreams []UpstreamConfig, props amqp091.Table) error {
-	for _, upstream := range upstreams {
+func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
+	for _, c := range upstreamConfigs {
 		u := &url.URL{
 			Scheme: "amqp",
 			User:   url.UserPassword(s.user, s.password),
-			Host:   net.JoinHostPort(upstream.Host, fmt.Sprintf("%d", upstream.Port)),
+			Host:   net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port)),
 			Path:   s.VirtualHost,
 		}
-		s.logger.Info("connect to upstream", "url", safeURLString(*u), "default", upstream.Default, "props", props)
+		s.logger.Info("connect to upstream", "url", safeURLString(*u), "props", props)
 		cfg := rabbitmq.Config{
 			Properties: rabbitmq.Table{
 				"version":  props["version"],
@@ -146,11 +144,7 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreams []UpstreamConfig
 		if err != nil {
 			return fmt.Errorf("failed to open upstream %s %w", u, err)
 		}
-		if upstream.Default {
-			s.defaultUpstream = NewUpstream(conn, s.logger)
-		} else {
-			s.anotherUpstream = NewUpstream(conn, s.logger)
-		}
+		s.upstreams = append(s.upstreams, NewUpstream(conn, s.logger, c))
 	}
 	return nil
 }
@@ -220,12 +214,11 @@ func (s *Proxy) handshake(ctx context.Context) error {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
-	// TODO: sync globalConfig
-	if err := s.ConnectToUpstreams(ctx, GlobalConfig.Upstreams, clientProps); err != nil {
+	cfg := mustGetConfig()
+	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, clientProps); err != nil {
 		return fmt.Errorf("failed to connect to upstream: %w", err)
 	}
 	s.logger.Info("connected to upstream")
-
 	return nil
 }
 
