@@ -167,6 +167,7 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	logger.Info("queue declared (auto naming)", "queue", q.Name)
 	if q.Name == "" {
 		t.Error("empty queue name")
 	}
