@@ -2,6 +2,7 @@ package trabbits
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -44,7 +45,17 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 	if err != nil {
 		return err
 	}
+	if m.Queue == "" {
+		// generate unique queue name
+		m.Queue = fmt.Sprintf("trabbits.gen-%s", rand.Text())
+		// force auto-delete and exclusive
+		m.Exclusive = true
+		m.AutoDelete = true
+		s.logger.Debug("requested queue name is empty, generate unique queue name", "queue", m.Queue)
+	}
+
 	var messages, consumers int
+	var queueNames []string
 	for _, ch := range chs {
 		q, err := ch.QueueDeclare(
 			m.Queue,
@@ -59,8 +70,9 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 		}
 		messages += q.Messages
 		consumers += q.Consumers
+		queueNames = append(queueNames, q.Name)
 	}
-	s.logger.Debug("Queue.Declare", "queue", m.Queue)
+	s.logger.Debug("Queue.Declare", "queue", m.Queue, "upstream_queue", queueNames, "messages", messages, "consumers", consumers)
 
 	return s.send(id, &amqp091.QueueDeclareOk{
 		Queue:         m.Queue,
