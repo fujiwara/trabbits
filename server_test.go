@@ -150,6 +150,31 @@ func TestProxyPublishGet(t *testing.T) {
 	}
 }
 
+func TestProxyPublishAutoQueueNaming(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"",    // auto-named queue
+		false, // durable
+		true,  // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.Info("queue declared (auto naming)", "queue", q.Name)
+	if q.Name == "" {
+		t.Error("empty queue name")
+	}
+	logger.Info("queue declared (auto naming)", "queue", q.Name)
+	ch.QueueDelete(q.Name, false, false, false)
+}
+
 func TestProxyPublishPurgeGet(t *testing.T) {
 	conn := mustTestConn(t)
 	defer conn.Close()
