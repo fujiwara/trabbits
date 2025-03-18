@@ -6,6 +6,8 @@ var (
 	NewDelivery        = newDelivery
 	RestoreDeliveryTag = restoreDeliveryTag
 	MatchPattern       = matchPattern
+	StoreConfig        = storeConfig
+	MustGetConfig      = mustGetConfig
 )
 
 type Delivery = delivery

@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 )
+
+var GlobalConfig = sync.Map{}
 
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
 	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
-	Routing   RoutingConfig    `yaml:"routing" json:"routing"`
 }
 
 func LoadConfig(f string) (*Config, error) {
@@ -29,11 +31,25 @@ func LoadConfig(f string) (*Config, error) {
 	return &c, nil
 }
 
+const globalConfigKey = "config"
+
+func storeConfig(c *Config) {
+	GlobalConfig.Store(globalConfigKey, c)
+}
+
+func mustGetConfig() *Config {
+	if c, ok := GlobalConfig.Load(globalConfigKey); ok {
+		return c.(*Config)
+	} else {
+		panic("config is not loaded")
+	}
+}
+
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
-	Host    string `yaml:"host" json:"host"`
-	Port    int    `yaml:"port" json:"port"`
-	Default bool   `yaml:"default" json:"default"`
+	Host    string        `yaml:"host" json:"host"`
+	Port    int           `yaml:"port" json:"port"`
+	Routing RoutingConfig `yaml:"routing" json:"routing"`
 }
 
 func (c *Config) Validate() error {
@@ -42,15 +58,6 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Upstreams) > 2 {
 		return fmt.Errorf("upstreams must be less or equal than 2 elements")
-	}
-	var defaults int
-	for _, u := range c.Upstreams {
-		if u.Default {
-			defaults++
-		}
-	}
-	if defaults != 1 {
-		return fmt.Errorf("default must be equal one section")
 	}
 	return nil
 }

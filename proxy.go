@@ -22,8 +22,7 @@ type Proxy struct {
 
 	mu sync.Mutex
 
-	defaultUpstream *Upstream
-	anotherUpstream *Upstream
+	upstreams []*Upstream
 
 	logger   *slog.Logger
 	user     string
@@ -32,33 +31,24 @@ type Proxy struct {
 	keyPatterns []string
 }
 
-func NewProxy(conn io.ReadWriteCloser, patterns []string) *Proxy {
+func NewProxy(conn io.ReadWriteCloser) *Proxy {
 	id := generateID()
 	return &Proxy{
-		conn:        conn,
-		id:          id,
-		r:           amqp091.NewReader(conn),
-		w:           amqp091.NewWriter(conn),
-		logger:      slog.New(slog.Default().Handler()).With("proxy", id),
-		keyPatterns: patterns,
+		conn:   conn,
+		id:     id,
+		r:      amqp091.NewReader(conn),
+		w:      amqp091.NewWriter(conn),
+		logger: slog.New(slog.Default().Handler()).With("proxy", id),
 	}
 }
 
 func (s *Proxy) Upstreams() []*Upstream {
-	us := make([]*Upstream, 0, 2)
-	if s.defaultUpstream == nil {
-		return nil
-	}
-	us = append(us, s.defaultUpstream)
-	if s.anotherUpstream != nil {
-		us = append(us, s.anotherUpstream)
-	}
-	return us
+	return s.upstreams
 }
 
 func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	var chs []*rabbitmq.Channel
-	for _, us := range s.Upstreams() {
+	for _, us := range s.upstreams {
 		ch, err := us.GetChannel(id)
 		if err != nil {
 			return nil, err
@@ -69,29 +59,22 @@ func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 }
 
 func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var upstream *Upstream
-	for _, pattern := range s.keyPatterns {
-		if matchPattern(routingKey, pattern) {
-			upstream = s.anotherUpstream
-			upstream.logger.Debug("matched pattern", "pattern", pattern, "routing_key", routingKey)
-			break
+	var routed *Upstream
+	for _, us := range s.upstreams {
+		for _, pattern := range us.keyPatterns {
+			if matchPattern(routingKey, pattern) {
+				routed = us
+				us.logger.Debug("matched pattern", "pattern", pattern, "routing_key", routingKey)
+				break
+			}
 		}
 	}
-	if upstream == nil {
-		upstream = s.defaultUpstream
-		if len(s.keyPatterns) > 0 {
-			upstream.logger.Debug("not matched", "routing_key", routingKey)
-		}
+	if routed != nil {
+		return routed.GetChannel(id)
 	}
-
-	if ch, ok := upstream.channel[id]; !ok {
-		return nil, fmt.Errorf("channel %d not found", id)
-	} else {
-		return ch, nil
-	}
+	us := s.upstreams[0] // default upstream
+	us.logger.Debug("not matched any patterns, using default upstream", "routing_key", routingKey)
+	return us.GetChannel(id)
 }
 
 func (s *Proxy) ClientAddr() string {

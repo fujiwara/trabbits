@@ -9,18 +9,20 @@ import (
 )
 
 type Upstream struct {
-	conn    *rabbitmq.Connection
-	channel map[uint16]*rabbitmq.Channel
-	mu      sync.Mutex
-	logger  *slog.Logger
+	conn        *rabbitmq.Connection
+	channel     map[uint16]*rabbitmq.Channel
+	mu          sync.Mutex
+	logger      *slog.Logger
+	keyPatterns []string
 }
 
-func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger) *Upstream {
+func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig) *Upstream {
 	return &Upstream{
-		conn:    conn,
-		channel: make(map[uint16]*rabbitmq.Channel),
-		mu:      sync.Mutex{},
-		logger:  logger.With("upstream", conn.RemoteAddr().String()),
+		conn:        conn,
+		channel:     make(map[uint16]*rabbitmq.Channel),
+		mu:          sync.Mutex{},
+		logger:      logger.With("upstream", conn.RemoteAddr().String()),
+		keyPatterns: conf.Routing.KeyPatterns,
 	}
 }
 
