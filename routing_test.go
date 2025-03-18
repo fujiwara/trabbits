@@ -21,15 +21,15 @@ func TestProxyPublishGetRouting(t *testing.T) {
 		t.Fatal("message is too short")
 	}
 	testID := rand.Text()
-	for _, upstream := range []string{"default", "another"} {
-		qName := "test.queue." + upstream + "." + testID
+	for _, key := range []string{"default", "another"} {
+		routingKey := "test.queue." + key + "." + testID
 		q, err := ch.QueueDeclare(
-			qName, // name
-			false, // durable
-			true,  // delete when unused
-			false, // exclusive
-			false, // no-wait
-			nil,   // arguments
+			routingKey, // name
+			false,      // durable
+			true,       // delete when unused
+			false,      // exclusive
+			false,      // no-wait
+			nil,        // arguments
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -47,14 +47,14 @@ func TestProxyPublishGetRouting(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		} else {
-			logger.Info("message published", "upstream", upstream, "queue", q.Name)
+			logger.Info("message published", "routing_key", routingKey, "queue", q.Name)
 		}
 	}
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	for _, upstream := range []string{"default", "another"} {
-		qName := "test.queue." + upstream + "." + testID
+	for i, key := range []string{"default", "another"} {
+		qName := "test.queue." + key + "." + testID
 		m, ok, err := ch.Get(qName, false)
 		if err != nil {
 			t.Error(err)
@@ -66,6 +66,16 @@ func TestProxyPublishGetRouting(t *testing.T) {
 		if string(m.Body) != body {
 			t.Errorf("unexpected message: %s", string(m.Body))
 		}
+
+		cfg := trabbits.MustGetConfig()
+		if len(cfg.Upstreams) > 1 {
+			// check delivery tag to detect which upstream the message was delivered
+			_, index := trabbits.RestoreDeliveryTag(m.DeliveryTag, len(cfg.Upstreams))
+			if index != i {
+				t.Errorf("unexpected message tag index: %d, expected: %d", index, i)
+			}
+		}
+
 		if err := ch.Ack(m.DeliveryTag, false); err != nil {
 			t.Error(err)
 		}
