@@ -6,6 +6,7 @@
 package amqp091
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"time"
@@ -60,11 +61,11 @@ type Writer struct {
 }
 
 func NewReader(r io.Reader) *Reader {
-	return &Reader{r: r}
+	return &Reader{r: bufio.NewReaderSize(r, 4096)}
 }
 
 func NewWriter(w io.Writer) *Writer {
-	return &Writer{w: w}
+	return &Writer{w: bufio.NewWriterSize(w, 4096)}
 }
 
 type Frame interface {
