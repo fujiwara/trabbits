@@ -212,32 +212,30 @@ func (f *BodyFrame) Write(w io.Writer) (err error) {
 	return writeFrame(w, frameBody, f.ChannelId, f.Body)
 }
 
-func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err error) {
-	end := []byte{frameEnd}
-	size := uint(len(payload))
+func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) error {
+	size := uint32(len(payload)) // 型を統一
 
-	_, err = w.Write([]byte{
-		typ,
-		byte((channel & 0xff00) >> 8),
-		byte((channel & 0x00ff) >> 0),
-		byte((size & 0xff000000) >> 24),
-		byte((size & 0x00ff0000) >> 16),
-		byte((size & 0x0000ff00) >> 8),
-		byte((size & 0x000000ff) >> 0),
-	})
-	if err != nil {
-		return
-	}
+	// 必要な容量を事前に確保
+	buf := make([]byte, 7+len(payload)+1)
 
-	if _, err = w.Write(payload); err != nil {
-		return
-	}
+	// ヘッダー部分をエンコード
+	buf[0] = typ
+	buf[1] = byte(channel >> 8)
+	buf[2] = byte(channel)
+	buf[3] = byte(size >> 24)
+	buf[4] = byte(size >> 16)
+	buf[5] = byte(size >> 8)
+	buf[6] = byte(size)
 
-	if _, err = w.Write(end); err != nil {
-		return
-	}
+	// ペイロードをコピー
+	copy(buf[7:], payload)
 
-	return
+	// フレームエンドをセット
+	buf[len(buf)-1] = frameEnd
+
+	// 1回の Write で送信
+	_, err := w.Write(buf)
+	return err
 }
 
 func writeShortstr(w io.Writer, s string) (err error) {

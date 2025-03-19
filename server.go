@@ -3,6 +3,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// MIT License
+// Copyright (c) 2025 FUJIWARA Shunichiro
+
 package trabbits
 
 import (
@@ -369,13 +372,13 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
-		if err := s.w.WriteFrame(&amqp091.MethodFrame{
+		if err := s.w.WriteFrameNoFlush(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    msg,
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
-		if err := s.w.WriteFrame(&amqp091.HeaderFrame{
+		if err := s.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
 			ClassId:    class,
 			Size:       uint64(len(body)),
