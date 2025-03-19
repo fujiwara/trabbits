@@ -33,3 +33,11 @@ jobs:
           make test
         env:
           TEST_RABBITMQ: t
+
+      - name: bench directly
+        run: |
+          make run-bench-rabbitmq
+
+      - name: bench via trabbits
+        run: |
+          make run-bench-trabbits
