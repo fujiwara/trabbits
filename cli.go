@@ -7,7 +7,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+
+	_ "net/http/pprof"
 
 	"github.com/alecthomas/kong"
 )
@@ -15,8 +18,9 @@ import (
 type CLI struct {
 	Run *RunOptions `cmd:"" help:"Run the trabbits server."`
 
-	Debug   bool             `help:"Enable debug mode." env:"DEBUG"`
-	Version kong.VersionFlag `help:"Show version."`
+	Debug       bool             `help:"Enable debug mode." env:"DEBUG"`
+	EnablePprof bool             `help:"Enable pprof." env:"ENABLE_PPROF"`
+	Version     kong.VersionFlag `help:"Show version."`
 }
 
 type RunOptions struct {
@@ -28,6 +32,15 @@ func Run(ctx context.Context) error {
 	var cli CLI
 	k := kong.Parse(&cli, kong.Vars{"version": fmt.Sprintf("trabbits %s", Version)})
 	setupLogger(cli.Debug)
+
+	if cli.EnablePprof {
+		go func() {
+			err := http.ListenAndServe("localhost:6060", nil)
+			if err != nil {
+				panic(fmt.Sprintf("failed to start pprof: %v", err))
+			}
+		}()
+	}
 
 	switch k.Command() {
 	case "run":
