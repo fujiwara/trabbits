@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -115,13 +116,15 @@ func (s *Proxy) replyBasicPublish(ctx context.Context, f *amqp091.MethodFrame, m
 
 func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicConsume) error {
 	id := f.Channel()
-	chs, err := s.GetChannels(id)
-	if err != nil {
-		return err
-	}
+	uss := s.Upstreams()
+
 	s.logger.Debug("Basic.Consume", "queue", m.Queue)
-	deliveries := make([]*delivery, 0, len(chs))
-	for i, ch := range chs {
+	deliveries := make([]*delivery, 0, len(uss))
+	for i, us := range uss {
+		ch, err := us.GetChannel(id)
+		if err != nil {
+			return fmt.Errorf("failed to get channel: %w", err)
+		}
 		consume, err := ch.ConsumeWithContext(
 			ctx,
 			m.Queue,
@@ -137,7 +140,19 @@ func (s *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		}
 		d := s.newDelivery(consume, i)
 		deliveries = append(deliveries, d)
+
+		if strings.HasPrefix(m.Queue, AutoGenerateQueueNamePrefix) {
+			qName := m.Queue
+			us.SetChannelDestructor(id, func() {
+				us.logger.Debug("auto-generated queue cleanup at shutdown", "queue", qName)
+				_, err := ch.QueueDelete(qName, false, false, false) // force delete if the queue is in use (blocking)
+				if err != nil {
+					s.logger.Warn("failed to delete auto-generated queue", "queue", qName, "error", err)
+				}
+			})
+		}
 	}
+
 	if err := s.send(id, &amqp091.BasicConsumeOk{
 		ConsumerTag: m.ConsumerTag,
 	}); err != nil {
