@@ -69,7 +69,7 @@ func TestMain(m *testing.M) {
 	defer cancel()
 	m.Run()
 
-	dumpMetrics()
+	// dumpMetrics()
 }
 
 func TestProxyConnect(t *testing.T) {
@@ -177,6 +177,7 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	// consume the message
 	go func() {
 		defer wg.Done()
+		time.Sleep(100 * time.Millisecond) // Wait for the message to be delivered
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 		d, err := ch.ConsumeWithContext(ctx, q.Name, "", false, false, false, false, nil)
@@ -186,6 +187,9 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 		}
 		msg := <-d
 		logger.Info("message received", "message", msg)
+		if string(msg.Body) != "hello "+q.Name {
+			t.Errorf("unexpected message: %s", string(msg.Body))
+		}
 		if err := ch.Ack(msg.DeliveryTag, false); err != nil {
 			t.Error(err)
 		}
