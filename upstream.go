@@ -6,8 +6,10 @@ package trabbits
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
+	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -18,6 +20,7 @@ type Upstream struct {
 	logger      *slog.Logger
 	keyPatterns []string
 	addr        string
+	queueAttr   *QueueAttributes
 }
 
 func NewUpstream(addr string, conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig) *Upstream {
@@ -28,6 +31,7 @@ func NewUpstream(addr string, conn *rabbitmq.Connection, logger *slog.Logger, co
 		logger:      logger.With("upstream", addr),
 		keyPatterns: conf.Routing.KeyPatterns,
 		addr:        addr,
+		queueAttr:   conf.QueueAttributes,
 	}
 	metrics.UpstreamTotalConnections.WithLabelValues(addr).Inc()
 	metrics.UpstreamConnections.WithLabelValues(addr).Inc()
@@ -90,4 +94,46 @@ func (u *Upstream) CloseChannel(id uint16) error {
 	}
 	delete(u.channel, id)
 	return nil
+}
+
+const AutoGenerateQueueNamePrefix = "trabbits.gen-"
+
+// QueueDeclareArgs generates arguments for rabbitmq.QueueDeclare(name, durable, autoDelete, exclusive, noWait bool, args Table)
+// noWait is always false because we need to wait for the response from multiple upstreams
+func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durable bool, autoDelete bool, exclusive bool, noWait bool, args rabbitmq.Table) {
+	if strings.HasPrefix(m.Queue, AutoGenerateQueueNamePrefix) {
+		// auto-generate queue name like amq.gen-xxxxx
+		// durable: false, autoDelete: true, exclusive: true because it's the same as amq.gen-xxxxx
+		return m.Queue, false, true, true, false, rabbitmq.Table(m.Arguments)
+	}
+	if attr := u.queueAttr; attr == nil {
+		// if no queue attributes, respect the message's attributes (excluding noWait)
+		return m.Queue, m.Durable, m.AutoDelete, m.Exclusive, false, rabbitmq.Table(m.Arguments)
+	} else {
+		u.logger.Debug("overriding queue attributes", "queue", m.Queue, "upstream", u.String(), "attributes", *attr)
+		// override the message's attributes with the upstream's configuration
+		durable := m.Durable
+		if attr.Durable != nil {
+			durable = *attr.Durable
+		}
+		autoDelete := m.AutoDelete
+		if attr.AutoDelete != nil {
+			autoDelete = *attr.AutoDelete
+		}
+		exclusive := m.Exclusive
+		if attr.Exclusive != nil {
+			exclusive = *attr.Exclusive
+		}
+		arguments := rabbitmq.Table(m.Arguments)
+		if attr.Arguments != nil {
+			for k, v := range attr.Arguments {
+				if v == nil {
+					delete(arguments, k)
+				} else {
+					arguments[k] = v
+				}
+			}
+		}
+		return m.Queue, durable, autoDelete, exclusive, false, arguments
+	}
 }

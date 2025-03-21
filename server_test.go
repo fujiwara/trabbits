@@ -17,7 +17,7 @@ import (
 
 	"github.com/fujiwara/trabbits"
 	"github.com/google/go-cmp/cmp"
-	"github.com/rabbitmq/amqp091-go"
+	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
 var testProxyPort = 5672
@@ -124,7 +124,7 @@ func TestProxyPublishGet(t *testing.T) {
 		q.Name, // routing key
 		false,  // mandatory
 		false,  // immediate
-		amqp091.Publishing{
+		rabbitmq.Publishing{
 			ContentType: "text/plain",
 			Body:        []byte(body),
 		},
@@ -205,7 +205,7 @@ func TestProxyPublishPurgeGet(t *testing.T) {
 		q.Name, // routing key
 		false,  // mandatory
 		false,  // immediate
-		amqp091.Publishing{
+		rabbitmq.Publishing{
 			ContentType: "text/plain",
 			Body:        []byte(body),
 		},
@@ -230,8 +230,8 @@ func TestProxyPublishPurgeGet(t *testing.T) {
 	}
 }
 
-func mustTestConn(t *testing.T) *amqp091.Connection {
-	conn, err := amqp091.Dial(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort))
+func mustTestConn(t *testing.T) *rabbitmq.Connection {
+	conn, err := rabbitmq.Dial(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func mustTestConn(t *testing.T) *amqp091.Connection {
 	return conn
 }
 
-func mustTestChannel(t *testing.T, conn *amqp091.Connection) *amqp091.Channel {
+func mustTestChannel(t *testing.T, conn *rabbitmq.Connection) *rabbitmq.Channel {
 	ch, err := conn.Channel()
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +273,7 @@ func TestProxyAckNack(t *testing.T) {
 			q.Name, // routing key
 			false,  // mandatory
 			false,  // immediate
-			amqp091.Publishing{
+			rabbitmq.Publishing{
 				ContentType: "text/plain",
 				Body:        []byte(body),
 			},
@@ -369,7 +369,7 @@ func TestProxyQos(t *testing.T) {
 			qName, // routing key
 			false, // mandatory
 			false, // immediate
-			amqp091.Publishing{
+			rabbitmq.Publishing{
 				ContentType: "text/plain",
 				Body:        []byte(fmt.Sprintf("%d-%s", i, rand.Text())),
 			},
@@ -497,7 +497,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 			routingKey, // routing key
 			false,      // mandatory
 			false,      // immediate
-			amqp091.Publishing{
+			rabbitmq.Publishing{
 				ContentType: "text/plain",
 				Body:        []byte(testMessage),
 			},
@@ -600,7 +600,7 @@ func TestProxyExchangeBroadcast(t *testing.T) {
 		key,      // routing key
 		false,    // mandatory
 		false,    // immediate
-		amqp091.Publishing{
+		rabbitmq.Publishing{
 			ContentType: "text/plain",
 			Body:        []byte(testMessage),
 		},
@@ -703,7 +703,7 @@ func TestProxyExchangeTopic(t *testing.T) {
 			key,      // routing key
 			false,    // mandatory
 			false,    // immediate
-			amqp091.Publishing{
+			rabbitmq.Publishing{
 				ContentType: "text/plain",
 				Body:        []byte(testMessage + strconv.Itoa(i)),
 			},
