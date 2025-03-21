@@ -50,10 +50,10 @@ TODO
 To start trabbits, run the following command:
 
 ```sh
-trabbits run
+trabbits run --config config.json
 ```
 
-By default, trabbits listens on port 5673 and connects to an upstream RabbitMQ server.
+By default, trabbits listens on port 6672 and connects to an upstream RabbitMQ server.
 
 ## Configuration
 
@@ -119,6 +119,10 @@ trabbits currently supports the following AMQP methods:
 - BasicNack
 - BasicCancel
 - BasicQos
+
+## Monitoring
+
+trabbits provides a Prometheus exporter that exposes metrics about the proxy server. You can access the metrics at `http://localhost:16692/metrics`.
 
 ## License
 

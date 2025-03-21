@@ -28,6 +28,7 @@ func LoadConfig(f string) (*Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
+	slog.Info("Configuration loaded", "config", c)
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}

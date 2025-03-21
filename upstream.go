@@ -17,16 +17,25 @@ type Upstream struct {
 	mu          sync.Mutex
 	logger      *slog.Logger
 	keyPatterns []string
+	addr        string
 }
 
-func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig) *Upstream {
-	return &Upstream{
+func NewUpstream(addr string, conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig) *Upstream {
+	u := &Upstream{
 		conn:        conn,
 		channel:     make(map[uint16]*rabbitmq.Channel),
 		mu:          sync.Mutex{},
-		logger:      logger.With("upstream", conn.RemoteAddr().String()),
+		logger:      logger.With("upstream", addr),
 		keyPatterns: conf.Routing.KeyPatterns,
+		addr:        addr,
 	}
+	metrics.UpstreamTotalConnections.WithLabelValues(addr).Inc()
+	metrics.UpstreamConnections.WithLabelValues(addr).Inc()
+	return u
+}
+
+func (u *Upstream) String() string {
+	return u.addr
 }
 
 func (u *Upstream) Close() error {
@@ -34,6 +43,7 @@ func (u *Upstream) Close() error {
 		return nil
 	}
 	if u.conn != nil {
+		metrics.UpstreamConnections.WithLabelValues(u.String()).Dec()
 		if err := u.conn.Close(); err != nil {
 			return fmt.Errorf("failed to close connection: %w", err)
 		}

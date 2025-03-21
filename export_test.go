@@ -8,6 +8,7 @@ var (
 	MatchPattern       = matchPattern
 	StoreConfig        = storeConfig
 	MustGetConfig      = mustGetConfig
+	MetricsStore       = metrics
 )
 
 type Delivery = delivery
