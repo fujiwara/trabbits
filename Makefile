@@ -23,7 +23,7 @@ _run-bench-rabbitmq:
 	docker run -t --network=host --env RABBITMQ_DEFAULT_USER=admin --env RABBITMQ_DEFAULT_PASS=admin --cpus=1 rabbitmq:3.12-management
 
 _run-bench-trabbits: trabbits
-	ENABLE_PPROF=true ./trabbits run --config <(echo '{"upstreams":[{"host":"127.0.0.1","port":5672}]}') --port 5673
+	ENABLE_PPROF=true ./trabbits run --config <(echo '{"upstreams":[{"host":"127.0.0.1","port":5672}]}') --port 6672
 
 run-bench-servers: _run-bench-rabbitmq _run-bench-trabbits
 
