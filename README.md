@@ -92,19 +92,20 @@ trabbit's configuration file is located at `config.json`. The configuration file
 
 The `upstreams` section contains an array of upstreams.
 
-The first upstream is used as the default. If the routing key does not match any patterns, trabbits will use the default upstream.
+The first upstream is used as the default. If the routing key does not match any patterns, trabbits will use the default upstream to publish messages.
 
 Each `upstream` has the following fields:
 
 - `host`: The hostname of the RabbitMQ server.
 - `port`: The port number of the RabbitMQ server.
 - `routing`: The routing rules for this upstream.
-  - `key_patterns`: An array of routing key patterns. If the routing key matches any of these patterns, trabbits will use this upstream. The patterns are same as the RabbitMQ's topic exchange routing key patterns includes wildcard characters `*` and `#`.
+  - `key_patterns`: An array of routing key patterns. If the routing key matches any of these patterns, trabbits will use this upstream to publish.
+    The patterns are the same as the RabbitMQ's topic exchange routing key patterns, including wildcard characters `*` and `#`.
 - `queue_attributes`: The attributes of the queue that will be declared on this upstream.
    All of the attributes are optional.
    The defined attributes will override the request attributes from the client.
    - `arguments`: A map of arguments for the queue.
-      The keys and values are strings. If the value is `null`, the argument will be removed.
+      The keys are strings and the values are any type. If the value is `null`, the argument will be removed.
 
 ### Routing Algorithm
 
