@@ -60,6 +60,7 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 	var messages, consumers int
 	var queueNames []string
 	for _, ch := range chs {
+		s.logger.Debug("Queue.Declare", "queue", m.Queue, "durable", m.Durable, "auto_delete", m.AutoDelete, "exclusive", m.Exclusive, "arguments", m.Arguments)
 		q, err := ch.QueueDeclare(
 			m.Queue,
 			m.Durable,
