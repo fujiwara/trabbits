@@ -154,9 +154,7 @@ func TestProxyPublishGet(t *testing.T) {
 
 func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	conn := mustTestConn(t)
-	defer conn.Close()
 	ch := mustTestChannel(t, conn)
-	defer ch.Close()
 
 	q, err := ch.QueueDeclare(
 		"",    // auto-named queue
@@ -169,12 +167,55 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logger.Info("queue declared (auto naming)", "queue", q.Name)
 	if q.Name == "" {
 		t.Error("empty queue name")
 	}
 	logger.Info("queue declared (auto naming)", "queue", q.Name)
-	ch.QueueDelete(q.Name, false, false, false)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	// consume the message
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		d, err := ch.ConsumeWithContext(ctx, q.Name, "", false, false, false, false, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		msg := <-d
+		logger.Info("message received", "message", msg)
+		if err := ch.Ack(msg.DeliveryTag, false); err != nil {
+			t.Error(err)
+		}
+	}()
+	// publish the message
+	ch.Publish(
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		rabbitmq.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte("hello " + q.Name),
+		},
+	)
+	wg.Wait()
+	ch.Close()
+	conn.Close()
+
+	time.Sleep(100 * time.Millisecond) // Wait for the temporary queue to be deleted
+
+	conn2 := mustTestConn(t)
+	defer conn2.Close()
+	ch2 := mustTestChannel(t, conn2)
+	defer ch2.Close()
+	if _, _, err := ch2.Get(q.Name, true); err == nil {
+		t.Errorf("queue should be deleted")
+	} else {
+		logger.Info("queue deleted", "queue", q.Name, "error", err)
+	}
 }
 
 func TestProxyPublishPurgeGet(t *testing.T) {

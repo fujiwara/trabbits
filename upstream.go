@@ -13,20 +13,33 @@ import (
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
+type upstreamChannel struct {
+	channel  *rabbitmq.Channel
+	destruct []func()
+}
+
+func (ch *upstreamChannel) Destruct() {
+	for _, f := range ch.destruct {
+		f()
+	}
+	ch.destruct = ch.destruct[:0] // clear
+}
+
 type Upstream struct {
-	conn        *rabbitmq.Connection
-	channel     map[uint16]*rabbitmq.Channel
-	mu          sync.Mutex
-	logger      *slog.Logger
-	keyPatterns []string
-	addr        string
-	queueAttr   *QueueAttributes
+	conn          *rabbitmq.Connection
+	channel       map[uint16]*upstreamChannel
+	mu            sync.Mutex
+	logger        *slog.Logger
+	keyPatterns   []string
+	addr          string
+	queueAttr     *QueueAttributes
+	shutdownFuncs sync.Map
 }
 
 func NewUpstream(addr string, conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig) *Upstream {
 	u := &Upstream{
 		conn:        conn,
-		channel:     make(map[uint16]*rabbitmq.Channel),
+		channel:     make(map[uint16]*upstreamChannel),
 		mu:          sync.Mutex{},
 		logger:      logger.With("upstream", addr),
 		keyPatterns: conf.Routing.KeyPatterns,
@@ -46,6 +59,11 @@ func (u *Upstream) Close() error {
 	if u == nil {
 		return nil
 	}
+	for _, ch := range u.channel {
+		ch.Destruct()
+		// no need to close the upstream channel here because it will be closed by conn.Close()
+	}
+
 	if u.conn != nil {
 		metrics.UpstreamConnections.WithLabelValues(u.String()).Dec()
 		if err := u.conn.Close(); err != nil {
@@ -66,9 +84,11 @@ func (u *Upstream) NewChannel(id uint16) (*rabbitmq.Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create upstream channel: %w", err)
 	}
-	u.channel[id] = ch
+	u.channel[id] = &upstreamChannel{
+		channel: ch,
+	}
 	u.logger.Debug("channel created", "id", id)
-	return u.channel[id], nil
+	return u.channel[id].channel, nil
 }
 
 func (u *Upstream) GetChannel(id uint16) (*rabbitmq.Channel, error) {
@@ -76,7 +96,7 @@ func (u *Upstream) GetChannel(id uint16) (*rabbitmq.Channel, error) {
 	defer u.mu.Unlock()
 	if ch, ok := u.channel[id]; ok {
 		u.logger.Debug("got channel", "id", id)
-		return ch, nil
+		return ch.channel, nil
 	}
 	return nil, fmt.Errorf("channel %d not found", id)
 }
@@ -88,12 +108,21 @@ func (u *Upstream) CloseChannel(id uint16) error {
 	if ch, ok := u.channel[id]; !ok {
 		return fmt.Errorf("channel %d not found", id)
 	} else {
-		if err := ch.Close(); err != nil {
+		ch.Destruct()
+		if err := ch.channel.Close(); err != nil {
 			return fmt.Errorf("failed to close channel %d: %w", id, err)
 		}
 	}
 	delete(u.channel, id)
 	return nil
+}
+
+func (u *Upstream) SetChannelDestructor(id uint16, f func()) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if ch, ok := u.channel[id]; ok {
+		ch.destruct = append(ch.destruct, f)
+	}
 }
 
 const AutoGenerateQueueNamePrefix = "trabbits.gen-"
