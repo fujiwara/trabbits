@@ -49,6 +49,10 @@ func (s *Proxy) Upstreams() []*Upstream {
 	return s.upstreams
 }
 
+func (s *Proxy) Upstream(i int) *Upstream {
+	return s.upstreams[i]
+}
+
 func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	var chs []*rabbitmq.Channel
 	for _, us := range s.upstreams {
