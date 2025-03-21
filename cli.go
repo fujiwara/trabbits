@@ -18,14 +18,16 @@ import (
 type CLI struct {
 	Run *RunOptions `cmd:"" help:"Run the trabbits server."`
 
+	Config  string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
+	Port    int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
+	APIPort int    `help:"Port to listen on for API (metrics, config and etc)." default:"16692" env:"TRABBITS_API_PORT"`
+
 	Debug       bool             `help:"Enable debug mode." env:"DEBUG"`
 	EnablePprof bool             `help:"Enable pprof." env:"ENABLE_PPROF"`
 	Version     kong.VersionFlag `help:"Show version."`
 }
 
 type RunOptions struct {
-	Port   int    `help:"Port to listen on." default:"5673" env:"TRABBITS_PORT"`
-	Config string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
 }
 
 func Run(ctx context.Context) error {
@@ -45,7 +47,7 @@ func Run(ctx context.Context) error {
 	switch k.Command() {
 	case "run":
 		// Run the server
-		return run(ctx, cli.Run)
+		return run(ctx, &cli)
 	}
 	return nil
 }

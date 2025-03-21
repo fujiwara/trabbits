@@ -35,7 +35,7 @@ var (
 
 var Debug bool
 
-func run(ctx context.Context, opt *RunOptions) error {
+func run(ctx context.Context, opt *CLI) error {
 	cfg, err := LoadConfig(opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -48,6 +48,13 @@ func run(ctx context.Context, opt *RunOptions) error {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
 	defer listener.Close()
+
+	cancel, err := runAPIServer(ctx, opt)
+	if err != nil {
+		return fmt.Errorf("failed to start API server: %w", err)
+	}
+	defer cancel()
+
 	return boot(ctx, listener)
 }
 
@@ -80,17 +87,24 @@ func boot(ctx context.Context, listener net.Listener) error {
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 func handleConnection(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	metrics.ClientConnections.Inc()
+	metrics.ClientTotalConnections.Inc()
+	defer func() {
+		conn.Close()
+		metrics.ClientConnections.Dec()
+	}()
 
 	slog.Info("new connection", "addr", conn.RemoteAddr())
 	// AMQP プロトコルヘッダー受信
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		slog.Warn("Failed to read AMQP header:", "error", err)
+		metrics.ClientConnectionErrors.Inc()
 		return
 	}
 	if !bytes.Equal(header, amqpHeader) {
 		slog.Warn("Invalid AMQP protocol header", "header", header)
+		metrics.ClientConnectionErrors.Inc()
 		return
 	}
 
@@ -100,6 +114,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 
 	if err := s.handshake(ctx); err != nil {
 		slog.Warn("Failed to handshake", "error", err)
+		metrics.ClientConnectionErrors.Inc()
 		return
 	}
 
@@ -129,10 +144,11 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
+		addr := net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port))
 		u := &url.URL{
 			Scheme: "amqp",
 			User:   url.UserPassword(s.user, s.password),
-			Host:   net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port)),
+			Host:   addr,
 			Path:   s.VirtualHost,
 		}
 		s.logger.Info("connect to upstream", "url", safeURLString(*u), "props", props)
@@ -145,9 +161,11 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []Upstream
 		}
 		conn, err := rabbitmq.DialConfig(u.String(), cfg)
 		if err != nil {
+			metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
 			return fmt.Errorf("failed to open upstream %s %w", u, err)
 		}
-		s.upstreams = append(s.upstreams, NewUpstream(conn, s.logger, c))
+		us := NewUpstream(addr, conn, s.logger, c)
+		s.upstreams = append(s.upstreams, us)
 	}
 	return nil
 }
@@ -273,6 +291,8 @@ func (s *Proxy) process(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
+	metrics.ClientReceivedFrames.Inc()
+
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
 		s.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method).String())
 	} else {
@@ -304,6 +324,8 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			}
 			f.Method = m // replace method with message
 		}
+		methodName := strings.TrimLeft(reflect.TypeOf(f.Method).String(), "*amqp091.")
+		metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
 			return s.replyChannelOpen(ctx, f, m)
@@ -336,7 +358,8 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		case *amqp091.BasicQos:
 			return s.replyBasicQos(ctx, f, m)
 		default:
-			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %T", m))
+			metrics.ErroredMessages.WithLabelValues(methodName).Inc()
+			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
 		s.logger.Debug("heartbeat")
@@ -378,6 +401,8 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
+		metrics.ClientSentFrames.Inc()
+
 		if err := s.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
 			ClassId:    class,
@@ -386,6 +411,8 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write HeaderFrame: %w", err)
 		}
+		metrics.ClientSentFrames.Inc()
+
 		// split body frame is it is too large (>= FrameMax)
 		// The overhead of BodyFrame is 8 bytes
 		offset := 0
@@ -401,6 +428,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 				return fmt.Errorf("failed to write BodyFrame: %w", err)
 			}
 			offset = end
+			metrics.ClientSentFrames.Inc()
 		}
 	} else {
 		if err := s.w.WriteFrame(&amqp091.MethodFrame{
@@ -409,6 +437,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
+		metrics.ClientSentFrames.Inc()
 	}
 	return nil
 }
@@ -426,6 +455,7 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
+		metrics.ClientReceivedFrames.Inc()
 
 		if frame.Channel() != uint16(channel) {
 			return nil, fmt.Errorf("expected frame on channel %d, got channel %d", channel, frame.Channel())
