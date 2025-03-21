@@ -11,6 +11,14 @@
                 "key_patterns": [
                     "test.queue.another.*"
                 ]
+            },
+            "queue_attributes": {
+                "durable": true,
+                "auto_delete": false,
+                "exclusive": false,
+                "arguments": {
+                    "x-queue-type": "quorum"
+                }
             }
         }
     ]

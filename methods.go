@@ -5,7 +5,6 @@ package trabbits
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -48,38 +47,30 @@ func (s *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 	if err != nil {
 		return err
 	}
-	if m.Queue == "" {
-		// generate unique queue name
-		m.Queue = fmt.Sprintf("trabbits.gen-%s", rand.Text())
-		// force auto-delete and exclusive
-		m.Exclusive = true
-		m.AutoDelete = true
-		s.logger.Debug("requested queue name is empty, generate unique queue name", "queue", m.Queue)
-	}
 
+	if m.Queue == "" {
+		m.Queue = AutoGenerateQueueNamePrefix + generateID()
+	}
 	var messages, consumers int
-	var queueNames []string
-	for _, ch := range chs {
-		s.logger.Debug("Queue.Declare", "queue", m.Queue, "durable", m.Durable, "auto_delete", m.AutoDelete, "exclusive", m.Exclusive, "arguments", m.Arguments)
-		q, err := ch.QueueDeclare(
-			m.Queue,
-			m.Durable,
-			m.AutoDelete,
-			m.Exclusive,
-			false, // no-wait
-			rabbitmq.Table(m.Arguments),
-		)
+	var queueName string
+	for i, ch := range chs {
+		us := s.Upstream(i)
+		q, err := ch.QueueDeclare(us.QueueDeclareArgs(m))
 		if err != nil {
 			return fmt.Errorf("failed to declare queue on upstream: %w", err)
 		}
 		messages += q.Messages
 		consumers += q.Consumers
-		queueNames = append(queueNames, q.Name)
+		if queueName == "" {
+			queueName = q.Name
+		} else if queueName != q.Name {
+			return NewError(amqp091.InternalError, "queue name mismatch")
+		}
 	}
-	s.logger.Debug("Queue.Declare", "queue", m.Queue, "upstream_queue", queueNames, "messages", messages, "consumers", consumers)
+	s.logger.Debug("Queue.Declare", "queue", m.Queue, "messages", messages, "consumers", consumers)
 
 	return s.send(id, &amqp091.QueueDeclareOk{
-		Queue:         m.Queue,
+		Queue:         queueName,
 		MessageCount:  uint32(messages),
 		ConsumerCount: uint32(consumers),
 	})
