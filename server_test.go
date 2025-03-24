@@ -24,17 +24,18 @@ var testProxyPort = 5672
 var testAPIPort int
 
 func runTestProxy(ctx context.Context) error {
-	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
-		slog.Info("skipping test server, use real RabbitMQ")
-		trabbits.StoreConfig(&trabbits.Config{})
-		return nil
-	}
 	slog.Info("starting test server")
 	cfg, err := trabbits.LoadConfig("testdata/config.json")
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
 	trabbits.StoreConfig(cfg)
+
+	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
+		slog.Info("skipping test server, use real RabbitMQ")
+		trabbits.StoreConfig(&trabbits.Config{})
+		skip = true
+	}
 
 	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
 	if err != nil {
