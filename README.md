@@ -88,6 +88,8 @@ trabbit's configuration file is located at `config.json`. The configuration file
 }
 ```
 
+trabbits supports dynamic configuration reloading. You can put a new configuration via HTTP PUT request to `/config` endpoint. See [API server](#api-server) section for more details.
+
 ### Upstreams section
 
 The `upstreams` section contains an array of upstreams.
@@ -147,22 +149,38 @@ trabbits currently supports the following AMQP methods:
 - BasicCancel
 - BasicQos
 
-## Monitoring
+## API Server
+
+trabbits provides an HTTP API server that allows you to manage the configuration and monitor the proxy server.
+
+`trabbits` listens on port 16692 for the API server by default. `--api-port` option can be used to change the port.
+
+### Monitoring API
 
 trabbits provides a Prometheus exporter that exposes metrics about the proxy server. You can access the metrics at `http://localhost:16692/metrics`.
 
+### Configuration API
 
-## Server-named queues emulation
+You can update the configuration of trabbits via the API server. You can get the current configuration and update with a new configuration via HTTP request to `/config` endpoint.
 
-trabbits can emulate server-named queues. If you declare a queue with an empty name, trabbits will generate a unique name for the queue.
+#### Get the current configuration
 
-This is not a feature of the AMQP 0.9.1 protocol, but a feature in RabbitMQ. See [Server-named queues](https://www.rabbitmq.com/queues.html#server-named-queues).
+```console
+$ curl http://localhost:16692/config
+```
 
-RabbitMQ generates a unique name for example `amq.gen-(random string)`. trabbits generates a unique name in the format `trabbits.gen-(random string)` because `amq.gen-` is reserved by RabbitMQ.
+trabbits returns the current configuration in JSON format.
 
-The generated queue by trabbis is not a temporary queue on the upstream RabbitMQ server. It is created as a normal queue with the specified attributes. The queue will not be deleted when the client disconnects by RabbitMQ, So trabbits emulates the server-named queue behavior.
+#### Update the configuration
 
-trabbits will delete the queue when the connection that declared the queue is closed (=exclusive).
+You can update the configuration by sending a PUT request with a new configuration in JSON format.
+
+```console
+curl -X PUT -d @new_config.json -H "Content-Type: application/json" http://localhost:16692/config
+```
+
+trabbits will reload the configuration and apply the new configuration.
+
 
 ## License
 
