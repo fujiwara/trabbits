@@ -68,7 +68,7 @@ func TestProxyPublishGetRouting(t *testing.T) {
 		}
 
 		cfg := trabbits.MustGetConfig()
-		if len(cfg.Upstreams) > 1 {
+		if testViaTrabbits {
 			// check delivery tag to detect which upstream the message was delivered
 			_, index := trabbits.RestoreDeliveryTag(m.DeliveryTag, len(cfg.Upstreams))
 			if index != i {

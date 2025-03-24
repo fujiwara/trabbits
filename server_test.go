@@ -21,19 +21,22 @@ import (
 )
 
 var testProxyPort = 5672
+var testViaTrabbits = true
+var testAPIPort int
 
 func runTestProxy(ctx context.Context) error {
-	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
-		slog.Info("skipping test server, use real RabbitMQ")
-		trabbits.StoreConfig(&trabbits.Config{})
-		return nil
-	}
 	slog.Info("starting test server")
 	cfg, err := trabbits.LoadConfig("testdata/config.json")
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
 	trabbits.StoreConfig(cfg)
+
+	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
+		slog.Info("skipping test server, use real RabbitMQ directly")
+		testViaTrabbits = false
+		return nil
+	}
 
 	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
 	if err != nil {
@@ -45,7 +48,18 @@ func runTestProxy(ctx context.Context) error {
 		testProxyPort, _ = strconv.Atoi(os.Getenv("TEST_PROXY_PORT"))
 	}
 	go trabbits.Boot(ctx, listener)
-	time.Sleep(100 * time.Millisecond) // Wait for the server to start
+	return nil
+}
+
+func runTestAPI(ctx context.Context) error {
+	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
+	if err != nil {
+		slog.Error("Failed to start test server", "error", err)
+		return err
+	}
+	testAPIPort = listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APIPort: testAPIPort})
 	return nil
 }
 
@@ -66,6 +80,8 @@ func TestMain(m *testing.M) {
 	})
 
 	runTestProxy(serverCtx)
+	runTestAPI(serverCtx)
+	time.Sleep(100 * time.Millisecond) // Wait for the server to start
 	defer cancel()
 	m.Run()
 
