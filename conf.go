@@ -53,10 +53,10 @@ func mustGetConfig() *Config {
 
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
-	Host            string           `yaml:"host" json:"host"`
-	Port            int              `yaml:"port" json:"port"`
-	Routing         RoutingConfig    `yaml:"routing" json:"routing"`
-	QueueAttributes *QueueAttributes `yaml:"queue_attributes" json:"queue_attributes"`
+	Host            string          `yaml:"host" json:"host"`
+	Port            int             `yaml:"port" json:"port"`
+	Routing         RoutingConfig   `yaml:"routing,omitempty" json:"routing,omitempty"`
+	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
 }
 
 func (c *Config) Validate() error {
@@ -70,12 +70,12 @@ func (c *Config) Validate() error {
 }
 
 type RoutingConfig struct {
-	KeyPatterns []string `yaml:"key_patterns" json:"key_patterns"`
+	KeyPatterns []string `yaml:"key_patterns,omitempty" json:"key_patterns,omitempty"`
 }
 
 type QueueAttributes struct {
-	Durable    *bool         `yaml:"durable" json:"durable"`
-	AutoDelete *bool         `yaml:"auto_delete" json:"auto_delete"`
-	Exclusive  *bool         `yaml:"exclusive" json:"exclusive"`
-	Arguments  amqp091.Table `yaml:"arguments" json:"arguments"`
+	Durable    *bool         `yaml:"durable,omitempty" json:"durable,omitempty"`
+	AutoDelete *bool         `yaml:"auto_delete,omitempty" json:"auto_delete,omitempty"`
+	Exclusive  *bool         `yaml:"exclusive,omitempty" json:"exclusive,omitempty"`
+	Arguments  amqp091.Table `yaml:"arguments,omitempty" json:"arguments,omitempty"`
 }
