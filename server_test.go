@@ -33,8 +33,7 @@ func runTestProxy(ctx context.Context) error {
 
 	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
 		slog.Info("skipping test server, use real RabbitMQ")
-		trabbits.StoreConfig(&trabbits.Config{})
-		skip = true
+		return nil
 	}
 
 	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
