@@ -9,6 +9,7 @@ var (
 	StoreConfig        = storeConfig
 	MustGetConfig      = mustGetConfig
 	MetricsStore       = metrics
+	RunAPIServer       = runAPIServer
 )
 
 type Delivery = delivery
