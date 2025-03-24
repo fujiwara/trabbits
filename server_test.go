@@ -21,6 +21,7 @@ import (
 )
 
 var testProxyPort = 5672
+var testViaTrabbits = true
 var testAPIPort int
 
 func runTestProxy(ctx context.Context) error {
@@ -32,7 +33,8 @@ func runTestProxy(ctx context.Context) error {
 	trabbits.StoreConfig(cfg)
 
 	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
-		slog.Info("skipping test server, use real RabbitMQ")
+		slog.Info("skipping test server, use real RabbitMQ directly")
+		testViaTrabbits = false
 		return nil
 	}
 
