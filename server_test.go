@@ -70,7 +70,11 @@ var (
 
 func TestMain(m *testing.M) {
 	debug, _ := strconv.ParseBool(os.Getenv("DEBUG"))
-	trabbits.SetupLogger(debug)
+	if debug {
+		trabbits.SetupLogger(slog.LevelDebug)
+	} else {
+		trabbits.SetupLogger(slog.LevelInfo)
+	}
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
 
