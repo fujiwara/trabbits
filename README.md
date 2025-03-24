@@ -39,7 +39,11 @@ Your clients can connect to trabbits and send and receive messages without knowi
 
 - Support for AMQP 0-9-1 protocol
 - Proxy functionality between client and upstream
-- Debugging capabilities with log output
+- Routing publishing messages to different upstreams based on the routing key
+- Consuming messages from multiple upstreams
+- Prometheus exporter for monitoring
+- Dynamic configuration reloading
+- CLI and API for managing configuration
 
 ## Installation
 
@@ -47,7 +51,29 @@ TODO
 
 ## Usage
 
-To start trabbits, run the following command:
+```
+Usage: trabbits <command> [flags]
+
+Flags:
+  -h, --help                    Show context-sensitive help.
+      --config="config.json"    Path to the configuration file ($TRABBITS_CONFIG).
+      --port=6672               Port to listen on ($TRABBITS_PORT).
+      --api-port=16692          Port to listen on for API (metrics, config and etc) ($TRABBITS_API_PORT).
+      --debug                   Enable debug mode ($DEBUG).
+      --enable-pprof            Enable pprof ($ENABLE_PPROF).
+      --version                 Show version.
+
+Commands:
+  run [flags]
+    Run the trabbits server.
+
+  manage config <command>
+    Manage the configuration.
+
+Run "trabbits <command> --help" for more information on a command.
+```
+
+To start trabbits server, `run` the following command:
 
 ```sh
 trabbits run --config config.json
@@ -159,9 +185,21 @@ trabbits provides an HTTP API server that allows you to manage the configuration
 
 trabbits provides a Prometheus exporter that exposes metrics about the proxy server. You can access the metrics at `http://localhost:16692/metrics`.
 
-### Configuration API
+### Configuration API / CLI
 
 You can update the configuration of trabbits via the API server. You can get the current configuration and update with a new configuration via HTTP request to `/config` endpoint.
+
+trabbits cli also supports the configuration management. You can use `trabbits manage config` command to manage 
+the configuration. The cli access to the API server on the localhost.
+
+```
+Usage: trabbits manage config <command>
+
+Manage the configuration.
+
+Arguments:
+  <command>    Command to run (get, diff, put).
+```
 
 #### Get the current configuration
 
@@ -171,16 +209,48 @@ $ curl http://localhost:16692/config
 
 trabbits returns the current configuration in JSON format.
 
+```console
+$ trabbits manage config get
+```
+
 #### Update the configuration
 
 You can update the configuration by sending a PUT request with a new configuration in JSON format.
 
 ```console
-curl -X PUT -d @new_config.json -H "Content-Type: application/json" http://localhost:16692/config
+$ curl -X PUT -d @new_config.json -H "Content-Type: application/json" http://localhost:16692/config
 ```
 
 trabbits will reload the configuration and apply the new configuration.
 
+```console
+$ trabbits manage config put --config new_config.json
+```
+
+#### Diff the configuration
+
+You can diff the current configuration and a new configuration using trabbits cli.
+
+```console
+$ trabbits manage config diff --config new_config.json
+```
+```diff
+--- http://localhost:16692/config
++++ new_config.json
+@@ -7,10 +7,10 @@
+     },
+     {
+       "host": "localhost",
+-      "port": 5673,
++      "port": 5674,
+       "routing": {
+         "key_patterns": [
+-          "#"
++          "test.queue.example.*"
+         ]
+       },
+       "queue_attributes": {
+```
 
 ## License
 
