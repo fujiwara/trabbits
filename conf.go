@@ -20,6 +20,11 @@ type Config struct {
 	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
 }
 
+func (c *Config) String() string {
+	data, _ := json.MarshalIndent(c, "", "  ")
+	return string(data)
+}
+
 func LoadConfig(f string) (*Config, error) {
 	var c Config
 	slog.Info("Loading configuration", "file", f)

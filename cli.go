@@ -16,7 +16,8 @@ import (
 )
 
 type CLI struct {
-	Run *RunOptions `cmd:"" help:"Run the trabbits server."`
+	Run    *RunOptions    `cmd:"" help:"Run the trabbits server."`
+	Manage *ManageOptions `cmd:"" help:"Manage the trabbits server."`
 
 	Config  string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
 	Port    int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
@@ -33,7 +34,11 @@ type RunOptions struct {
 func Run(ctx context.Context) error {
 	var cli CLI
 	k := kong.Parse(&cli, kong.Vars{"version": fmt.Sprintf("trabbits %s", Version)})
-	setupLogger(cli.Debug)
+	var logLevel = slog.LevelInfo
+	if cli.Debug {
+		logLevel = slog.LevelDebug
+	}
+	setupLogger(logLevel)
 
 	if cli.EnablePprof {
 		go func() {
@@ -48,17 +53,21 @@ func Run(ctx context.Context) error {
 	case "run":
 		// Run the server
 		return run(ctx, &cli)
+	case "manage config <command>":
+		// Manage the server
+		return manageConfig(ctx, &cli)
+	default:
+		return fmt.Errorf("unknown command: %s", k.Command())
 	}
-	return nil
 }
 
-func setupLogger(debug bool) {
-	var level slog.Level
-	if debug {
-		level = slog.LevelDebug
-	} else {
-		level = slog.LevelInfo
-	}
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+func setupLogger(level slog.Level) {
+	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	slog.SetDefault(slog.New(handler))
+}
+
+type ManageOptions struct {
+	Config struct {
+		Command string `arg:"" enum:"get,diff,put" help:"Command to run."`
+	} `cmd:"" help:"Manage the configuration."`
 }
