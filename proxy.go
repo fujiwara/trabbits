@@ -27,22 +27,24 @@ type Proxy struct {
 
 	upstreams []*Upstream
 
-	logger   *slog.Logger
-	user     string
-	password string
+	logger      *slog.Logger
+	user        string
+	password    string
+	clientProps amqp091.Table
 
 	keyPatterns []string
 }
 
 func NewProxy(conn io.ReadWriteCloser) *Proxy {
 	id := generateID()
-	return &Proxy{
-		conn:   conn,
-		id:     id,
-		r:      amqp091.NewReader(conn),
-		w:      amqp091.NewWriter(conn),
-		logger: slog.New(slog.Default().Handler()).With("proxy", id),
+	s := &Proxy{
+		conn: conn,
+		id:   id,
+		r:    amqp091.NewReader(conn),
+		w:    amqp091.NewWriter(conn),
 	}
+	s.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", s.ClientAddr())
+	return s
 }
 
 func (s *Proxy) Upstreams() []*Upstream {
@@ -118,4 +120,11 @@ func (s *Proxy) CloseChannel(id uint16) error {
 		}
 	}
 	return nil
+}
+
+func (s *Proxy) ClientBanner() string {
+	if s.clientProps == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s/%s", s.clientProps["platform"], s.clientProps["product"], s.clientProps["version"])
 }
