@@ -45,6 +45,11 @@ Your clients can connect to trabbits and send and receive messages without knowi
 - Dynamic configuration reloading
 - CLI and API for managing configuration
 
+## Limitations
+
+- Authentication mechanism support is limited to PLAIN and AMQPLAIN.
+- Not all AMQP 0-9-1 methods are supported. See [Supported Methods](#supported-methods) section for more details.
+
 ## Installation
 
 TODO
@@ -200,6 +205,10 @@ Manage the configuration.
 Arguments:
   <command>    Command to run (get, diff, put).
 ```
+
+#### Note
+
+Reloading the configuration will not affect the existing connections. The new configuration will be applied to new connections only.
 
 #### Get the current configuration
 
