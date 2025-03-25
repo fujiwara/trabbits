@@ -180,6 +180,18 @@ trabbits currently supports the following AMQP methods:
 - BasicCancel
 - BasicQos
 
+## Server-named queues emulation
+
+trabbits can emulate server-named queues. If you declare a queue with an empty name, trabbits will generate a unique name for the queue.
+
+This is not a feature of the AMQP 0.9.1 protocol, but a feature in RabbitMQ. See [Server-named queues](https://www.rabbitmq.com/queues.html#server-named-queues).
+
+RabbitMQ generates a unique name for example `amq.gen-(random string)`. trabbits generates a unique name in the format `trabbits.gen-(random string)` because `amq.gen-` is reserved by RabbitMQ.
+
+The generated queue by trabbis is not a temporary queue on the upstream RabbitMQ server. It is created as a normal queue with the specified attributes. The queue will not be deleted when the client disconnects by RabbitMQ, So trabbits emulates the server-named queue behavior.
+
+trabbits will delete the queue when the first consumer is canceled, or the queue is unbound from exchanges.
+
 ## API Server
 
 trabbits provides an HTTP API server that allows you to manage the configuration and monitor the proxy server.
