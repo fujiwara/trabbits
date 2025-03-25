@@ -94,7 +94,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		metrics.ClientConnections.Dec()
 	}()
 
-	slog.Info("new connection", "addr", conn.RemoteAddr())
+	slog.Info("new connection", "client_addr", conn.RemoteAddr().String())
 	// AMQP プロトコルヘッダー受信
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
@@ -110,7 +110,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 
 	s := NewProxy(conn)
 	defer s.Close()
-	s.logger.Info("proxy created", "client", conn.RemoteAddr())
+	s.logger.Info("proxy created")
 
 	if err := s.handshake(ctx); err != nil {
 		slog.Warn("Failed to handshake", "error", err)
@@ -118,11 +118,18 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	cfg := mustGetConfig()
+	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, s.clientProps); err != nil {
+		slog.Warn("Failed to connect to upstreams", "error", err)
+		return
+	}
+	s.logger.Info("connected to upstream")
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go s.runHeartbeat(ctx, uint16(HeartbeatInterval))
 
-	s.logger.Info("handshake completed", "client", conn.RemoteAddr())
+	s.logger.Info("handshake completed")
 	// ここからクライアントのリクエストを待ち受ける
 	for {
 		select {
@@ -133,7 +140,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		}
 		if err := s.process(ctx); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || isBrokenPipe(err) {
-				s.logger.Info("closed connection", "client", conn.RemoteAddr())
+				s.logger.Info("closed connection")
 			} else {
 				s.logger.Warn("failed to process", "error", err)
 			}
@@ -151,7 +158,7 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []Upstream
 			Host:   addr,
 			Path:   s.VirtualHost,
 		}
-		s.logger.Info("connect to upstream", "url", safeURLString(*u), "props", props)
+		s.logger.Info("connect to upstream", "url", safeURLString(*u))
 		cfg := rabbitmq.Config{
 			Properties: rabbitmq.Table{
 				"version":  props["version"],
@@ -188,19 +195,25 @@ func (s *Proxy) handshake(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
-	clientProps := startOk.ClientProperties
+	s.clientProps = startOk.ClientProperties
+	s.logger = s.logger.With("client", s.ClientBanner())
 	auth := startOk.Mechanism
-	if auth != "PLAIN" {
-		return fmt.Errorf("unsupported auth mechanism: %s", auth)
-	}
-	if res := startOk.Response; res == "" {
-		return fmt.Errorf("no auth response")
-	} else {
-		p := strings.SplitN(res, "\x00", 3) // null, user, pass
-		if len(p) != 3 {
-			return fmt.Errorf("invalid auth response %s", res)
+	authRes := startOk.Response
+	switch auth {
+	case "PLAIN":
+		s.user, s.password, err = amqp091.ParsePLAINAuthResponse(authRes)
+		if err != nil {
+			return fmt.Errorf("failed to parse PLAIN auth response: %w", err)
 		}
-		s.user, s.password = p[1], p[2]
+		s.logger.Info("PLAIN auth", "user", s.user)
+	case "AMQPLAIN":
+		s.user, s.password, err = amqp091.ParseAMQPLAINAuthResponse(authRes)
+		if err != nil {
+			return fmt.Errorf("failed to parse AMQPLAIN auth response: %w", err)
+		}
+		s.logger.Info("AMQPLAIN auth", "user", s.user)
+	default:
+		return fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
 
 	// Connection.Tune 送信
@@ -235,11 +248,6 @@ func (s *Proxy) handshake(ctx context.Context) error {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
-	cfg := mustGetConfig()
-	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, clientProps); err != nil {
-		return fmt.Errorf("failed to connect to upstream: %w", err)
-	}
-	s.logger.Info("connected to upstream")
 	return nil
 }
 
