@@ -20,9 +20,11 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"golang.org/x/sys/unix"
 
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
@@ -35,6 +37,23 @@ var (
 
 var Debug bool
 
+func newListener(ctx context.Context, addr string) (net.Listener, error) {
+	lc := &net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var opErr error
+			err := c.Control(func(fd uintptr) {
+				// SO_REUSEPORT
+				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+			})
+			if err != nil {
+				return err
+			}
+			return opErr
+		},
+	}
+	return lc.Listen(ctx, "tcp", addr)
+}
+
 func run(ctx context.Context, opt *CLI) error {
 	cfg, err := LoadConfig(opt.Config)
 	if err != nil {
@@ -43,7 +62,7 @@ func run(ctx context.Context, opt *CLI) error {
 	storeConfig(cfg)
 
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", opt.Port))
+	listener, err := newListener(ctx, fmt.Sprintf(":%d", opt.Port))
 	if err != nil {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
