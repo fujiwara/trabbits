@@ -20,6 +20,7 @@ func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("GET /config", apiGetConfigHandler(opt))
 	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt))
+	mux.HandleFunc("GET /client/stats", apiGetClientStatsHandler(opt))
 	var srv http.Server
 	// start API server
 	go func() {
@@ -76,5 +77,20 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 		}
 		storeConfig(cfg)
 		json.NewEncoder(w).Encode(cfg)
+	})
+}
+
+func apiGetClientStatsHandler(opt *CLI) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", APIContentType)
+		enc := json.NewEncoder(w)
+		proxyStats.Range(func(key, value any) bool {
+			st := value.(*ProxyStats)
+			if err := enc.Encode(st); err != nil {
+				slog.Error("failed to encode stats", "error", err)
+				return false
+			}
+			return true
+		})
 	})
 }

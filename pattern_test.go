@@ -70,6 +70,14 @@ var patternTests = []struct {
 	{"a.#.b.#.c", "a.x.y.b.z.c", true},
 	{"a.#.b.#.c", "a.b.c", true},
 	{"a.#.b.#.c", "a.b.x.y", false},
+
+	// partial match
+	{"foo.bar.baz-*", "foo.bar.baz-xxx", true},
+	{"foo.bar.baz-*", "foo.bar.baz-xxx.yyy", false},
+	{"foo.bar.baz-*.yyy", "foo.bar.baz-xxx.yyy", true},
+	{"foo.bar.baz-#", "foo.bar.baz-", true},
+	{"foo.bar.baz-#", "foo.bar.baz-xxx", true},
+	{"foo.bar.baz-#", "foo.bar.baz-xxx.yyy", false},
 }
 
 func TestMatchPattern(t *testing.T) {

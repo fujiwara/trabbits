@@ -9,10 +9,13 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
+
+var proxyStats = sync.Map{}
 
 type Proxy struct {
 	VirtualHost string
@@ -44,6 +47,9 @@ func NewProxy(conn io.ReadWriteCloser) *Proxy {
 		w:    amqp091.NewWriter(conn),
 	}
 	s.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", s.ClientAddr())
+	s.updateStats(func(st *ProxyStats) {
+		st.ConnectedAt = time.Now()
+	})
 	return s
 }
 
@@ -97,6 +103,9 @@ func (s *Proxy) ClientAddr() string {
 }
 
 func (s *Proxy) Close() {
+	defer s.updateStats(func(st *ProxyStats) {
+		st.ClosedAt = time.Now()
+	})
 	for _, us := range s.Upstreams() {
 		if err := us.Close(); err != nil {
 			us.logger.Warn("failed to close upstream", "error", err)

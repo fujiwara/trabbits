@@ -150,6 +150,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 }
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
+	var addrs []string
 	for _, c := range upstreamConfigs {
 		addr := net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port))
 		u := &url.URL{
@@ -173,7 +174,11 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []Upstream
 		}
 		us := NewUpstream(addr, conn, s.logger, c)
 		s.upstreams = append(s.upstreams, us)
+		addrs = append(addrs, addr)
 	}
+	s.updateStats(func(st *ProxyStats) {
+		st.Upstreams = addrs
+	})
 	return nil
 }
 
@@ -247,6 +252,10 @@ func (s *Proxy) handshake(ctx context.Context) error {
 	if err := s.send(0, openOk); err != nil {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
+
+	s.updateStats(func(st *ProxyStats) {
+		st.ClientBanner = s.ClientBanner()
+	})
 
 	return nil
 }
