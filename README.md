@@ -190,7 +190,7 @@ RabbitMQ generates a unique name for example `amq.gen-(random string)`. trabbits
 
 The generated queue by trabbis is not a temporary queue on the upstream RabbitMQ server. It is created as a normal queue with the specified attributes. The queue will not be deleted when the client disconnects by RabbitMQ, So trabbits emulates the server-named queue behavior.
 
-trabbits will delete the queue when the first consumer is canceled, or the queue is unbound from exchanges.
+trabbits will delete the queue when the connection that declared the queue is closed (=exclusive).
 
 ## API Server
 
