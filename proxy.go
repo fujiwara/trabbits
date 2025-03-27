@@ -5,7 +5,6 @@ package trabbits
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -18,7 +17,7 @@ type Proxy struct {
 	VirtualHost string
 
 	id     string
-	conn   io.ReadWriteCloser
+	conn   net.Conn
 	r      *amqp091.Reader // framer <- client
 	w      *amqp091.Writer // framer -> client
 	config *Config
@@ -35,7 +34,7 @@ type Proxy struct {
 	keyPatterns []string
 }
 
-func NewProxy(conn io.ReadWriteCloser) *Proxy {
+func NewProxy(conn net.Conn) *Proxy {
 	id := generateID()
 	s := &Proxy{
 		conn: conn,

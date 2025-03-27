@@ -144,20 +144,23 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	s.logger.Info("connected to upstream")
 
-	ctx, cancel := context.WithCancel(ctx)
+	// subCtx is used for client connection depends on parent context
+	subCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go s.runHeartbeat(ctx, uint16(HeartbeatInterval))
+	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
 	s.logger.Info("handshake completed")
-	// ここからクライアントのリクエストを待ち受ける
+	// wait for client frames
 	for {
 		select {
-		case <-ctx.Done():
-			s.shutdown(ctx)
+		case <-ctx.Done(): // parent (server) context is done
+			s.shutdown(subCtx) // graceful shutdown
+			return             // subCtx will be canceled by defer ^
+		case <-subCtx.Done():
 			return
 		default:
 		}
-		if err := s.process(ctx); err != nil {
+		if err := s.process(subCtx); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || isBrokenPipe(err) {
 				s.logger.Info("closed connection")
 			} else {
@@ -314,8 +317,12 @@ func (s *Proxy) shutdown(ctx context.Context) error {
 }
 
 func (s *Proxy) process(ctx context.Context) error {
+	s.conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // TODO: configurable?
 	frame, err := s.r.ReadFrame()
 	if err != nil {
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil
+		}
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
 	metrics.ClientReceivedFrames.Inc()
