@@ -316,13 +316,15 @@ func (s *Proxy) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *Proxy) setReadDeadline() {
-	s.conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // TODO: configurable?
+var readTimeout = 5 * time.Second
+
+func (s *Proxy) readClientFrame() (amqp091.Frame, error) {
+	s.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	return s.r.ReadFrame()
 }
 
 func (s *Proxy) process(ctx context.Context) error {
-	s.setReadDeadline()
-	frame, err := s.r.ReadFrame()
+	frame, err := s.readClientFrame()
 	if err != nil {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			return nil
@@ -489,8 +491,7 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	}()
 
 	for {
-		s.setReadDeadline()
-		frame, err := s.r.ReadFrame()
+		frame, err := s.readClientFrame()
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}

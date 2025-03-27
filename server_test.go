@@ -47,6 +47,7 @@ func runTestProxy(ctx context.Context) error {
 	if os.Getenv("TEST_PROXY_PORT") != "" {
 		testProxyPort, _ = strconv.Atoi(os.Getenv("TEST_PROXY_PORT"))
 	}
+	trabbits.SetReadTimeout(1 * time.Second) // for testing
 	go trabbits.Boot(ctx, listener)
 	return nil
 }
@@ -782,4 +783,12 @@ func TestProxyExchangeTopic(t *testing.T) {
 	if atomic.LoadInt64(&received) != int64(consumers) {
 		t.Errorf("unexpected received: %d", received)
 	}
+}
+
+func TestSlowClient(t *testing.T) {
+	conn := mustTestConn(t)
+	defer conn.Close()
+	time.Sleep(trabbits.GetReadTimeout() + 100*time.Millisecond)
+	ch := mustTestChannel(t, conn)
+	defer ch.Close()
 }
