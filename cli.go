@@ -19,9 +19,10 @@ type CLI struct {
 	Run    *RunOptions    `cmd:"" help:"Run the trabbits server."`
 	Manage *ManageOptions `cmd:"" help:"Manage the trabbits server."`
 
-	Config  string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
-	Port    int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
-	APIPort int    `help:"Port to listen on for API (metrics, config and etc)." default:"16692" env:"TRABBITS_API_PORT"`
+	Config      string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
+	Port        int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
+	MetricsPort int    `help:"Port to listen on for metrics" default:"16692" env:"TRABBITS_METRICS_PORT"`
+	APISocket   string `help:"Path to the API socket." default:"/tmp/trabbits.sock" env:"TRABBITS_API_SOCKET"`
 
 	Debug       bool             `help:"Enable debug mode." env:"DEBUG"`
 	EnablePprof bool             `help:"Enable pprof." env:"ENABLE_PPROF"`
