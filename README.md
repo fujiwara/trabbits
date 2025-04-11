@@ -63,7 +63,9 @@ Flags:
   -h, --help                    Show context-sensitive help.
       --config="config.json"    Path to the configuration file ($TRABBITS_CONFIG).
       --port=6672               Port to listen on ($TRABBITS_PORT).
-      --api-port=16692          Port to listen on for API (metrics, config and etc) ($TRABBITS_API_PORT).
+      --metrics-port=16692      Port to listen on for metrics ($TRABBITS_METRICS_PORT)
+      --api-socket="/tmp/trabbits.sock"
+                                Path to the API socket ($TRABBITS_API_SOCKET).
       --debug                   Enable debug mode ($DEBUG).
       --enable-pprof            Enable pprof ($ENABLE_PPROF).
       --version                 Show version.
@@ -192,15 +194,20 @@ The generated queue by trabbis is not a temporary queue on the upstream RabbitMQ
 
 trabbits will delete the queue when the connection that declared the queue is closed (=exclusive).
 
+## Monitoring server
+
+trabbits provides a monitoring server that exposes metrics about the proxy server. You can access the metrics at `http://localhost:16692/metrics`.
+
+These metrics format is compatible with Prometheus.
+
+The monitoring server is enabled by default and listens on port 16692. You can change the port by using the `--metrics-port` option.
+
+
 ## API Server
 
-trabbits provides an HTTP API server that allows you to manage the configuration and monitor the proxy server.
+trabbits provides an HTTP API server that allows you to manage the configuration.
 
-`trabbits` listens on port 16692 for the API server by default. `--api-port` option can be used to change the port.
-
-### Monitoring API
-
-trabbits provides a Prometheus exporter that exposes metrics about the proxy server. You can access the metrics at `http://localhost:16692/metrics`.
+`trabbits` listens on unix domain socket by default. You can change the socket path by using the `--api-socket` option.
 
 ### Configuration API / CLI
 
@@ -218,17 +225,29 @@ Arguments:
   <command>    Command to run (get, diff, put).
 ```
 
+#### Use curl to access the API server
+
+You can use `curl` to access the API server. The API server listens on the unix domain socket by default. You can change the socket path by using the `--api-socket` option.
+
+```console
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/config
+```
+
 #### Note
 
 Reloading the configuration will not affect the existing connections. The new configuration will be applied to new connections only.
 
 #### Get the current configuration
 
+You can get the current configuration by sending a GET request to the `/config` endpoint.
+
 ```console
-$ curl http://localhost:16692/config
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/config
 ```
 
 trabbits returns the current configuration in JSON format.
+
+You can also use the `trabbits` cli to get the current configuration.
 
 ```console
 $ trabbits manage config get
@@ -239,10 +258,13 @@ $ trabbits manage config get
 You can update the configuration by sending a PUT request with a new configuration in JSON format.
 
 ```console
-$ curl -X PUT -d @new_config.json -H "Content-Type: application/json" http://localhost:16692/config
+$ curl --unix-socket /tmp/trabbits.sock -X PUT -d @new_config.json \
+    -H "Content-Type: application/json" http://localhost/config
 ```
 
 trabbits will reload the configuration and apply the new configuration.
+
+You can also use the `trabbits` cli to update the configuration.
 
 ```console
 $ trabbits manage config put --config new_config.json
@@ -272,6 +294,18 @@ $ trabbits manage config diff --config new_config.json
        },
        "queue_attributes": {
 ```
+
+## Support for multiple instances
+
+trabbits can run multiple instances on the same server. You can use same port (`--port`) for multiple instances.
+
+This feature uses `SO_REUSEPORT` socket option. This allows multiple processes to bind to the same port. The kernel will distribute incoming connections to the processes.
+
+This feature is useful for deploying a new configuration without downtime. You can start a new instance with a new configuration and stop the old instance.
+
+### Note
+
+The `--metrics-port` and `--api-socket` options must be different for each instance. They are not using `SO_REUSEPORT` socket option because they are individual for each instance.
 
 ## License
 
