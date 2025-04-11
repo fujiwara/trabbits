@@ -58,6 +58,7 @@ func runTestAPI(ctx context.Context) error {
 		slog.Error("failed to create temp file", "error", err)
 	}
 	testAPISock = tmpfile.Name()
+	os.Remove(testAPISock) // trabbits will re create it
 	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APISocket: testAPISock})
 	return nil
 }
