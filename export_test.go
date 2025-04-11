@@ -1,5 +1,7 @@
 package trabbits
 
+import "time"
+
 var (
 	Boot               = boot
 	SetupLogger        = setupLogger
@@ -16,4 +18,12 @@ type Delivery = delivery
 
 func init() {
 	FrameMax = 256 // for testing
+}
+
+func SetReadTimeout(t time.Duration) {
+	readTimeout = t
+}
+
+func GetReadTimeout() time.Duration {
+	return readTimeout
 }
