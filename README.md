@@ -301,11 +301,11 @@ trabbits can run multiple instances on the same server. You can use same port (`
 
 This feature uses `SO_REUSEPORT` socket option. This allows multiple processes to bind to the same port. The kernel will distribute incoming connections to the processes.
 
-This feature is useful for deploying a new configuration without downtime. You can start a new instance with a new configuration and stop the old instance.
+This feature is useful for deploying a new version without downtime. You can start a new instance with a new version and configuration and stop the old instance.
 
 ### Note
 
-The `--metrics-port` and `--api-socket` options must be different for each instance. They are not using `SO_REUSEPORT` socket option because they are individual for each instance.
+The `--metrics-port` and `--api-socket` options must be different for each instance because they are individual for each instance.
 
 ## License
 
