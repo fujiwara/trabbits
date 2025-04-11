@@ -20,9 +20,11 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"golang.org/x/sys/unix"
 
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
@@ -35,6 +37,23 @@ var (
 
 var Debug bool
 
+func newListener(ctx context.Context, addr string) (net.Listener, error) {
+	lc := &net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var opErr error
+			err := c.Control(func(fd uintptr) {
+				// SO_REUSEPORT
+				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+			})
+			if err != nil {
+				return err
+			}
+			return opErr
+		},
+	}
+	return lc.Listen(ctx, "tcp", addr)
+}
+
 func run(ctx context.Context, opt *CLI) error {
 	cfg, err := LoadConfig(opt.Config)
 	if err != nil {
@@ -43,7 +62,7 @@ func run(ctx context.Context, opt *CLI) error {
 	storeConfig(cfg)
 
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", opt.Port))
+	listener, err := newListener(ctx, fmt.Sprintf(":%d", opt.Port))
 	if err != nil {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
@@ -125,20 +144,23 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	s.logger.Info("connected to upstream")
 
-	ctx, cancel := context.WithCancel(ctx)
+	// subCtx is used for client connection depends on parent context
+	subCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go s.runHeartbeat(ctx, uint16(HeartbeatInterval))
+	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
 	s.logger.Info("handshake completed")
-	// ここからクライアントのリクエストを待ち受ける
+	// wait for client frames
 	for {
 		select {
-		case <-ctx.Done():
-			s.shutdown(ctx)
+		case <-ctx.Done(): // parent (server) context is done
+			s.shutdown(subCtx) // graceful shutdown
+			return             // subCtx will be canceled by defer ^
+		case <-subCtx.Done():
 			return
 		default:
 		}
-		if err := s.process(ctx); err != nil {
+		if err := s.process(subCtx); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || isBrokenPipe(err) {
 				s.logger.Info("closed connection")
 			} else {
@@ -294,9 +316,19 @@ func (s *Proxy) shutdown(ctx context.Context) error {
 	return nil
 }
 
+var readTimeout = 5 * time.Second
+
+func (s *Proxy) readClientFrame() (amqp091.Frame, error) {
+	s.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	return s.r.ReadFrame()
+}
+
 func (s *Proxy) process(ctx context.Context) error {
-	frame, err := s.r.ReadFrame()
+	frame, err := s.readClientFrame()
 	if err != nil {
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil
+		}
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
 	metrics.ClientReceivedFrames.Inc()
@@ -459,7 +491,7 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	}()
 
 	for {
-		frame, err := s.r.ReadFrame()
+		frame, err := s.readClientFrame()
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
