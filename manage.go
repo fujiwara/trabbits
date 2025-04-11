@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aereal/jsondiff"
 	"github.com/fatih/color"
@@ -27,7 +29,7 @@ func manageConfig(ctx context.Context, opt *CLI) error {
 }
 
 func manageConfigGet(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APIPort)
+	client := newAPIClient(opt.APISocket)
 	cfg, err := client.getConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
@@ -42,7 +44,7 @@ func manageConfigDiff(ctx context.Context, opt *CLI) error {
 		return err
 	}
 
-	client := newAPIClient(opt.APIPort)
+	client := newAPIClient(opt.APISocket)
 	currentCfg, err := client.getConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
@@ -62,7 +64,7 @@ func manageConfigDiff(ctx context.Context, opt *CLI) error {
 }
 
 func manageConfigPut(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APIPort)
+	client := newAPIClient(opt.APISocket)
 	newCfg, err := LoadConfig(opt.Config)
 	if err != nil {
 		return err
@@ -89,11 +91,19 @@ type apiClient struct {
 	client   *http.Client
 }
 
-func newAPIClient(port int) *apiClient {
-	endpoint := fmt.Sprintf("http://localhost:%d/config", port)
+func newAPIClient(socketPath string) *apiClient {
+	tr := &http.Transport{
+		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+			return net.Dial("unix", socketPath)
+		},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   30 * time.Second,
+	}
 	return &apiClient{
-		endpoint: endpoint,
-		client:   http.DefaultClient,
+		endpoint: "http://localhost/config",
+		client:   client,
 	}
 }
 

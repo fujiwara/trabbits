@@ -1,6 +1,15 @@
 package trabbits
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
 
 var metrics *Metrics
 
@@ -89,4 +98,31 @@ func (m *Metrics) MustRegister() {
 		m.ProcessedMessages,
 		m.ErroredMessages,
 	)
+}
+
+func runMetricsServer(ctx context.Context, opt *CLI) (func(), error) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	var srv http.Server
+	// start metrics server
+	ch := make(chan error)
+	go func() {
+		slog.Info("starting metrics server", "port", opt.MetricsPort)
+		srv := &http.Server{
+			Handler: mux,
+			Addr:    fmt.Sprintf(":%d", opt.MetricsPort),
+		}
+		if err := srv.ListenAndServe(); err != nil {
+			slog.Error("failed to start metrics server", "error", err)
+			ch <- err
+		}
+	}()
+	wait := time.NewTimer(100 * time.Millisecond)
+	select {
+	case err := <-ch:
+		return nil, err
+	case <-wait.C:
+		slog.Info("metrics server started", "port", opt.MetricsPort)
+	}
+	return func() { srv.Shutdown(ctx) }, nil
 }
