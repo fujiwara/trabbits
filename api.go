@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 const APIContentType = "application/json"
@@ -19,9 +20,7 @@ func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 		return nil, func() {}, fmt.Errorf("path to socket is empty")
 	}
 	if _, err := os.Stat(socketPath); err == nil {
-		if err := os.Remove(socketPath); err != nil {
-			return nil, func() {}, fmt.Errorf("failed to remove existing socket: %w", err)
-		}
+		return nil, func() {}, fmt.Errorf("socket already exists: %s", socketPath)
 	}
 	// remove the socket file when the server is stopped
 	cancelFunc := func() {
@@ -45,12 +44,14 @@ func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
 	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt))
 	var srv http.Server
 	// start API server
+	ch := make(chan error)
 	go func() {
 		slog.Info("starting API server", "socket", opt.APISocket)
 		listener, cancel, err := listenUnixSocket(opt.APISocket)
 		defer cancel()
 		if err != nil {
-			slog.Error("failed to start API server", "error", err)
+			slog.Error("failed to listen API server socket", "error", err)
+			ch <- err
 			return
 		}
 		srv := &http.Server{
@@ -58,9 +59,21 @@ func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
 		}
 		if err := srv.Serve(listener); err != nil {
 			slog.Error("failed to start API server", "error", err)
+			ch <- err
 		}
 	}()
-	return func() { srv.Shutdown(ctx) }, nil
+
+	wait := time.NewTimer(100 * time.Millisecond)
+	select {
+	case err := <-ch:
+		return nil, err
+	case <-wait.C:
+		slog.Info("API server started", "socket", opt.APISocket)
+	}
+	return func() {
+		os.Remove(opt.APISocket)
+		srv.Shutdown(ctx)
+	}, nil
 }
 
 func apiGetConfigHandler(opt *CLI) http.HandlerFunc {

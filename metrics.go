@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -104,6 +105,7 @@ func runMetricsServer(ctx context.Context, opt *CLI) (func(), error) {
 	mux.Handle("/metrics", promhttp.Handler())
 	var srv http.Server
 	// start metrics server
+	ch := make(chan error)
 	go func() {
 		slog.Info("starting metrics server", "port", opt.MetricsPort)
 		srv := &http.Server{
@@ -111,8 +113,16 @@ func runMetricsServer(ctx context.Context, opt *CLI) (func(), error) {
 			Addr:    fmt.Sprintf(":%d", opt.MetricsPort),
 		}
 		if err := srv.ListenAndServe(); err != nil {
-			slog.Error("failed to start API server", "error", err)
+			slog.Error("failed to start metrics server", "error", err)
+			ch <- err
 		}
 	}()
+	wait := time.NewTimer(100 * time.Millisecond)
+	select {
+	case err := <-ch:
+		return nil, err
+	case <-wait.C:
+		slog.Info("metrics server started", "port", opt.MetricsPort)
+	}
 	return func() { srv.Shutdown(ctx) }, nil
 }

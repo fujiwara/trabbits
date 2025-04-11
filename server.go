@@ -61,18 +61,24 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 	storeConfig(cfg)
 
+	cancelAPI, err := runAPIServer(ctx, opt)
+	if err != nil {
+		return fmt.Errorf("failed to start API server: %w", err)
+	}
+	defer cancelAPI()
+
+	cancelMetrics, err := runMetricsServer(ctx, opt)
+	if err != nil {
+		return fmt.Errorf("failed to start metrics server: %w", err)
+	}
+	defer cancelMetrics()
+
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
 	listener, err := newListener(ctx, fmt.Sprintf(":%d", opt.Port))
 	if err != nil {
 		return fmt.Errorf("failed to start AMQP server: %w", err)
 	}
 	defer listener.Close()
-
-	cancel, err := runAPIServer(ctx, opt)
-	if err != nil {
-		return fmt.Errorf("failed to start API server: %w", err)
-	}
-	defer cancel()
 
 	return boot(ctx, listener)
 }
