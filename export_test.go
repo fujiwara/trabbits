@@ -12,6 +12,7 @@ var (
 	MustGetConfig      = mustGetConfig
 	MetricsStore       = metrics
 	RunAPIServer       = runAPIServer
+	NewAPIClient       = newAPIClient
 )
 
 type Delivery = delivery

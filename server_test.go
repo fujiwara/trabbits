@@ -22,7 +22,7 @@ import (
 
 var testProxyPort = 5672
 var testViaTrabbits = true
-var testAPIPort int
+var testAPISock string
 
 func runTestProxy(ctx context.Context) error {
 	slog.Info("starting test server")
@@ -53,14 +53,12 @@ func runTestProxy(ctx context.Context) error {
 }
 
 func runTestAPI(ctx context.Context) error {
-	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
+	tmpfile, err := os.CreateTemp("", "trabbits-test-api-sock-")
 	if err != nil {
-		slog.Error("Failed to start test server", "error", err)
-		return err
+		slog.Error("failed to create temp file", "error", err)
 	}
-	testAPIPort = listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APIPort: testAPIPort})
+	testAPISock = tmpfile.Name()
+	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APISocket: testAPISock})
 	return nil
 }
 
