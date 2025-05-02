@@ -16,11 +16,10 @@ import (
 type Proxy struct {
 	VirtualHost string
 
-	id     string
-	conn   net.Conn
-	r      *amqp091.Reader // framer <- client
-	w      *amqp091.Writer // framer -> client
-	config *Config
+	id   string
+	conn net.Conn
+	r    *amqp091.Reader // framer <- client
+	w    *amqp091.Writer // framer -> client
 
 	mu sync.Mutex
 
@@ -30,8 +29,6 @@ type Proxy struct {
 	user        string
 	password    string
 	clientProps amqp091.Table
-
-	keyPatterns []string
 }
 
 func NewProxy(conn net.Conn) *Proxy {
