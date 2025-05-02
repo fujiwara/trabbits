@@ -32,6 +32,8 @@ type Metrics struct {
 
 	ProcessedMessages *prometheus.CounterVec
 	ErroredMessages   *prometheus.CounterVec
+
+	LoggerStats *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -79,6 +81,11 @@ func NewMetrics() *Metrics {
 			Name: "trabbits_errored_messages",
 			Help: "Number of errored messages by method.",
 		}, []string{"method"}),
+
+		LoggerStats: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "trabbits_logger_stats",
+			Help: "Number of logger stats by level.",
+		}, []string{"level"}),
 	}
 }
 
@@ -97,6 +104,8 @@ func (m *Metrics) MustRegister() {
 
 		m.ProcessedMessages,
 		m.ErroredMessages,
+
+		m.LoggerStats,
 	)
 }
 
