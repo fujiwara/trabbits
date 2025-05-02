@@ -5,18 +5,15 @@ go 1.24
 require (
 	github.com/alecthomas/kong v1.10.0
 	github.com/rabbitmq/amqp091-go v1.10.0
-)
-
-require (
 	github.com/aereal/jsondiff v0.4.1
 	github.com/fatih/color v1.18.0
 	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/common v0.63.0
-  require golang.org/x/sys v0.32.0
 )
 
 require (
+        golang.org/x/sys v0.32.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
