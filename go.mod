@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/aereal/jsondiff v0.4.1
-	github.com/alecthomas/kong v1.10.0
+	github.com/alecthomas/kong v1.11.0
 	github.com/fatih/color v1.18.0
 	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.22.0
