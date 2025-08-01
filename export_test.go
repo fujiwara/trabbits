@@ -1,6 +1,10 @@
 package trabbits
 
-import "time"
+import (
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 var (
 	Boot               = boot
@@ -27,4 +31,8 @@ func SetReadTimeout(t time.Duration) {
 
 func GetReadTimeout() time.Duration {
 	return readTimeout
+}
+
+func GetMetricsRegistry() *prometheus.Registry {
+	return metricsReg
 }
