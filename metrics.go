@@ -12,10 +12,12 @@ import (
 )
 
 var metrics *Metrics
+var metricsReg *prometheus.Registry
 
 func init() {
 	metrics = NewMetrics()
-	metrics.MustRegister()
+	metricsReg = prometheus.NewRegistry()
+	metrics.MustRegister(metricsReg)
 }
 
 type Metrics struct {
@@ -43,20 +45,20 @@ func NewMetrics() *Metrics {
 			Help: "Number of client connections.",
 		}),
 		ClientTotalConnections: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_total_connections",
+			Name: "trabbits_client_connections_total",
 			Help: "Total number of client connections.",
 		}),
 		ClientConnectionErrors: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_connection_errors",
+			Name: "trabbits_client_connection_errors_total",
 			Help: "Number of client connection errors.",
 		}),
 
 		ClientReceivedFrames: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_received_frames",
+			Name: "trabbits_client_received_frames_total",
 			Help: "Number of received frames from clients.",
 		}),
 		ClientSentFrames: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_sent_frames",
+			Name: "trabbits_client_sent_frames_total",
 			Help: "Number of sent frames to clients.",
 		}),
 
@@ -65,32 +67,32 @@ func NewMetrics() *Metrics {
 			Help: "Number of upstream connections.",
 		}, []string{"addr"}),
 		UpstreamTotalConnections: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_upstream_total_connections",
+			Name: "trabbits_upstream_connections_total",
 			Help: "Total number of upstream connections.",
 		}, []string{"addr"}),
 		UpstreamConnectionErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_upstream_connection_errors",
+			Name: "trabbits_upstream_connection_errors_total",
 			Help: "Number of upstream connection errors.",
 		}, []string{"addr"}),
 
 		ProcessedMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_processed_messages",
+			Name: "trabbits_processed_messages_total",
 			Help: "Number of processed messages by method.",
 		}, []string{"method"}),
 		ErroredMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_errored_messages",
+			Name: "trabbits_errored_messages_total",
 			Help: "Number of errored messages by method.",
 		}, []string{"method"}),
 
 		LoggerStats: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_logger_stats",
+			Name: "trabbits_logger_stats_total",
 			Help: "Number of logger stats by level.",
 		}, []string{"level"}),
 	}
 }
 
-func (m *Metrics) MustRegister() {
-	prometheus.MustRegister(
+func (m *Metrics) MustRegister(reg prometheus.Registerer) {
+	reg.MustRegister(
 		m.ClientConnections,
 		m.ClientTotalConnections,
 		m.ClientConnectionErrors,
@@ -111,7 +113,7 @@ func (m *Metrics) MustRegister() {
 
 func runMetricsServer(ctx context.Context, opt *CLI) (func(), error) {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/metrics", promhttp.HandlerFor(metricsReg, promhttp.HandlerOpts{}))
 	var srv http.Server
 	// start metrics server
 	ch := make(chan error)
