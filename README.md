@@ -1,5 +1,11 @@
 # trabbits
 
+This project is currently in ALPHA status and should NOT be used in production environments.
+
+The API and behavior may change significantly before reaching stable release.
+
+---
+
 trabbits is a proxy server for sending and receiving messages using the AMQP protocol. This project supports RabbitMQ's AMQP 0-9-1 protocol.
 
 trabbits can have multiple upstreams, which are RabbitMQ servers that it connects to. It can also route messages to different upstreams based on the routing key.
