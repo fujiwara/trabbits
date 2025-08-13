@@ -24,6 +24,11 @@ jobs:
           go-version: ${{ matrix.go }}
         id: go
 
+      - name: wait for started
+        run: |
+          docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl wait --pid 1 --timeout 60"
+          docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl wait --pid 1 --timeout 60"
+
       - name: test
         run: |
           make test
