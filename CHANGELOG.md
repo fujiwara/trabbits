@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.0.2](https://github.com/fujiwara/trabbits/compare/v0.0.1...v0.0.2) - 2025-08-20
+- SO_REUSEPORT is for linux only by @fujiwara in https://github.com/fujiwara/trabbits/pull/30
+
 ## [v0.0.1](https://github.com/fujiwara/trabbits/commits/v0.0.1) - 2025-08-13
 - Two upstreams by @fujiwara in https://github.com/fujiwara/trabbits/pull/2
 - fix config by @fujiwara in https://github.com/fujiwara/trabbits/pull/3
