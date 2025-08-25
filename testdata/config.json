@@ -7,8 +7,14 @@
         },
         {
             "name": "secondary",
-            "host": "localhost",
-            "port": 5673,
+            "cluster": {
+                "nodes": [
+                    {
+                        "host": "localhost",
+                        "port": 5674
+                    }
+                ]
+            },
             "routing": {
                 "key_patterns": [
                     "test.queue.another.*"
