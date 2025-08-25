@@ -23,7 +23,7 @@ _run-bench-rabbitmq:
 	docker run -t --network=host --env RABBITMQ_DEFAULT_USER=admin --env RABBITMQ_DEFAULT_PASS=admin --cpus=1 rabbitmq:3.12-management
 
 _run-bench-trabbits: trabbits
-	ENABLE_PPROF=true ./trabbits run --config <(echo '{"upstreams":[{"host":"127.0.0.1","port":5672}]}') --port 6672
+	ENABLE_PPROF=true ./trabbits run --config <(echo '{"upstreams":[{"name":"single","host":"127.0.0.1","port":5672}]}') --port 6672
 
 run-bench-servers: _run-bench-rabbitmq _run-bench-trabbits
 
@@ -35,3 +35,12 @@ run-bench-trabbits:
 
 run-bench-rabbitmq:
 	docker run -i --rm --network=host --cpus=1 pivotalrabbitmq/perf-test:latest --uri amqp://admin:admin@127.0.0.1:5672 -z 30 $(BENCH_ARGS)
+
+setup-compose-cluster:
+	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl wait --pid 1 --timeout 60"
+	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl wait --pid 1 --timeout 60"
+	docker compose -f compose.yml exec rabbitmq3 sh -c "rabbitmqctl wait --pid 1 --timeout 60"
+	docker compose -f compose.yml exec rabbitmq4 sh -c "rabbitmqctl wait --pid 1 --timeout 60"
+	docker compose -f compose.yml exec rabbitmq3 sh -c "rabbitmqctl stop_app && rabbitmqctl reset && rabbitmqctl join_cluster rabbit@rabbitmq2 && rabbitmqctl start_app"
+	docker compose -f compose.yml exec rabbitmq4 sh -c "rabbitmqctl stop_app && rabbitmqctl reset && rabbitmqctl join_cluster rabbit@rabbitmq2 && rabbitmqctl start_app"
+	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl cluster_status"

@@ -1,4 +1,6 @@
 services:
+
+# rabbitmq1 is a standalone instance
   rabbitmq1:
     image: rabbitmq:3.12-management
     container_name: rabbitmq1
@@ -10,6 +12,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_ERLANG_COOKIE: "standalone-cookie"
+
+# rabbitmq2-4 are clustered
   rabbitmq2:
     image: rabbitmq:3.12-management
     container_name: rabbitmq2
@@ -21,3 +26,28 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_ERLANG_COOKIE: "cluster-cookie"
+  rabbitmq3:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq3
+    hostname: rabbitmq3
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+      - "15694:15692"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_ERLANG_COOKIE: "cluster-cookie"
+  rabbitmq4:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq4
+    hostname: rabbitmq4
+    ports:
+      - "5675:5672"
+      - "15675:15672"
+      - "15695:15692"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_ERLANG_COOKIE: "cluster-cookie"
