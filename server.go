@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/url"
 	"os"
@@ -182,7 +183,12 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table) (*rabb
 }
 
 func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table) (*rabbitmq.Connection, error) {
-	for _, addr := range addrs { // TODO round robin
+	shuffled := make([]string, len(addrs))
+	copy(shuffled, addrs)
+	rand.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+	for _, addr := range shuffled {
 		conn, err := s.connectToUpstreamServer(addr, props)
 		if err == nil {
 			return conn, nil
