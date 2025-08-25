@@ -69,8 +69,8 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "test-cluster",
 					Cluster: &trabbits.ClusterConfig{
-						Name: "test-cluster",
 						Nodes: []trabbits.NodeConfig{
 							{
 								Host: "localhost",
@@ -88,8 +88,8 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "test-cluster-1",
 					Cluster: &trabbits.ClusterConfig{
-						Name: "test-cluster-1",
 						Nodes: []trabbits.NodeConfig{
 							{
 								Host: "localhost",
@@ -103,8 +103,8 @@ var testConfigSuites = []struct {
 					},
 				},
 				{
+					Name: "test-cluster-2",
 					Cluster: &trabbits.ClusterConfig{
-						Name: "test-cluster-2",
 						Nodes: []trabbits.NodeConfig{
 							{
 								Host: "localhost",
