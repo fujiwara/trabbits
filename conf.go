@@ -95,10 +95,10 @@ func (u *UpstreamConfig) Addresses() []string {
 }
 
 func (u *UpstreamConfig) Validate() error {
+	if u.Name == "" {
+		return fmt.Errorf("cluster name is required")
+	}
 	if u.Cluster != nil {
-		if u.Name == "" {
-			return fmt.Errorf("cluster name is required")
-		}
 		for _, n := range u.Cluster.Nodes {
 			if n.Host == "" {
 				return fmt.Errorf("host is required for cluster node")

@@ -21,6 +21,7 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 					Port: 5672,
 				},
@@ -33,10 +34,12 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 					Port: 5672,
 				},
 				{
+					Name: "secondary",
 					Host: "localhost",
 					Port: 5673,
 				},
@@ -49,14 +52,17 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 					Port: 5672,
 				},
 				{
+					Name: "secondary",
 					Host: "localhost",
 					Port: 5673,
 				},
 				{
+					Name: "tertiary",
 					Host: "localhost",
 					Port: 5674,
 				},
@@ -122,6 +128,7 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 				},
 			},
