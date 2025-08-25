@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -67,7 +66,7 @@ func (c *Config) Validate() error {
 	}
 	for _, u := range c.Upstreams {
 		if err := u.Validate(); err != nil {
-			return fmt.Errorf("invalid upstream %s: %w", u.String(), err)
+			return fmt.Errorf("invalid upstream %s: %w", u.Name, err)
 		}
 	}
 	return nil
@@ -75,6 +74,7 @@ func (c *Config) Validate() error {
 
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
+	Name    string         `yaml:"name" json:"name"`
 	Host    string         `yaml:"host,omitempty" json:"host,omitempty"`
 	Port    int            `yaml:"port,omitempty" json:"port,omitempty"`
 	Cluster *ClusterConfig `yaml:"cluster,omitempty" json:"cluster,omitempty"`
@@ -83,20 +83,20 @@ type UpstreamConfig struct {
 	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
 }
 
-func (u *UpstreamConfig) String() string {
+func (u *UpstreamConfig) Addresses() []string {
 	if u.Cluster != nil {
-		addrs := []string{}
+		var addrs []string
 		for _, n := range u.Cluster.Nodes {
 			addrs = append(addrs, net.JoinHostPort(n.Host, fmt.Sprintf("%d", n.Port)))
 		}
-		return fmt.Sprintf("%s(%s)", u.Cluster.Name, strings.Join(addrs, ","))
+		return addrs
 	}
-	return net.JoinHostPort(u.Host, fmt.Sprintf("%d", u.Port))
+	return []string{net.JoinHostPort(u.Host, fmt.Sprintf("%d", u.Port))}
 }
 
 func (u *UpstreamConfig) Validate() error {
 	if u.Cluster != nil {
-		if u.Cluster.Name == "" {
+		if u.Name == "" {
 			return fmt.Errorf("cluster name is required")
 		}
 		for _, n := range u.Cluster.Nodes {
@@ -120,7 +120,6 @@ func (u *UpstreamConfig) Validate() error {
 }
 
 type ClusterConfig struct {
-	Name  string       `yaml:"name" json:"name"`
 	Nodes []NodeConfig `yaml:"nodes" json:"nodes"`
 }
 

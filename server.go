@@ -158,29 +158,48 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
+func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table) (*rabbitmq.Connection, error) {
+	u := &url.URL{
+		Scheme: "amqp",
+		User:   url.UserPassword(s.user, s.password),
+		Host:   addr,
+		Path:   s.VirtualHost,
+	}
+	s.logger.Info("connect to upstream", "url", safeURLString(*u))
+	cfg := rabbitmq.Config{
+		Properties: rabbitmq.Table{
+			"version":  props["version"],
+			"platform": props["platform"],
+			"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
+		},
+	}
+	conn, err := rabbitmq.DialConfig(u.String(), cfg)
+	if err != nil {
+		metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
+		return nil, fmt.Errorf("failed to open upstream %s %w", u, err)
+	}
+	return conn, nil
+}
+
+func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table) (*rabbitmq.Connection, error) {
+	for _, addr := range addrs { // TODO round robin
+		conn, err := s.connectToUpstreamServer(addr, props)
+		if err == nil {
+			return conn, nil
+		} else {
+			slog.Warn("Failed to connect to upstream", "address", addr, "error", err)
+		}
+	}
+	return nil, fmt.Errorf("failed to connect to any upstream: %v", addrs)
+}
+
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
-		addr := net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port))
-		u := &url.URL{
-			Scheme: "amqp",
-			User:   url.UserPassword(s.user, s.password),
-			Host:   addr,
-			Path:   s.VirtualHost,
-		}
-		s.logger.Info("connect to upstream", "url", safeURLString(*u))
-		cfg := rabbitmq.Config{
-			Properties: rabbitmq.Table{
-				"version":  props["version"],
-				"platform": props["platform"],
-				"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
-			},
-		}
-		conn, err := rabbitmq.DialConfig(u.String(), cfg)
+		conn, err := s.connectToUpstreamServers(c.Addresses(), props)
 		if err != nil {
-			metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
-			return fmt.Errorf("failed to open upstream %s %w", u, err)
+			return err
 		}
-		us := NewUpstream(addr, conn, s.logger, c)
+		us := NewUpstream(conn, s.logger, c)
 		s.upstreams = append(s.upstreams, us)
 	}
 	return nil
