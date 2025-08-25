@@ -11,7 +11,15 @@
                 "nodes": [
                     {
                         "host": "localhost",
+                        "port": 5673
+                    },
+                    {
+                        "host": "localhost",
                         "port": 5674
+                    },
+                    {
+                        "host": "localhost",
+                        "port": 5675
                     }
                 ]
             },
