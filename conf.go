@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -56,14 +58,6 @@ func mustGetConfig() *Config {
 	}
 }
 
-// UpstreamConfig represents the configuration of an upstream server.
-type UpstreamConfig struct {
-	Host            string          `yaml:"host" json:"host"`
-	Port            int             `yaml:"port" json:"port"`
-	Routing         RoutingConfig   `yaml:"routing,omitempty" json:"routing,omitempty"`
-	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
-}
-
 func (c *Config) Validate() error {
 	if len(c.Upstreams) == 0 {
 		return fmt.Errorf("no upstreams are defined")
@@ -71,7 +65,68 @@ func (c *Config) Validate() error {
 	if len(c.Upstreams) > 2 {
 		return fmt.Errorf("upstreams must be less or equal than 2 elements")
 	}
+	for _, u := range c.Upstreams {
+		if err := u.Validate(); err != nil {
+			return fmt.Errorf("invalid upstream %s: %w", u.String(), err)
+		}
+	}
 	return nil
+}
+
+// UpstreamConfig represents the configuration of an upstream server.
+type UpstreamConfig struct {
+	Host    string         `yaml:"host,omitempty" json:"host,omitempty"`
+	Port    int            `yaml:"port,omitempty" json:"port,omitempty"`
+	Cluster *ClusterConfig `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+
+	Routing         RoutingConfig    `yaml:"routing,omitempty" json:"routing,omitempty"`
+	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
+}
+
+func (u *UpstreamConfig) String() string {
+	if u.Cluster != nil {
+		addrs := []string{}
+		for _, n := range u.Cluster.Nodes {
+			addrs = append(addrs, net.JoinHostPort(n.Host, fmt.Sprintf("%d", n.Port)))
+		}
+		return fmt.Sprintf("%s(%s)", u.Cluster.Name, strings.Join(addrs, ","))
+	}
+	return net.JoinHostPort(u.Host, fmt.Sprintf("%d", u.Port))
+}
+
+func (u *UpstreamConfig) Validate() error {
+	if u.Cluster != nil {
+		if u.Cluster.Name == "" {
+			return fmt.Errorf("cluster name is required")
+		}
+		for _, n := range u.Cluster.Nodes {
+			if n.Host == "" {
+				return fmt.Errorf("host is required for cluster node")
+			}
+			if n.Port == 0 {
+				return fmt.Errorf("port is required for cluster node")
+			}
+		}
+	} else {
+		// single host
+		if u.Host == "" {
+			return fmt.Errorf("host is required")
+		}
+		if u.Port == 0 {
+			return fmt.Errorf("port is required")
+		}
+	}
+	return nil
+}
+
+type ClusterConfig struct {
+	Name  string       `yaml:"name" json:"name"`
+	Nodes []NodeConfig `yaml:"nodes" json:"nodes"`
+}
+
+type NodeConfig struct {
+	Host string `yaml:"host" json:"host"`
+	Port int    `yaml:"port" json:"port"`
 }
 
 type RoutingConfig struct {
