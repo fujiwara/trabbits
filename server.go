@@ -121,14 +121,15 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	s.logger.Info("proxy created")
 
 	if err := s.handshake(ctx); err != nil {
-		slog.Warn("Failed to handshake", "error", err)
+		s.logger.Warn("Failed to handshake", "error", err)
 		metrics.ClientConnectionErrors.Inc()
 		return
 	}
+	s.logger.Info("handshake completed")
 
 	cfg := mustGetConfig()
 	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, s.clientProps); err != nil {
-		slog.Warn("Failed to connect to upstreams", "error", err)
+		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
 	s.logger.Info("connected to upstreams")
@@ -138,7 +139,6 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	defer cancel()
 	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
-	s.logger.Info("handshake completed")
 	// wait for client frames
 	for {
 		select {
