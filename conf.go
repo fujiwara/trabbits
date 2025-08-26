@@ -75,11 +75,12 @@ func (c *Config) Validate() error {
 
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
-	Name    string         `yaml:"name" json:"name"`
-	Host    string         `yaml:"host,omitempty" json:"host,omitempty"`
-	Port    int            `yaml:"port,omitempty" json:"port,omitempty"`
-	Cluster *ClusterConfig `yaml:"cluster,omitempty" json:"cluster,omitempty"`
-	Timeout time.Duration  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Name        string             `yaml:"name" json:"name"`
+	Host        string             `yaml:"host,omitempty" json:"host,omitempty"`
+	Port        int                `yaml:"port,omitempty" json:"port,omitempty"`
+	Cluster     *ClusterConfig     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Timeout     Duration           `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	HealthCheck *HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check,omitempty"`
 
 	Routing         RoutingConfig    `yaml:"routing,omitempty" json:"routing,omitempty"`
 	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
@@ -128,6 +129,49 @@ type ClusterConfig struct {
 type NodeConfig struct {
 	Host string `yaml:"host" json:"host"`
 	Port int    `yaml:"port" json:"port"`
+}
+
+// Duration is a custom type that can unmarshal duration strings from JSON
+type Duration time.Duration
+
+// UnmarshalJSON implements json.Unmarshaler interface
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	
+	*d = Duration(dur)
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler interface
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+// String returns string representation
+func (d Duration) String() string {
+	return time.Duration(d).String()
+}
+
+// ToDuration converts to time.Duration
+func (d Duration) ToDuration() time.Duration {
+	return time.Duration(d)
+}
+
+// HealthCheckConfig represents health check configuration for cluster upstreams
+type HealthCheckConfig struct {
+	Enabled            bool     `yaml:"enabled" json:"enabled"`
+	Interval           Duration `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout            Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	UnhealthyThreshold int      `yaml:"unhealthy_threshold,omitempty" json:"unhealthy_threshold,omitempty"`
+	RecoveryInterval   Duration `yaml:"recovery_interval,omitempty" json:"recovery_interval,omitempty"`
 }
 
 type RoutingConfig struct {

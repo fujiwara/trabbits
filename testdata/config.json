@@ -23,6 +23,13 @@
                     }
                 ]
             },
+            "health_check": {
+                "enabled": true,
+                "interval": "30s",
+                "timeout": "5s",
+                "unhealthy_threshold": 3,
+                "recovery_interval": "60s"
+            },
             "routing": {
                 "key_patterns": [
                     "test.queue.another.*"

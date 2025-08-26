@@ -116,6 +116,13 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 			return
 		}
 		storeConfig(cfg)
+
+		// Reinitialize health managers with new configuration
+		if err := initHealthManagers(context.Background(), cfg); err != nil {
+			slog.Error("failed to reinit health managers", "error", err)
+			// Don't fail the config update, just log the error
+		}
+
 		json.NewEncoder(w).Encode(cfg)
 	})
 }
