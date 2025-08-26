@@ -29,9 +29,10 @@ import (
 )
 
 var (
-	ChannelMax        = 1023
-	HeartbeatInterval = 60
-	FrameMax          = 128 * 1024
+	ChannelMax             = 1023
+	HeartbeatInterval      = 60
+	FrameMax               = 128 * 1024
+	UpstreamDefaultTimeout = 5 * time.Second
 )
 
 var Debug bool
@@ -130,7 +131,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		slog.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
-	s.logger.Info("connected to upstream")
+	s.logger.Info("connected to upstreams")
 
 	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(context.Background())
@@ -159,7 +160,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table) (*rabbitmq.Connection, error) {
+func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
 	u := &url.URL{
 		Scheme: "amqp",
 		User:   url.UserPassword(s.user, s.password),
@@ -173,6 +174,7 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table) (*rabb
 			"platform": props["platform"],
 			"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
 		},
+		Dial: rabbitmq.DefaultDial(timeout),
 	}
 	conn, err := rabbitmq.DialConfig(u.String(), cfg)
 	if err != nil {
@@ -182,18 +184,18 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table) (*rabb
 	return conn, nil
 }
 
-func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table) (*rabbitmq.Connection, error) {
+func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
 	shuffled := make([]string, len(addrs))
 	copy(shuffled, addrs)
 	rand.Shuffle(len(shuffled), func(i, j int) {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	})
 	for _, addr := range shuffled {
-		conn, err := s.connectToUpstreamServer(addr, props)
+		conn, err := s.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
 			return conn, nil
 		} else {
-			slog.Warn("Failed to connect to upstream", "address", addr, "error", err)
+			s.logger.Warn("Failed to connect to upstream", "address", addr, "error", err)
 		}
 	}
 	return nil, fmt.Errorf("failed to connect to any upstream: %v", addrs)
@@ -201,7 +203,11 @@ func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table) (*
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
-		conn, err := s.connectToUpstreamServers(c.Addresses(), props)
+		timeout := c.Timeout
+		if timeout == 0 {
+			timeout = UpstreamDefaultTimeout
+		}
+		conn, err := s.connectToUpstreamServers(c.Addresses(), props, timeout)
 		if err != nil {
 			return err
 		}
