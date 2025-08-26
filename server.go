@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/url"
 	"os"
@@ -28,9 +29,10 @@ import (
 )
 
 var (
-	ChannelMax        = 1023
-	HeartbeatInterval = 60
-	FrameMax          = 128 * 1024
+	ChannelMax             = 1023
+	HeartbeatInterval      = 60
+	FrameMax               = 128 * 1024
+	UpstreamDefaultTimeout = 5 * time.Second
 )
 
 var Debug bool
@@ -119,24 +121,24 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	s.logger.Info("proxy created")
 
 	if err := s.handshake(ctx); err != nil {
-		slog.Warn("Failed to handshake", "error", err)
+		s.logger.Warn("Failed to handshake", "error", err)
 		metrics.ClientConnectionErrors.Inc()
 		return
 	}
+	s.logger.Info("handshake completed")
 
 	cfg := mustGetConfig()
 	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, s.clientProps); err != nil {
-		slog.Warn("Failed to connect to upstreams", "error", err)
+		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
-	s.logger.Info("connected to upstream")
+	s.logger.Info("connected to upstreams")
 
 	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
-	s.logger.Info("handshake completed")
 	// wait for client frames
 	for {
 		select {
@@ -158,29 +160,58 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
+func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
+	u := &url.URL{
+		Scheme: "amqp",
+		User:   url.UserPassword(s.user, s.password),
+		Host:   addr,
+		Path:   s.VirtualHost,
+	}
+	s.logger.Info("connect to upstream", "url", safeURLString(*u))
+	cfg := rabbitmq.Config{
+		Properties: rabbitmq.Table{
+			"version":  props["version"],
+			"platform": props["platform"],
+			"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
+		},
+		Dial: rabbitmq.DefaultDial(timeout),
+	}
+	conn, err := rabbitmq.DialConfig(u.String(), cfg)
+	if err != nil {
+		metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
+		return nil, fmt.Errorf("failed to open upstream %s %w", u, err)
+	}
+	return conn, nil
+}
+
+func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
+	shuffled := make([]string, len(addrs))
+	copy(shuffled, addrs)
+	rand.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+	for _, addr := range shuffled {
+		conn, err := s.connectToUpstreamServer(addr, props, timeout)
+		if err == nil {
+			return conn, nil
+		} else {
+			s.logger.Warn("Failed to connect to upstream", "address", addr, "error", err)
+		}
+	}
+	return nil, fmt.Errorf("failed to connect to any upstream: %v", addrs)
+}
+
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
-		addr := net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port))
-		u := &url.URL{
-			Scheme: "amqp",
-			User:   url.UserPassword(s.user, s.password),
-			Host:   addr,
-			Path:   s.VirtualHost,
+		timeout := c.Timeout
+		if timeout == 0 {
+			timeout = UpstreamDefaultTimeout
 		}
-		s.logger.Info("connect to upstream", "url", safeURLString(*u))
-		cfg := rabbitmq.Config{
-			Properties: rabbitmq.Table{
-				"version":  props["version"],
-				"platform": props["platform"],
-				"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
-			},
-		}
-		conn, err := rabbitmq.DialConfig(u.String(), cfg)
+		conn, err := s.connectToUpstreamServers(c.Addresses(), props, timeout)
 		if err != nil {
-			metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
-			return fmt.Errorf("failed to open upstream %s %w", u, err)
+			return err
 		}
-		us := NewUpstream(addr, conn, s.logger, c)
+		us := NewUpstream(conn, s.logger, c)
 		s.upstreams = append(s.upstreams, us)
 	}
 	return nil

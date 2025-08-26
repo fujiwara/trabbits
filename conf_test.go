@@ -21,6 +21,7 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 					Port: 5672,
 				},
@@ -33,10 +34,12 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 					Port: 5672,
 				},
 				{
+					Name: "secondary",
 					Host: "localhost",
 					Port: 5673,
 				},
@@ -49,16 +52,106 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
+					Name: "primary",
 					Host: "localhost",
 					Port: 5672,
 				},
 				{
+					Name: "secondary",
 					Host: "localhost",
 					Port: 5673,
 				},
 				{
+					Name: "tertiary",
 					Host: "localhost",
 					Port: 5674,
+				},
+			},
+		},
+		false,
+	},
+	{
+		"one cluster upstream",
+		&trabbits.Config{
+			Upstreams: []trabbits.UpstreamConfig{
+				{
+					Name: "test-cluster",
+					Cluster: &trabbits.ClusterConfig{
+						Nodes: []trabbits.NodeConfig{
+							{
+								Host: "localhost",
+								Port: 5672,
+							},
+						},
+					},
+				},
+			},
+		},
+		true,
+	},
+	{
+		"two cluster upstreams",
+		&trabbits.Config{
+			Upstreams: []trabbits.UpstreamConfig{
+				{
+					Name: "test-cluster-1",
+					Cluster: &trabbits.ClusterConfig{
+						Nodes: []trabbits.NodeConfig{
+							{
+								Host: "localhost",
+								Port: 5672,
+							},
+							{
+								Host: "localhost",
+								Port: 5673,
+							},
+						},
+					},
+				},
+				{
+					Name: "test-cluster-2",
+					Cluster: &trabbits.ClusterConfig{
+						Nodes: []trabbits.NodeConfig{
+							{
+								Host: "localhost",
+								Port: 5674,
+							},
+						},
+					},
+				},
+			},
+		},
+		true,
+	},
+	{
+		"invalid empty port",
+		&trabbits.Config{
+			Upstreams: []trabbits.UpstreamConfig{
+				{
+					Name: "primary",
+					Host: "localhost",
+				},
+			},
+		},
+		false,
+	},
+	{
+		"invalid no cluster name",
+		&trabbits.Config{
+			Upstreams: []trabbits.UpstreamConfig{
+				{
+					Cluster: &trabbits.ClusterConfig{
+						Nodes: []trabbits.NodeConfig{
+							{
+								Host: "localhost",
+								Port: 5672,
+							},
+							{
+								Host: "localhost",
+								Port: 5673,
+							},
+						},
+					},
 				},
 			},
 		},
@@ -70,6 +163,9 @@ func TestConfigValidate(t *testing.T) {
 	for _, suite := range testConfigSuites {
 		t.Run(suite.name, func(t *testing.T) {
 			err := suite.config.Validate()
+			if err != nil {
+				t.Log(err)
+			}
 			if suite.valid && err != nil {
 				t.Errorf("unexpected error: %s", err)
 			}
