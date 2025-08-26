@@ -167,9 +167,9 @@ func TestConfigFileLoading(t *testing.T) {
 
 func TestDurationJSONMarshalUnmarshal(t *testing.T) {
 	tests := []struct {
-		name        string
-		duration    string
-		expected    time.Duration
+		name     string
+		duration string
+		expected time.Duration
 	}{
 		{"seconds", "30s", 30 * time.Second},
 		{"minutes", "5m", 5 * time.Minute},
@@ -212,7 +212,7 @@ func TestDurationJSONMarshalUnmarshal(t *testing.T) {
 func TestDurationInvalidFormats(t *testing.T) {
 	invalidDurations := []string{
 		"invalid",
-		"30", // missing unit
+		"30",  // missing unit
 		"s30", // wrong format
 		"",
 	}
