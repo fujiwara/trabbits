@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
 )
@@ -78,6 +79,7 @@ type UpstreamConfig struct {
 	Host    string         `yaml:"host,omitempty" json:"host,omitempty"`
 	Port    int            `yaml:"port,omitempty" json:"port,omitempty"`
 	Cluster *ClusterConfig `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Timeout time.Duration  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
 	Routing         RoutingConfig    `yaml:"routing,omitempty" json:"routing,omitempty"`
 	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
