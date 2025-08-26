@@ -21,6 +21,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -37,12 +38,20 @@ var (
 
 var Debug bool
 
+// healthManagers stores health check managers for cluster upstreams
+var healthManagers = sync.Map{} // upstream name -> *NodeHealthManager
+
 func run(ctx context.Context, opt *CLI) error {
 	cfg, err := LoadConfig(opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	storeConfig(cfg)
+
+	// Initialize health check managers for cluster upstreams
+	if err := initHealthManagers(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to init health managers: %w", err)
+	}
 
 	cancelAPI, err := runAPIServer(ctx, opt)
 	if err != nil {
@@ -90,6 +99,34 @@ func boot(ctx context.Context, listener net.Listener) error {
 		}
 		go handleConnection(ctx, conn)
 	}
+}
+
+// initHealthManagers initializes health check managers for cluster upstreams
+func initHealthManagers(ctx context.Context, cfg *Config) error {
+	// Stop existing health managers
+	healthManagers.Range(func(key, value interface{}) bool {
+		if mgr, ok := value.(*NodeHealthManager); ok {
+			mgr.Stop()
+		}
+		healthManagers.Delete(key)
+		return true
+	})
+
+	// Create new health managers for cluster upstreams
+	for _, upstream := range cfg.Upstreams {
+		if upstream.Cluster != nil {
+			mgr := NewNodeHealthManager(upstream)
+			if mgr != nil {
+				mgr.StartHealthCheck(ctx)
+				healthManagers.Store(upstream.Name, mgr)
+				slog.Info("Health check manager initialized",
+					"upstream", upstream.Name,
+					"nodes", len(upstream.Cluster.Nodes))
+			}
+		}
+	}
+
+	return nil
 }
 
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
@@ -184,30 +221,55 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	return conn, nil
 }
 
-func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
-	shuffled := make([]string, len(addrs))
-	copy(shuffled, addrs)
+func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
+	var nodesToTry []string
+
+	// Use health manager if available for cluster upstreams
+	if mgr, ok := healthManagers.Load(upstreamName); ok {
+		if healthMgr := mgr.(*NodeHealthManager); healthMgr != nil {
+			nodesToTry = healthMgr.GetHealthyNodes()
+			s.logger.Debug("Using health-based node selection",
+				"upstream", upstreamName,
+				"healthy_nodes", len(nodesToTry),
+				"total_nodes", len(addrs))
+		}
+	}
+
+	// Fall back to all nodes if no health manager or no healthy nodes
+	if len(nodesToTry) == 0 {
+		nodesToTry = addrs
+	}
+
+	// Shuffle nodes for random selection
+	shuffled := make([]string, len(nodesToTry))
+	copy(shuffled, nodesToTry)
 	rand.Shuffle(len(shuffled), func(i, j int) {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	})
+
+	// Try to connect to each node
 	for _, addr := range shuffled {
 		conn, err := s.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
+			s.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
 			return conn, nil
 		} else {
-			s.logger.Warn("Failed to connect to upstream", "address", addr, "error", err)
+			s.logger.Warn("Failed to connect to upstream node",
+				"upstream", upstreamName,
+				"address", addr,
+				"error", err)
 		}
 	}
-	return nil, fmt.Errorf("failed to connect to any upstream: %v", addrs)
+	return nil, fmt.Errorf("failed to connect to any upstream node in %s: tried %v", upstreamName, shuffled)
 }
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
-		timeout := c.Timeout
+		timeout := c.Timeout.ToDuration()
 		if timeout == 0 {
 			timeout = UpstreamDefaultTimeout
 		}
-		conn, err := s.connectToUpstreamServers(c.Addresses(), props, timeout)
+		conn, err := s.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
 		if err != nil {
 			return err
 		}

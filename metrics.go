@@ -32,6 +32,9 @@ type Metrics struct {
 	UpstreamTotalConnections *prometheus.CounterVec
 	UpstreamConnectionErrors *prometheus.CounterVec
 
+	UpstreamHealthyNodes   *prometheus.GaugeVec
+	UpstreamUnhealthyNodes *prometheus.GaugeVec
+
 	ProcessedMessages *prometheus.CounterVec
 	ErroredMessages   *prometheus.CounterVec
 
@@ -75,6 +78,15 @@ func NewMetrics() *Metrics {
 			Help: "Number of upstream connection errors.",
 		}, []string{"addr"}),
 
+		UpstreamHealthyNodes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "trabbits_upstream_healthy_nodes",
+			Help: "Number of healthy nodes in upstream cluster.",
+		}, []string{"upstream"}),
+		UpstreamUnhealthyNodes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "trabbits_upstream_unhealthy_nodes",
+			Help: "Number of unhealthy nodes in upstream cluster.",
+		}, []string{"upstream"}),
+
 		ProcessedMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "trabbits_processed_messages_total",
 			Help: "Number of processed messages by method.",
@@ -103,6 +115,9 @@ func (m *Metrics) MustRegister(reg prometheus.Registerer) {
 		m.UpstreamConnections,
 		m.UpstreamTotalConnections,
 		m.UpstreamConnectionErrors,
+
+		m.UpstreamHealthyNodes,
+		m.UpstreamUnhealthyNodes,
 
 		m.ProcessedMessages,
 		m.ErroredMessages,
