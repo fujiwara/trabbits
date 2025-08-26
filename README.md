@@ -8,7 +8,7 @@ The API and behavior may change significantly before reaching stable release.
 
 trabbits is a proxy server for sending and receiving messages using the AMQP protocol. This project supports RabbitMQ's AMQP 0-9-1 protocol.
 
-trabbits can have multiple upstreams, which are RabbitMQ servers that it connects to. It can also route messages to different upstreams based on the routing key.
+trabbits can have multiple upstreams, which can be single RabbitMQ servers or RabbitMQ clusters that it connects to. It can also route messages to different upstreams based on the routing key.
 
 ## Propose of this project
 
@@ -45,6 +45,8 @@ Your clients can connect to trabbits and send and receive messages without knowi
 
 - Support for AMQP 0-9-1 protocol
 - Proxy functionality between client and upstream
+- Support for both single RabbitMQ servers and RabbitMQ clusters as upstreams
+- Automatic failover within RabbitMQ clusters
 - Routing publishing messages to different upstreams based on the routing key
 - Consuming messages from multiple upstreams
 - Prometheus exporter for monitoring
@@ -102,13 +104,29 @@ trabbit's configuration file is located at `config.json`. The configuration file
 {
     "upstreams": [
         {
+            "name": "primary",
             "host": "localhost",
-            "port": 5672,
-            "default": true
+            "port": 5672
         },
         {
-            "host": "localhost",
-            "port": 5673,
+            "name": "secondary-cluster",
+            "cluster": {
+                "nodes": [
+                    {
+                        "host": "localhost",
+                        "port": 5673
+                    },
+                    {
+                        "host": "localhost",
+                        "port": 5674
+                    },
+                    {
+                        "host": "localhost",
+                        "port": 5675
+                    }
+                ]
+            },
+            "timeout": "10s",
             "routing": {
                 "key_patterns": [
                     "test.queue.another.*"
@@ -137,8 +155,14 @@ The first upstream is used as the default. If the routing key does not match any
 
 Each `upstream` has the following fields:
 
-- `host`: The hostname of the RabbitMQ server.
-- `port`: The port number of the RabbitMQ server.
+- `name`: (Required) A unique name for the upstream.
+- `host`: The hostname of the RabbitMQ server (required for single server configuration).
+- `port`: The port number of the RabbitMQ server (required for single server configuration).
+- `cluster`: Configuration for RabbitMQ cluster connection (alternative to `host`/`port`).
+  - `nodes`: An array of cluster nodes.
+    - `host`: The hostname of the cluster node.
+    - `port`: The port number of the cluster node.
+- `timeout`: Connection timeout duration (optional, default: 5s). Accepts Go duration format (e.g., "10s", "1m").
 - `routing`: The routing rules for this upstream.
   - `key_patterns`: An array of routing key patterns. If the routing key matches any of these patterns, trabbits will use this upstream to publish.
     The patterns are the same as the RabbitMQ's topic exchange routing key patterns, including wildcard characters `*` and `#`.
@@ -147,6 +171,15 @@ Each `upstream` has the following fields:
    The defined attributes will override the request attributes from the client.
    - `arguments`: A map of arguments for the queue.
       The keys are strings and the values are any type. If the value is `null`, the argument will be removed.
+
+### Cluster Connection Behavior
+
+When connecting to a cluster upstream, trabbits will:
+
+1. **Random Selection**: Randomly shuffle the cluster nodes to distribute connection load
+2. **Failover**: Try each node in the shuffled order until a successful connection is established
+3. **Connection Reuse**: Once connected to a cluster node, that connection is used for all operations
+4. **Timeout**: Use the configured timeout (default: 5s) for each connection attempt
 
 ### Routing Algorithm
 
