@@ -13,15 +13,12 @@ import (
 // Test that health check configuration is properly parsed
 func TestHealthCheckConfig(t *testing.T) {
 	cfg := &trabbits.HealthCheckConfig{
-		Enabled:            true,
 		Interval:           trabbits.Duration(30 * time.Second),
 		Timeout:            trabbits.Duration(5 * time.Second),
 		UnhealthyThreshold: 3,
 		RecoveryInterval:   trabbits.Duration(60 * time.Second),
-	}
-
-	if !cfg.Enabled {
-		t.Error("HealthCheckConfig should be enabled")
+		Username:           "admin",
+		Password:           "admin",
 	}
 	if cfg.Interval.ToDuration() != 30*time.Second {
 		t.Errorf("Interval should be 30s, got %v", cfg.Interval.ToDuration())
@@ -48,8 +45,9 @@ func TestUpstreamConfigWithHealthCheck(t *testing.T) {
 			},
 		},
 		HealthCheck: &trabbits.HealthCheckConfig{
-			Enabled:  true,
 			Interval: trabbits.Duration(10 * time.Second),
+			Username: "admin",
+			Password: "admin",
 		},
 	}
 
@@ -60,8 +58,5 @@ func TestUpstreamConfigWithHealthCheck(t *testing.T) {
 
 	if upstream.HealthCheck == nil {
 		t.Error("HealthCheck should not be nil")
-	}
-	if !upstream.HealthCheck.Enabled {
-		t.Error("HealthCheck should be enabled")
 	}
 }
