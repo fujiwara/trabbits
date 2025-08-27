@@ -47,8 +47,8 @@ setup-compose-cluster:
 	# Create health check user on standalone instance
 	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl add_user healthcheck healthpass || true"
 	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl set_user_tags healthcheck monitoring"
-	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl set_permissions -p / healthcheck '' '' ''"
+	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl set_permissions -p / healthcheck '.*' '.*' '.*'"
 	# Create health check user on cluster (only need to add to one node, will replicate to others)
 	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl add_user healthcheck healthpass || true"
 	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl set_user_tags healthcheck monitoring"
-	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl set_permissions -p / healthcheck '' '' ''"
+	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl set_permissions -p / healthcheck '.*' '.*' '.*'"
