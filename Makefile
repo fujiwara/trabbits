@@ -8,7 +8,7 @@ clean:
 	rm -rf trabbits dist/
 
 test:
-	go test ./... -count=1
+	RABBITMQ_HEALTH_PASS=healthpass go test ./... -count=1
 
 install:
 	go install github.com/fujiwara/trabbits/cmd/trabbits
@@ -44,3 +44,11 @@ setup-compose-cluster:
 	docker compose -f compose.yml exec rabbitmq3 sh -c "rabbitmqctl stop_app && rabbitmqctl reset && rabbitmqctl join_cluster rabbit@rabbitmq2 && rabbitmqctl start_app"
 	docker compose -f compose.yml exec rabbitmq4 sh -c "rabbitmqctl stop_app && rabbitmqctl reset && rabbitmqctl join_cluster rabbit@rabbitmq2 && rabbitmqctl start_app"
 	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl cluster_status"
+	# Create health check user on standalone instance
+	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl add_user healthcheck healthpass || true"
+	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl set_user_tags healthcheck monitoring"
+	docker compose -f compose.yml exec rabbitmq1 sh -c "rabbitmqctl set_permissions -p / healthcheck '' '' ''"
+	# Create health check user on cluster (only need to add to one node, will replicate to others)
+	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl add_user healthcheck healthpass || true"
+	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl set_user_tags healthcheck monitoring"
+	docker compose -f compose.yml exec rabbitmq2 sh -c "rabbitmqctl set_permissions -p / healthcheck '' '' ''"
