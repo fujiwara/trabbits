@@ -241,14 +241,12 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	}
 
 	// Shuffle nodes for random selection
-	shuffled := make([]string, len(nodesToTry))
-	copy(shuffled, nodesToTry)
-	rand.Shuffle(len(shuffled), func(i, j int) {
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	rand.Shuffle(len(nodesToTry), func(i, j int) {
+		nodesToTry[i], nodesToTry[j] = nodesToTry[j], nodesToTry[i]
 	})
 
 	// Try to connect to each node
-	for _, addr := range shuffled {
+	for _, addr := range nodesToTry {
 		conn, err := s.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
 			s.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
@@ -260,7 +258,7 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 				"error", err)
 		}
 	}
-	return nil, fmt.Errorf("failed to connect to any upstream node in %s: tried %v", upstreamName, shuffled)
+	return nil, fmt.Errorf("failed to connect to any upstream node in %s: tried %v", upstreamName, nodesToTry)
 }
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
