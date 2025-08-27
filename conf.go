@@ -80,8 +80,7 @@ func (c *Config) Validate() error {
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
 	Name        string             `yaml:"name" json:"name"`
-	Host        string             `yaml:"host,omitempty" json:"host,omitempty"`
-	Port        int                `yaml:"port,omitempty" json:"port,omitempty"`
+	Address     string             `yaml:"address,omitempty" json:"address,omitempty"`
 	Cluster     *ClusterConfig     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
 	Timeout     Duration           `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	HealthCheck *HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check,omitempty"`
@@ -92,13 +91,9 @@ type UpstreamConfig struct {
 
 func (u *UpstreamConfig) Addresses() []string {
 	if u.Cluster != nil {
-		var addrs []string
-		for _, n := range u.Cluster.Nodes {
-			addrs = append(addrs, net.JoinHostPort(n.Host, fmt.Sprintf("%d", n.Port)))
-		}
-		return addrs
+		return u.Cluster.Nodes
 	}
-	return []string{net.JoinHostPort(u.Host, fmt.Sprintf("%d", u.Port))}
+	return []string{u.Address}
 }
 
 func (u *UpstreamConfig) Validate() error {
@@ -106,12 +101,13 @@ func (u *UpstreamConfig) Validate() error {
 		return fmt.Errorf("cluster name is required")
 	}
 	if u.Cluster != nil {
-		for _, n := range u.Cluster.Nodes {
-			if n.Host == "" {
-				return fmt.Errorf("host is required for cluster node")
+		for _, addr := range u.Cluster.Nodes {
+			if addr == "" {
+				return fmt.Errorf("address is required for cluster node")
 			}
-			if n.Port == 0 {
-				return fmt.Errorf("port is required for cluster node")
+			// Validate address format
+			if _, _, err := net.SplitHostPort(addr); err != nil {
+				return fmt.Errorf("invalid address format for cluster node: %w", err)
 			}
 		}
 		// Validate health check credentials if health check is defined
@@ -125,23 +121,19 @@ func (u *UpstreamConfig) Validate() error {
 		}
 	} else {
 		// single host
-		if u.Host == "" {
-			return fmt.Errorf("host is required")
+		if u.Address == "" {
+			return fmt.Errorf("address is required")
 		}
-		if u.Port == 0 {
-			return fmt.Errorf("port is required")
+		// Validate address format
+		if _, _, err := net.SplitHostPort(u.Address); err != nil {
+			return fmt.Errorf("invalid address format: %w", err)
 		}
 	}
 	return nil
 }
 
 type ClusterConfig struct {
-	Nodes []NodeConfig `yaml:"nodes" json:"nodes"`
-}
-
-type NodeConfig struct {
-	Host string `yaml:"host" json:"host"`
-	Port int    `yaml:"port" json:"port"`
+	Nodes []string `yaml:"nodes" json:"nodes"`
 }
 
 // Password is a custom type that masks the value during JSON marshaling

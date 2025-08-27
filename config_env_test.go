@@ -22,7 +22,7 @@ func TestConfigEnvironmentVariableExpansion(t *testing.T) {
 				"name": "test-cluster",
 				"cluster": {
 					"nodes": [
-						{"host": "localhost", "port": 5672}
+						"localhost:5672"
 					]
 				},
 				"health_check": {
@@ -92,7 +92,7 @@ func TestConfigEnvironmentVariableNotSet(t *testing.T) {
 				"name": "test-cluster",
 				"cluster": {
 					"nodes": [
-						{"host": "localhost", "port": 5672}
+						"localhost:5672"
 					]
 				},
 				"health_check": {
@@ -139,7 +139,7 @@ func TestConfigWithoutEnvironmentVariables(t *testing.T) {
 				"name": "test-cluster",
 				"cluster": {
 					"nodes": [
-						{"host": "localhost", "port": 5672}
+						"localhost:5672"
 					]
 				},
 				"health_check": {
@@ -192,7 +192,7 @@ func TestConfigPasswordMasking(t *testing.T) {
 				"name": "test-cluster",
 				"cluster": {
 					"nodes": [
-						{"host": "localhost", "port": 5672}
+						"localhost:5672"
 					]
 				},
 				"health_check": {
