@@ -24,11 +24,12 @@
                 ]
             },
             "health_check": {
-                "enabled": true,
                 "interval": "30s",
                 "timeout": "5s",
                 "unhealthy_threshold": 3,
-                "recovery_interval": "60s"
+                "recovery_interval": "60s",
+                "username": "admin",
+                "password": "${RABBITMQ_HEALTH_PASS}"
             },
             "routing": {
                 "key_patterns": [

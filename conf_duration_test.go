@@ -29,11 +29,12 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 				},
 				"timeout": "10s",
 				"health_check": {
-					"enabled": true,
 					"interval": "30s",
 					"timeout": "5s",
 					"unhealthy_threshold": 3,
-					"recovery_interval": "60s"
+					"recovery_interval": "60s",
+					"username": "admin",
+					"password": "admin"
 				},
 				"routing": {
 					"key_patterns": ["test.queue.*"]
@@ -96,9 +97,6 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 	}
 
 	hc := secondary.HealthCheck
-	if !hc.Enabled {
-		t.Error("Expected health check to be enabled")
-	}
 
 	expectedInterval := 30 * time.Second
 	if hc.Interval.ToDuration() != expectedInterval {
@@ -243,11 +241,12 @@ func TestConfigRoundTrip(t *testing.T) {
 				},
 				Timeout: trabbits.Duration(10 * time.Second),
 				HealthCheck: &trabbits.HealthCheckConfig{
-					Enabled:            true,
 					Interval:           trabbits.Duration(30 * time.Second),
 					Timeout:            trabbits.Duration(5 * time.Second),
 					UnhealthyThreshold: 3,
 					RecoveryInterval:   trabbits.Duration(60 * time.Second),
+					Username:           "admin",
+					Password:           "admin",
 				},
 			},
 		},

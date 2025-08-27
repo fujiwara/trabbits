@@ -114,7 +114,7 @@ func initHealthManagers(ctx context.Context, cfg *Config) error {
 
 	// Create new health managers for cluster upstreams
 	for _, upstream := range cfg.Upstreams {
-		if upstream.Cluster != nil {
+		if upstream.Cluster != nil && upstream.HealthCheck != nil {
 			mgr := NewNodeHealthManager(upstream)
 			if mgr != nil {
 				mgr.StartHealthCheck(ctx)

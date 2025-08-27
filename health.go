@@ -75,7 +75,6 @@ func (n *NodeStatus) IncrementFails() {
 
 // InternalHealthCheckConfig uses native time.Duration for internal use
 type InternalHealthCheckConfig struct {
-	Enabled            bool
 	Interval           time.Duration
 	Timeout            time.Duration
 	UnhealthyThreshold int
@@ -92,6 +91,8 @@ type NodeHealthManager struct {
 	logger         *slog.Logger
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
+	username       string
+	password       string
 }
 
 // NewNodeHealthManager creates a new health manager for a cluster upstream
@@ -109,7 +110,6 @@ func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
 
 	// Initialize health check config with defaults
 	mgr.config = &InternalHealthCheckConfig{
-		Enabled:            true,
 		Interval:           30 * time.Second,
 		Timeout:            5 * time.Second,
 		UnhealthyThreshold: 3,
@@ -130,7 +130,10 @@ func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
 		if upstream.HealthCheck.RecoveryInterval > 0 {
 			mgr.config.RecoveryInterval = upstream.HealthCheck.RecoveryInterval.ToDuration()
 		}
-		mgr.config.Enabled = upstream.HealthCheck.Enabled
+
+		// Set authentication credentials (required)
+		mgr.username = upstream.HealthCheck.Username
+		mgr.password = upstream.HealthCheck.Password.String()
 	}
 
 	// Initialize node status for each cluster node
@@ -147,7 +150,7 @@ func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
 
 // StartHealthCheck starts the background health checking goroutine
 func (m *NodeHealthManager) StartHealthCheck(ctx context.Context) {
-	if m == nil || !m.config.Enabled {
+	if m == nil {
 		return
 	}
 
@@ -267,7 +270,7 @@ func (m *NodeHealthManager) checkNode(node *NodeStatus) {
 	// Try to connect to the node
 	u := &url.URL{
 		Scheme: "amqp",
-		User:   url.UserPassword("guest", "guest"), // Use default credentials for health check
+		User:   url.UserPassword(m.username, m.password),
 		Host:   node.Address,
 		Path:   "/",
 	}
