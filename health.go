@@ -149,10 +149,21 @@ func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
 }
 
 // StartHealthCheck starts the background health checking goroutine
+// It performs an initial health check before starting the background routine
 func (m *NodeHealthManager) StartHealthCheck(ctx context.Context) {
 	if m == nil {
 		return
 	}
+
+	m.logger.Info("Starting health check",
+		"interval", m.config.Interval,
+		"timeout", m.config.Timeout,
+		"threshold", m.config.UnhealthyThreshold)
+
+	// Perform initial health check synchronously (fail fast on startup)
+	m.logger.Debug("Performing initial health check")
+	m.checkAllNodesInitial()
+	m.logger.Debug("Initial health check completed")
 
 	ctx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
@@ -160,13 +171,6 @@ func (m *NodeHealthManager) StartHealthCheck(ctx context.Context) {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		m.logger.Info("Starting health check",
-			"interval", m.config.Interval,
-			"timeout", m.config.Timeout,
-			"threshold", m.config.UnhealthyThreshold)
-
-		// Initial check
-		m.checkAllNodes()
 
 		ticker := time.NewTicker(m.config.Interval)
 		defer ticker.Stop()
@@ -234,7 +238,7 @@ func (m *NodeHealthManager) checkAllNodes() {
 		wg.Add(1)
 		go func(n *NodeStatus) {
 			defer wg.Done()
-			m.checkNode(n)
+			m.checkNode(n, false)
 		}(node)
 	}
 	wg.Wait()
@@ -251,13 +255,51 @@ func (m *NodeHealthManager) checkAllNodes() {
 	metrics.UpstreamUnhealthyNodes.WithLabelValues(m.name).Set(float64(unhealthy))
 }
 
+// checkAllNodesInitial performs initial health checks on all nodes (fail fast on startup)
+func (m *NodeHealthManager) checkAllNodesInitial() {
+	m.mu.RLock()
+	nodes := make([]*NodeStatus, 0, len(m.nodes))
+	for _, node := range m.nodes {
+		nodes = append(nodes, node)
+	}
+	m.mu.RUnlock()
+
+	var wg sync.WaitGroup
+	for _, node := range nodes {
+		wg.Add(1)
+		go func(n *NodeStatus) {
+			defer wg.Done()
+			m.checkNode(n, true)
+		}(node)
+	}
+	wg.Wait()
+
+	// Log summary
+	healthy, unhealthy := m.getHealthSummary()
+	m.logger.Debug("Initial health check completed",
+		"healthy", healthy,
+		"unhealthy", unhealthy,
+		"total", len(nodes))
+
+	// Update metrics
+	metrics.UpstreamHealthyNodes.WithLabelValues(m.name).Set(float64(healthy))
+	metrics.UpstreamUnhealthyNodes.WithLabelValues(m.name).Set(float64(unhealthy))
+}
+
 // checkNode performs a health check on a single node
-func (m *NodeHealthManager) checkNode(node *NodeStatus) {
+func (m *NodeHealthManager) checkNode(node *NodeStatus, failFast bool) {
 	_, cancel := context.WithTimeout(context.Background(), m.config.Timeout)
 	defer cancel()
 
+	// Determine the failure threshold based on mode
+	threshold := m.config.UnhealthyThreshold
+	if failFast {
+		threshold = 1
+	}
+
 	// Skip check for recently checked unhealthy nodes (recovery interval)
-	if node.GetStatus() == StatusUnhealthy {
+	// This only applies to regular health checks, not fail-fast checks
+	if !failFast && node.GetStatus() == StatusUnhealthy {
 		node.mu.RLock()
 		timeSinceLastCheck := time.Since(node.LastCheck)
 		node.mu.RUnlock()
@@ -287,7 +329,13 @@ func (m *NodeHealthManager) checkNode(node *NodeStatus) {
 		fails := node.ConsecutiveFails
 		node.mu.RUnlock()
 
-		if fails >= m.config.UnhealthyThreshold {
+		m.logger.Debug("Health check failed",
+			"address", node.Address,
+			"consecutive_fails", fails,
+			"threshold", threshold,
+			"error", err)
+
+		if fails >= threshold {
 			previousStatus := node.GetStatus()
 			node.SetUnhealthy()
 			if previousStatus != StatusUnhealthy {
@@ -305,6 +353,8 @@ func (m *NodeHealthManager) checkNode(node *NodeStatus) {
 
 	previousStatus := node.GetStatus()
 	node.SetHealthy()
+
+	m.logger.Debug("Health check succeeded", "address", node.Address)
 
 	switch previousStatus {
 	case StatusUnhealthy:

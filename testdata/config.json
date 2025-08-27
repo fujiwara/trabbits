@@ -20,15 +20,23 @@
                     {
                         "host": "localhost",
                         "port": 5675
+                    },
+                    {
+                        "host": "localhost",
+                        "port": 5676
+                    },
+                    {
+                        "host": "localhost",
+                        "port": 5677
                     }
                 ]
             },
             "health_check": {
-                "interval": "30s",
-                "timeout": "5s",
-                "unhealthy_threshold": 3,
-                "recovery_interval": "60s",
-                "username": "admin",
+                "interval": "3s",
+                "timeout": "2s",
+                "unhealthy_threshold": 2,
+                "recovery_interval": "10s",
+                "username": "healthcheck",
                 "password": "${RABBITMQ_HEALTH_PASS}"
             },
             "routing": {

@@ -146,14 +146,14 @@ func TestConfigFileLoading(t *testing.T) {
 			hc := upstream.HealthCheck
 
 			// Check that duration fields are properly parsed
-			if hc.Interval.ToDuration() != 30*time.Second {
-				t.Errorf("Expected interval 30s, got %v", hc.Interval.ToDuration())
+			if hc.Interval.ToDuration() != 3*time.Second {
+				t.Errorf("Expected interval 3s, got %v", hc.Interval.ToDuration())
 			}
-			if hc.Timeout.ToDuration() != 5*time.Second {
-				t.Errorf("Expected timeout 5s, got %v", hc.Timeout.ToDuration())
+			if hc.Timeout.ToDuration() != 2*time.Second {
+				t.Errorf("Expected timeout 2s, got %v", hc.Timeout.ToDuration())
 			}
-			if hc.RecoveryInterval.ToDuration() != 60*time.Second {
-				t.Errorf("Expected recovery interval 60s, got %v", hc.RecoveryInterval.ToDuration())
+			if hc.RecoveryInterval.ToDuration() != 10*time.Second {
+				t.Errorf("Expected recovery interval 10s, got %v", hc.RecoveryInterval.ToDuration())
 			}
 		}
 	}
