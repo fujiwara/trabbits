@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.3](https://github.com/fujiwara/trabbits/compare/v0.0.2...v0.0.3) - 2025-08-27
+- Cluster upstream by @fujiwara in https://github.com/fujiwara/trabbits/pull/32
+- Add health check feature for cluster nodes by @fujiwara in https://github.com/fujiwara/trabbits/pull/34
+- Refactor configuration to use address format instead of host/port by @fujiwara in https://github.com/fujiwara/trabbits/pull/35
+
 ## [v0.0.2](https://github.com/fujiwara/trabbits/compare/v0.0.1...v0.0.2) - 2025-08-20
 - SO_REUSEPORT is for linux only by @fujiwara in https://github.com/fujiwara/trabbits/pull/30
 
