@@ -20,11 +20,13 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
-
+	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -37,12 +39,20 @@ var (
 
 var Debug bool
 
+// healthManagers stores health check managers for cluster upstreams
+var healthManagers = sync.Map{} // upstream name -> *NodeHealthManager
+
 func run(ctx context.Context, opt *CLI) error {
 	cfg, err := LoadConfig(opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	storeConfig(cfg)
+
+	// Initialize health check managers for cluster upstreams
+	if err := initHealthManagers(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to init health managers: %w", err)
+	}
 
 	cancelAPI, err := runAPIServer(ctx, opt)
 	if err != nil {
@@ -90,6 +100,34 @@ func boot(ctx context.Context, listener net.Listener) error {
 		}
 		go handleConnection(ctx, conn)
 	}
+}
+
+// initHealthManagers initializes health check managers for cluster upstreams
+func initHealthManagers(ctx context.Context, cfg *Config) error {
+	// Stop existing health managers
+	healthManagers.Range(func(key, value interface{}) bool {
+		if mgr, ok := value.(*NodeHealthManager); ok {
+			mgr.Stop()
+		}
+		healthManagers.Delete(key)
+		return true
+	})
+
+	// Create new health managers for cluster upstreams
+	for _, upstream := range cfg.Upstreams {
+		if upstream.Cluster != nil && upstream.HealthCheck != nil {
+			mgr := NewNodeHealthManager(upstream)
+			if mgr != nil {
+				mgr.StartHealthCheck(ctx)
+				healthManagers.Store(upstream.Name, mgr)
+				slog.Info("Health check manager initialized",
+					"upstream", upstream.Name,
+					"nodes", len(upstream.Cluster.Nodes))
+			}
+		}
+	}
+
+	return nil
 }
 
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
@@ -184,34 +222,92 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	return conn, nil
 }
 
-func (s *Proxy) connectToUpstreamServers(addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
-	shuffled := make([]string, len(addrs))
-	copy(shuffled, addrs)
-	rand.Shuffle(len(shuffled), func(i, j int) {
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-	})
-	for _, addr := range shuffled {
-		conn, err := s.connectToUpstreamServer(addr, props, timeout)
-		if err == nil {
-			return conn, nil
-		} else {
-			s.logger.Warn("Failed to connect to upstream", "address", addr, "error", err)
+func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, string, error) {
+	var nodesToTry []string
+
+	// Use health manager if available for cluster upstreams
+	if mgr, ok := healthManagers.Load(upstreamName); ok {
+		if healthMgr := mgr.(*NodeHealthManager); healthMgr != nil {
+			nodesToTry = healthMgr.GetHealthyNodes()
+			s.logger.Debug("Using health-based node selection",
+				"upstream", upstreamName,
+				"healthy_nodes", len(nodesToTry),
+				"total_nodes", len(addrs))
 		}
 	}
-	return nil, fmt.Errorf("failed to connect to any upstream: %v", addrs)
+
+	// Fall back to all nodes if no health manager or no healthy nodes
+	if len(nodesToTry) == 0 {
+		nodesToTry = addrs
+	}
+
+	// Sort nodes using least connection algorithm
+	nodesToTry = sortNodesByLeastConnections(nodesToTry)
+
+	// Try to connect to each node
+	for _, addr := range nodesToTry {
+		conn, err := s.connectToUpstreamServer(addr, props, timeout)
+		if err == nil {
+			s.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
+			return conn, addr, nil
+		} else {
+			s.logger.Warn("Failed to connect to upstream node",
+				"upstream", upstreamName,
+				"address", addr,
+				"error", err)
+		}
+	}
+	return nil, "", fmt.Errorf("failed to connect to any upstream node in %s: tried %v", upstreamName, nodesToTry)
+}
+
+// sortNodesByLeastConnections sorts nodes by connection count using least connection algorithm.
+// Nodes with fewer connections are placed first. Nodes with equal connections are randomly ordered.
+func sortNodesByLeastConnections(nodes []string) []string {
+	if len(nodes) <= 1 {
+		return nodes
+	}
+
+	type nodeInfo struct {
+		addr        string
+		connections int64
+	}
+
+	var nodeInfos []nodeInfo
+	for _, addr := range nodes {
+		metric := &dto.Metric{}
+		gauge := metrics.UpstreamConnections.WithLabelValues(addr)
+		gauge.Write(metric)
+		connections := int64(metric.GetGauge().GetValue())
+		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
+	}
+
+	// Sort by connection count, then shuffle nodes with same connection count
+	sort.Slice(nodeInfos, func(i, j int) bool {
+		if nodeInfos[i].connections == nodeInfos[j].connections {
+			return rand.IntN(2) == 0 // Random order for nodes with same connection count
+		}
+		return nodeInfos[i].connections < nodeInfos[j].connections
+	})
+
+	// Create result slice with sorted addresses
+	result := make([]string, len(nodeInfos))
+	for i, info := range nodeInfos {
+		result[i] = info.addr
+	}
+	return result
 }
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
-		timeout := c.Timeout
+		timeout := c.Timeout.ToDuration()
 		if timeout == 0 {
 			timeout = UpstreamDefaultTimeout
 		}
-		conn, err := s.connectToUpstreamServers(c.Addresses(), props, timeout)
+		conn, addr, err := s.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
 		if err != nil {
 			return err
 		}
-		us := NewUpstream(conn, s.logger, c)
+		us := NewUpstream(conn, s.logger, c, addr)
 		s.upstreams = append(s.upstreams, us)
 	}
 	return nil
