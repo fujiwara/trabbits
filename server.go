@@ -20,12 +20,13 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
-
+	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -221,7 +222,7 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	return conn, nil
 }
 
-func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
+func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, string, error) {
 	var nodesToTry []string
 
 	// Use health manager if available for cluster upstreams
@@ -240,17 +241,15 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 		nodesToTry = addrs
 	}
 
-	// Shuffle nodes for random selection
-	rand.Shuffle(len(nodesToTry), func(i, j int) {
-		nodesToTry[i], nodesToTry[j] = nodesToTry[j], nodesToTry[i]
-	})
+	// Sort nodes using least connection algorithm
+	nodesToTry = sortNodesByLeastConnections(nodesToTry)
 
 	// Try to connect to each node
 	for _, addr := range nodesToTry {
 		conn, err := s.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
 			s.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
-			return conn, nil
+			return conn, addr, nil
 		} else {
 			s.logger.Warn("Failed to connect to upstream node",
 				"upstream", upstreamName,
@@ -258,7 +257,44 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 				"error", err)
 		}
 	}
-	return nil, fmt.Errorf("failed to connect to any upstream node in %s: tried %v", upstreamName, nodesToTry)
+	return nil, "", fmt.Errorf("failed to connect to any upstream node in %s: tried %v", upstreamName, nodesToTry)
+}
+
+// sortNodesByLeastConnections sorts nodes by connection count using least connection algorithm.
+// Nodes with fewer connections are placed first. Nodes with equal connections are randomly ordered.
+func sortNodesByLeastConnections(nodes []string) []string {
+	if len(nodes) <= 1 {
+		return nodes
+	}
+
+	type nodeInfo struct {
+		addr        string
+		connections int64
+	}
+
+	var nodeInfos []nodeInfo
+	for _, addr := range nodes {
+		metric := &dto.Metric{}
+		gauge := metrics.UpstreamConnections.WithLabelValues(addr)
+		gauge.Write(metric)
+		connections := int64(metric.GetGauge().GetValue())
+		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
+	}
+
+	// Sort by connection count, then shuffle nodes with same connection count
+	sort.Slice(nodeInfos, func(i, j int) bool {
+		if nodeInfos[i].connections == nodeInfos[j].connections {
+			return rand.IntN(2) == 0 // Random order for nodes with same connection count
+		}
+		return nodeInfos[i].connections < nodeInfos[j].connections
+	})
+
+	// Create result slice with sorted addresses
+	result := make([]string, len(nodeInfos))
+	for i, info := range nodeInfos {
+		result[i] = info.addr
+	}
+	return result
 }
 
 func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
@@ -267,11 +303,11 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []Upstream
 		if timeout == 0 {
 			timeout = UpstreamDefaultTimeout
 		}
-		conn, err := s.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
+		conn, addr, err := s.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
 		if err != nil {
 			return err
 		}
-		us := NewUpstream(conn, s.logger, c)
+		us := NewUpstream(conn, s.logger, c, addr)
 		s.upstreams = append(s.upstreams, us)
 	}
 	return nil
