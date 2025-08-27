@@ -21,9 +21,8 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Name: "primary",
-					Host: "localhost",
-					Port: 5672,
+					Name:    "primary",
+					Address: "localhost:5672",
 				},
 			},
 		},
@@ -34,14 +33,12 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Name: "primary",
-					Host: "localhost",
-					Port: 5672,
+					Name:    "primary",
+					Address: "localhost:5672",
 				},
 				{
-					Name: "secondary",
-					Host: "localhost",
-					Port: 5673,
+					Name:    "secondary",
+					Address: "localhost:5673",
 				},
 			},
 		},
@@ -52,19 +49,16 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Name: "primary",
-					Host: "localhost",
-					Port: 5672,
+					Name:    "primary",
+					Address: "localhost:5672",
 				},
 				{
-					Name: "secondary",
-					Host: "localhost",
-					Port: 5673,
+					Name:    "secondary",
+					Address: "localhost:5673",
 				},
 				{
-					Name: "tertiary",
-					Host: "localhost",
-					Port: 5674,
+					Name:    "tertiary",
+					Address: "localhost:5674",
 				},
 			},
 		},
@@ -77,11 +71,8 @@ var testConfigSuites = []struct {
 				{
 					Name: "test-cluster",
 					Cluster: &trabbits.ClusterConfig{
-						Nodes: []trabbits.NodeConfig{
-							{
-								Host: "localhost",
-								Port: 5672,
-							},
+						Nodes: []string{
+							"localhost:5672",
 						},
 					},
 				},
@@ -96,26 +87,17 @@ var testConfigSuites = []struct {
 				{
 					Name: "test-cluster-1",
 					Cluster: &trabbits.ClusterConfig{
-						Nodes: []trabbits.NodeConfig{
-							{
-								Host: "localhost",
-								Port: 5672,
-							},
-							{
-								Host: "localhost",
-								Port: 5673,
-							},
+						Nodes: []string{
+							"localhost:5672",
+							"localhost:5673",
 						},
 					},
 				},
 				{
 					Name: "test-cluster-2",
 					Cluster: &trabbits.ClusterConfig{
-						Nodes: []trabbits.NodeConfig{
-							{
-								Host: "localhost",
-								Port: 5674,
-							},
+						Nodes: []string{
+							"localhost:5674",
 						},
 					},
 				},
@@ -128,8 +110,8 @@ var testConfigSuites = []struct {
 		&trabbits.Config{
 			Upstreams: []trabbits.UpstreamConfig{
 				{
-					Name: "primary",
-					Host: "localhost",
+					Name:    "primary",
+					Address: "localhost",
 				},
 			},
 		},
@@ -141,15 +123,9 @@ var testConfigSuites = []struct {
 			Upstreams: []trabbits.UpstreamConfig{
 				{
 					Cluster: &trabbits.ClusterConfig{
-						Nodes: []trabbits.NodeConfig{
-							{
-								Host: "localhost",
-								Port: 5672,
-							},
-							{
-								Host: "localhost",
-								Port: 5673,
-							},
+						Nodes: []string{
+							"localhost:5672",
+							"localhost:5673",
 						},
 					},
 				},

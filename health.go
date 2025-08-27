@@ -5,7 +5,6 @@ package trabbits
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/url"
 	"sync"
@@ -137,8 +136,7 @@ func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
 	}
 
 	// Initialize node status for each cluster node
-	for _, node := range upstream.Cluster.Nodes {
-		addr := fmt.Sprintf("%s:%d", node.Host, node.Port)
+	for _, addr := range upstream.Cluster.Nodes {
 		mgr.nodes[addr] = &NodeStatus{
 			Address: addr,
 			Status:  StatusUnknown,
