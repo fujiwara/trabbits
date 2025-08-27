@@ -15,16 +15,15 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 		"upstreams": [
 			{
 				"name": "primary",
-				"host": "localhost",
-				"port": 5672
+				"address": "localhost:5672"
 			},
 			{
 				"name": "secondary",
 				"cluster": {
 					"nodes": [
-						{"host": "localhost", "port": 5673},
-						{"host": "localhost", "port": 5674},
-						{"host": "localhost", "port": 5675}
+						"localhost:5673",
+						"localhost:5674",
+						"localhost:5675"
 					]
 				},
 				"timeout": "10s",
@@ -64,11 +63,8 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 	if primary.Name != "primary" {
 		t.Errorf("Expected primary name 'primary', got '%s'", primary.Name)
 	}
-	if primary.Host != "localhost" {
-		t.Errorf("Expected primary host 'localhost', got '%s'", primary.Host)
-	}
-	if primary.Port != 5672 {
-		t.Errorf("Expected primary port 5672, got %d", primary.Port)
+	if primary.Address != "localhost:5672" {
+		t.Errorf("Expected primary address 'localhost:5672', got '%s'", primary.Address)
 	}
 
 	// Check second upstream (cluster with health check)
@@ -234,9 +230,9 @@ func TestConfigRoundTrip(t *testing.T) {
 			{
 				Name: "test-cluster",
 				Cluster: &trabbits.ClusterConfig{
-					Nodes: []trabbits.NodeConfig{
-						{Host: "localhost", Port: 5672},
-						{Host: "localhost", Port: 5673},
+					Nodes: []string{
+						"localhost:5672",
+						"localhost:5673",
 					},
 				},
 				Timeout: trabbits.Duration(10 * time.Second),

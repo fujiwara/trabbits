@@ -106,25 +106,15 @@ trabbit's configuration file is located at `config.json`. The configuration file
     "upstreams": [
         {
             "name": "primary",
-            "host": "localhost",
-            "port": 5672
+            "address": "localhost:5672"
         },
         {
             "name": "secondary-cluster",
             "cluster": {
                 "nodes": [
-                    {
-                        "host": "localhost",
-                        "port": 5673
-                    },
-                    {
-                        "host": "localhost",
-                        "port": 5674
-                    },
-                    {
-                        "host": "localhost",
-                        "port": 5675
-                    }
+                    "localhost:5673",
+                    "localhost:5674",
+                    "localhost:5675"
                 ]
             },
             "timeout": "10s",
@@ -164,12 +154,9 @@ The first upstream is used as the default. If the routing key does not match any
 Each `upstream` has the following fields:
 
 - `name`: (Required) A unique name for the upstream.
-- `host`: The hostname of the RabbitMQ server (required for single server configuration).
-- `port`: The port number of the RabbitMQ server (required for single server configuration).
-- `cluster`: Configuration for RabbitMQ cluster connection (alternative to `host`/`port`).
-  - `nodes`: An array of cluster nodes.
-    - `host`: The hostname of the cluster node.
-    - `port`: The port number of the cluster node.
+- `address`: The address of the RabbitMQ server in `host:port` format (required for single server configuration). Supports IPv6 addresses (e.g., `[::1]:5672`).
+- `cluster`: Configuration for RabbitMQ cluster connection (alternative to `address`).
+  - `nodes`: An array of cluster node addresses in `host:port` format.
 - `timeout`: Connection timeout duration (optional, default: 5s). Accepts Go duration format (e.g., "10s", "1m").
 - `health_check`: Health check configuration for cluster upstreams (optional).
   - `interval`: Health check interval (default: 30s). Accepts Go duration format.
@@ -236,7 +223,7 @@ Instead of storing credentials directly in the configuration file:
             "name": "cluster",
             "cluster": {
                 "nodes": [
-                    {"host": "localhost", "port": 5672}
+                    "localhost:5672"
                 ]
             },
             "health_check": {
@@ -396,9 +383,8 @@ $ trabbits manage config diff --config new_config.json
 @@ -7,10 +7,10 @@
      },
      {
-       "host": "localhost",
--      "port": 5673,
-+      "port": 5674,
+       "address": "localhost:5673",
++      "address": "localhost:5674",
        "routing": {
          "key_patterns": [
 -          "#"

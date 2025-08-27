@@ -39,9 +39,9 @@ func TestUpstreamConfigWithHealthCheck(t *testing.T) {
 	upstream := trabbits.UpstreamConfig{
 		Name: "test-cluster",
 		Cluster: &trabbits.ClusterConfig{
-			Nodes: []trabbits.NodeConfig{
-				{Host: "localhost", Port: 5672},
-				{Host: "localhost", Port: 5673},
+			Nodes: []string{
+				"localhost:5672",
+				"localhost:5673",
 			},
 		},
 		HealthCheck: &trabbits.HealthCheckConfig{
