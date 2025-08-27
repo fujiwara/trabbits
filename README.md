@@ -47,6 +47,7 @@ Your clients can connect to trabbits and send and receive messages without knowi
 - Proxy functionality between client and upstream
 - Support for both single RabbitMQ servers and RabbitMQ clusters as upstreams
 - Automatic failover within RabbitMQ clusters
+- Health checking for cluster nodes with automatic node isolation and recovery
 - Routing publishing messages to different upstreams based on the routing key
 - Consuming messages from multiple upstreams
 - Prometheus exporter for monitoring
@@ -127,6 +128,13 @@ trabbit's configuration file is located at `config.json`. The configuration file
                 ]
             },
             "timeout": "10s",
+            "health_check": {
+                "enabled": true,
+                "interval": "30s",
+                "timeout": "5s",
+                "unhealthy_threshold": 3,
+                "recovery_interval": "60s"
+            },
             "routing": {
                 "key_patterns": [
                     "test.queue.another.*"
@@ -163,6 +171,13 @@ Each `upstream` has the following fields:
     - `host`: The hostname of the cluster node.
     - `port`: The port number of the cluster node.
 - `timeout`: Connection timeout duration (optional, default: 5s). Accepts Go duration format (e.g., "10s", "1m").
+- `health_check`: Health check configuration for cluster upstreams (optional).
+  - `interval`: Health check interval (default: 30s). Accepts Go duration format.
+  - `timeout`: Health check timeout (default: 5s). Accepts Go duration format.
+  - `unhealthy_threshold`: Number of consecutive failures before marking node as unhealthy (default: 3).
+  - `recovery_interval`: Interval for checking unhealthy nodes for recovery (default: 60s).
+  - `username`: Username for health check authentication (required).
+  - `password`: Password for health check authentication (required).
 - `routing`: The routing rules for this upstream.
   - `key_patterns`: An array of routing key patterns. If the routing key matches any of these patterns, trabbits will use this upstream to publish.
     The patterns are the same as the RabbitMQ's topic exchange routing key patterns, including wildcard characters `*` and `#`.
@@ -176,10 +191,23 @@ Each `upstream` has the following fields:
 
 When connecting to a cluster upstream, trabbits will:
 
-1. **Random Selection**: Randomly shuffle the cluster nodes to distribute connection load
-2. **Failover**: Try each node in the shuffled order until a successful connection is established
-3. **Connection Reuse**: Once connected to a cluster node, that connection is used for all operations
-4. **Timeout**: Use the configured timeout (default: 5s) for each connection attempt
+1. **Health-based Selection**: Prioritize healthy nodes for connections
+2. **Random Selection**: Randomly shuffle available nodes to distribute connection load
+3. **Failover**: Try each node in the shuffled order until a successful connection is established
+4. **Connection Reuse**: Once connected to a cluster node, that connection is used for all operations
+5. **Timeout**: Use the configured timeout (default: 5s) for each connection attempt
+
+### Health Check Behavior
+
+For cluster upstreams with health checking enabled:
+
+1. **Background Monitoring**: Run health checks in a separate goroutine at configured intervals
+2. **Node Isolation**: Mark nodes as unhealthy after consecutive failures exceed the threshold
+3. **Automatic Recovery**: Periodically check unhealthy nodes and restore them when they recover
+4. **Graceful Degradation**: Fall back to all nodes if no healthy nodes are available
+5. **Metrics Export**: Expose healthy/unhealthy node counts via Prometheus metrics
+
+Health checks use simple AMQP connection attempts with immediate disconnection to minimize overhead.
 
 ### Routing Algorithm
 
@@ -192,6 +220,52 @@ Supported patterns are equivalent to the RabbitMQ's topic exchange routing key p
 trabbits tries to match the routing key with the specified pattern in the order they are defined in the configuration file. If the routing key matches a pattern, trabbits will use the corresponding upstream immediately (will not check other patterns).
 
 If the routing key does not match any patterns, trabbits will use the first upstream as the default.
+
+## Environment Variable Expansion
+
+trabbits supports environment variable expansion in configuration files using the `${VAR}` syntax. This is particularly useful for sensitive information like passwords that should not be stored in plain text in configuration files.
+
+### Example
+
+Instead of storing credentials directly in the configuration file:
+
+```json
+{
+    "upstreams": [
+        {
+            "name": "cluster",
+            "cluster": {
+                "nodes": [
+                    {"host": "localhost", "port": 5672}
+                ]
+            },
+            "health_check": {
+                "username": "${RABBITMQ_HEALTH_USER}",
+                "password": "${RABBITMQ_HEALTH_PASS}",
+                "interval": "30s",
+                "timeout": "5s",
+                "unhealthy_threshold": 3,
+                "recovery_interval": "60s"
+            }
+        }
+    ]
+}
+```
+
+Set the environment variables before running trabbits:
+
+```sh
+export RABBITMQ_HEALTH_USER=healthcheck
+export RABBITMQ_HEALTH_PASS=secretpassword
+trabbits run --config config.json
+```
+
+### Notes
+
+- If an environment variable is not set, it expands to an empty string
+- Environment variable expansion works for any string field in the configuration
+- Variable names are case-sensitive
+- Use double quotes around the `${VAR}` syntax in JSON
 
 ## Setting Log Level
 

@@ -15,6 +15,7 @@ import (
 
 type Upstream struct {
 	name          string
+	address       string
 	conn          *rabbitmq.Connection
 	channel       map[uint16]*rabbitmq.Channel
 	mu            sync.Mutex
@@ -25,19 +26,20 @@ type Upstream struct {
 	destruct      []func(*rabbitmq.Channel)
 }
 
-func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig) *Upstream {
+func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig, address string) *Upstream {
 	u := &Upstream{
 		name:        conf.Name,
+		address:     address,
 		conn:        conn,
 		channel:     make(map[uint16]*rabbitmq.Channel),
 		mu:          sync.Mutex{},
-		logger:      logger.With("upstream", conf.Name),
+		logger:      logger.With("upstream", conf.Name, "address", address),
 		keyPatterns: conf.Routing.KeyPatterns,
 		queueAttr:   conf.QueueAttributes,
 		destruct:    []func(*rabbitmq.Channel){},
 	}
-	metrics.UpstreamTotalConnections.WithLabelValues(u.name).Inc()
-	metrics.UpstreamConnections.WithLabelValues(u.name).Inc()
+	metrics.UpstreamTotalConnections.WithLabelValues(address).Inc()
+	metrics.UpstreamConnections.WithLabelValues(address).Inc()
 	return u
 }
 
@@ -66,7 +68,7 @@ func (u *Upstream) Close() error {
 	}
 
 	if u.conn != nil {
-		metrics.UpstreamConnections.WithLabelValues(u.name).Dec()
+		metrics.UpstreamConnections.WithLabelValues(u.address).Dec()
 		if err := u.conn.Close(); err != nil {
 			return fmt.Errorf("failed to close connection: %w", err)
 		}

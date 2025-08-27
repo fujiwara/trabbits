@@ -26,6 +26,7 @@ jobs:
 
       - name: wait for started
         run: |
+          sleep 10 # waiting for rabbitmq to start
           make setup-compose-cluster
 
       - name: test

@@ -34,10 +34,14 @@ func LoadConfig(f string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
-	if err := json.Unmarshal(data, &c); err != nil {
+
+	// Expand environment variables in the configuration
+	expandedData := os.ExpandEnv(string(data))
+
+	if err := json.Unmarshal([]byte(expandedData), &c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
-	slog.Info("Configuration loaded", "config", c)
+	slog.Info("Configuration loaded", "config", c.String())
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -75,11 +79,12 @@ func (c *Config) Validate() error {
 
 // UpstreamConfig represents the configuration of an upstream server.
 type UpstreamConfig struct {
-	Name    string         `yaml:"name" json:"name"`
-	Host    string         `yaml:"host,omitempty" json:"host,omitempty"`
-	Port    int            `yaml:"port,omitempty" json:"port,omitempty"`
-	Cluster *ClusterConfig `yaml:"cluster,omitempty" json:"cluster,omitempty"`
-	Timeout time.Duration  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Name        string             `yaml:"name" json:"name"`
+	Host        string             `yaml:"host,omitempty" json:"host,omitempty"`
+	Port        int                `yaml:"port,omitempty" json:"port,omitempty"`
+	Cluster     *ClusterConfig     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Timeout     Duration           `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	HealthCheck *HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check,omitempty"`
 
 	Routing         RoutingConfig    `yaml:"routing,omitempty" json:"routing,omitempty"`
 	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
@@ -109,6 +114,15 @@ func (u *UpstreamConfig) Validate() error {
 				return fmt.Errorf("port is required for cluster node")
 			}
 		}
+		// Validate health check credentials if health check is defined
+		if u.HealthCheck != nil {
+			if u.HealthCheck.Username == "" {
+				return fmt.Errorf("username is required for health check")
+			}
+			if u.HealthCheck.Password == "" {
+				return fmt.Errorf("password is required for health check")
+			}
+		}
 	} else {
 		// single host
 		if u.Host == "" {
@@ -128,6 +142,76 @@ type ClusterConfig struct {
 type NodeConfig struct {
 	Host string `yaml:"host" json:"host"`
 	Port int    `yaml:"port" json:"port"`
+}
+
+// Password is a custom type that masks the value during JSON marshaling
+type Password string
+
+// UnmarshalJSON implements json.Unmarshaler interface
+func (p *Password) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*p = Password(s)
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler interface to mask password
+func (p Password) MarshalJSON() ([]byte, error) {
+	if p == "" {
+		return json.Marshal("")
+	}
+	return json.Marshal("********")
+}
+
+// String returns the actual password value (for internal use)
+func (p Password) String() string {
+	return string(p)
+}
+
+// Duration is a custom type that can unmarshal duration strings from JSON
+type Duration time.Duration
+
+// UnmarshalJSON implements json.Unmarshaler interface
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+
+	*d = Duration(dur)
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler interface
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+// String returns string representation
+func (d Duration) String() string {
+	return time.Duration(d).String()
+}
+
+// ToDuration converts to time.Duration
+func (d Duration) ToDuration() time.Duration {
+	return time.Duration(d)
+}
+
+// HealthCheckConfig represents health check configuration for cluster upstreams
+type HealthCheckConfig struct {
+	Interval           Duration `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout            Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	UnhealthyThreshold int      `yaml:"unhealthy_threshold,omitempty" json:"unhealthy_threshold,omitempty"`
+	RecoveryInterval   Duration `yaml:"recovery_interval,omitempty" json:"recovery_interval,omitempty"`
+	Username           string   `yaml:"username,omitempty" json:"username,omitempty"`
+	Password           Password `yaml:"password,omitempty" json:"password,omitempty"`
 }
 
 type RoutingConfig struct {
