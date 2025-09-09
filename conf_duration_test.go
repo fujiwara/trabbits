@@ -124,7 +124,7 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 
 func TestConfigFileLoading(t *testing.T) {
 	// Test loading the actual testdata config file
-	cfg, err := trabbits.LoadConfig("testdata/config.json")
+	cfg, err := trabbits.LoadConfig(t.Context(), "testdata/config.json")
 	if err != nil {
 		t.Fatalf("Failed to load config file: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	tmpfile.Close()
 
 	// Load config from file
-	loaded, err := trabbits.LoadConfig(tmpfile.Name())
+	loaded, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}

@@ -31,7 +31,7 @@ func (c *Config) String() string {
 	return string(data)
 }
 
-func LoadConfig(f string) (*Config, error) {
+func LoadConfig(ctx context.Context, f string) (*Config, error) {
 	var c Config
 	slog.Info("Loading configuration", "file", f)
 
@@ -41,7 +41,7 @@ func LoadConfig(f string) (*Config, error) {
 			Filename: f,
 		}
 		cli.SetWriter(buf)
-		if err := cli.Run(context.TODO()); err != nil {
+		if err := cli.Run(ctx); err != nil {
 			return nil, fmt.Errorf("failed to run load config: %w", err)
 		}
 	} else {
