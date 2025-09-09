@@ -71,5 +71,6 @@ func setupLogger(level slog.Level) {
 type ManageOptions struct {
 	Config struct {
 		Command string `arg:"" enum:"get,diff,put" help:"Command to run (get, diff, put)."`
+		File    string `arg:"" optional:"" help:"Configuration file (required for diff/put commands)."`
 	} `cmd:"" help:"Manage the configuration."`
 }
