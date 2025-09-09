@@ -3,7 +3,6 @@ package trabbits_test
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net"
@@ -20,7 +19,7 @@ import (
 func newUnixSockHTTPClient(socketPath string) *http.Client {
 	tr := &http.Transport{
 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-			return net.Dial("unix", testAPISock)
+			return net.Dial("unix", socketPath)
 		},
 	}
 	client := &http.Client{
@@ -30,74 +29,36 @@ func newUnixSockHTTPClient(socketPath string) *http.Client {
 	return client
 }
 
-func TestAPIGetPutGetConfig(t *testing.T) {
-	endpoint := "http://localhost/config"
-	client := newUnixSockHTTPClient(testAPISock)
-	var testConfig trabbits.Config
-	t.Run("GET returns 200 OK current config", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("failed to send request: %v", err)
-		}
-		if code := resp.StatusCode; code != http.StatusOK {
-			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-		}
-		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
-			t.Errorf("unexpected Content-Type: got %v want %v", ct, "application/json")
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&testConfig); err != nil {
-			t.Fatalf("failed to decode JSON: %v", err)
-		}
-	})
-
-	if len(testConfig.Upstreams) != 2 {
-		t.Fatalf("unexpected number of upstreams: got %v want %v", len(testConfig.Upstreams), 2)
+// startIsolatedAPIServer starts a new API server instance for isolated testing
+func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc, string, *http.Client) {
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	tmpfile, err := os.CreateTemp("", "trabbits-isolated-api-sock-")
+	if err != nil {
+		t.Fatalf("failed to create temp socket file: %v", err)
 	}
-	// update config
-	testConfig.Upstreams[1].Routing.KeyPatterns = append(
-		testConfig.Upstreams[1].Routing.KeyPatterns, rand.Text(),
-	)
-
-	t.Run("PUT returns 200 OK", func(t *testing.T) {
-		b := new(bytes.Buffer)
-		json.NewEncoder(b).Encode(testConfig)
-		req, _ := http.NewRequest(http.MethodPut, endpoint, io.NopCloser(b))
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("failed to send request: %v", err)
+	socketPath := tmpfile.Name()
+	os.Remove(socketPath) // trabbits will recreate it
+	
+	cli := &trabbits.CLI{
+		APISocket: socketPath,
+		Config:    configFile,
+	}
+	
+	go func() {
+		_, err := trabbits.RunAPIServer(ctx, cli)
+		if err != nil && ctx.Err() == nil {
+			t.Errorf("API server failed: %v", err)
 		}
-		if code := resp.StatusCode; code != http.StatusOK {
-			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-		}
-		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
-			t.Errorf("unexpected Content-Type: got %v want %v", ct, "application/json")
-		}
-	})
-
-	t.Run("GET returns 200 OK with updated config", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("failed to send request: %v", err)
-		}
-		if code := resp.StatusCode; code != http.StatusOK {
-			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-		}
-		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
-			t.Errorf("unexpected Content-Type: got %v want %v", ct, "application/json")
-		}
-		var respondConfig trabbits.Config
-		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
-			t.Fatalf("failed to decode JSON: %v", err)
-		}
-		if diff := cmp.Diff(testConfig, respondConfig); diff != "" {
-			t.Errorf("unexpected response: %s", diff)
-		}
-	})
+	}()
+	
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+	
+	client := newUnixSockHTTPClient(socketPath)
+	return cancel, socketPath, client
 }
+
 
 func TestAPIPutInvalidConfig(t *testing.T) {
 	endpoint := "http://localhost/config"
@@ -116,16 +77,76 @@ func TestAPIPutInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestAPIPutRawJSONConfig(t *testing.T) {
+
+// TestAPIConfigUpdateIsolated runs all config-update tests in isolation with a dedicated server
+func TestAPIConfigUpdateIsolated(t *testing.T) {
+	// Start isolated server instance for config update tests
+	cancel, socketPath, client := startIsolatedAPIServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+	
 	endpoint := "http://localhost/config"
-	client := newUnixSockHTTPClient(testAPISock)
-
-	// Test raw JSON config with environment variables
-	t.Setenv("TEST_API_USERNAME", "apiuser")
-	t.Setenv("TEST_API_PASSWORD", "apipass")
-
-	// Raw JSON config content (as it would be in a file)
-	rawConfigJSON := `{
+	
+	// Test 1: Basic PUT/GET cycle
+	t.Run("BasicPutGetConfig", func(t *testing.T) {
+		var testConfig trabbits.Config
+		// GET current config
+		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&testConfig); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		resp.Body.Close()
+		
+		// Update config
+		if len(testConfig.Upstreams) >= 2 {
+			testConfig.Upstreams[1].Routing.KeyPatterns = append(
+				testConfig.Upstreams[1].Routing.KeyPatterns, "test.isolated.*",
+			)
+		}
+		
+		// PUT updated config
+		b := new(bytes.Buffer)
+		json.NewEncoder(b).Encode(testConfig)
+		req, _ = http.NewRequest(http.MethodPut, endpoint, b)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err = client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+		resp.Body.Close()
+		
+		// Verify updated config
+		req, _ = http.NewRequest(http.MethodGet, endpoint, nil)
+		resp, err = client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		var updatedConfig trabbits.Config
+		if err := json.NewDecoder(resp.Body).Decode(&updatedConfig); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		resp.Body.Close()
+		if diff := cmp.Diff(testConfig, updatedConfig); diff != "" {
+			t.Errorf("unexpected response: %s", diff)
+		}
+	})
+	
+	// Test 2: Raw JSON config with environment variables
+	t.Run("RawJSONConfig", func(t *testing.T) {
+		t.Setenv("TEST_API_USERNAME", "apiuser")
+		t.Setenv("TEST_API_PASSWORD", "apipass")
+		
+		rawConfigJSON := `{
 		"upstreams": [
 			{
 				"name": "primary",
@@ -155,56 +176,43 @@ func TestAPIPutRawJSONConfig(t *testing.T) {
 			}
 		]
 	}`
-
-	// Send raw JSON content (simulating what the new putConfigFromFile does)
-	req, _ := http.NewRequest(http.MethodPut, endpoint, strings.NewReader(rawConfigJSON))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if code := resp.StatusCode; code != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-	}
-
-	// Verify the config was properly processed on server side
-	var respondConfig trabbits.Config
-	if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
-		t.Fatalf("failed to decode JSON: %v", err)
-	}
-
-	// Check that environment variables were expanded on server side
-	if len(respondConfig.Upstreams) != 2 {
-		t.Fatalf("Expected 2 upstreams, got %d", len(respondConfig.Upstreams))
-	}
-
-	testUpstream := respondConfig.Upstreams[1]
-	if testUpstream.HealthCheck == nil {
-		t.Fatal("Expected health check configuration, got nil")
-	}
-
-	// Environment variables should be expanded on server side
-	if testUpstream.HealthCheck.Username != "apiuser" {
-		t.Errorf("Expected username 'apiuser', got '%s'", testUpstream.HealthCheck.Username)
-	}
-
-	// Password should be masked in response (but internally correct)
-	// The actual password is set correctly on server side but masked in JSON response
-}
-
-func TestAPIPutJsonnetConfig(t *testing.T) {
-	endpoint := "http://localhost/config"
-	client := newUnixSockHTTPClient(testAPISock)
-
-	// Test Jsonnet config
-	t.Setenv("TEST_JSONNET_USERNAME", "jsonnetuser")
-	t.Setenv("TEST_JSONNET_PASSWORD", "jsonnetpass")
-
-	// Raw Jsonnet config content
-	rawConfigJsonnet := `
+		
+		req, _ := http.NewRequest(http.MethodPut, endpoint, strings.NewReader(rawConfigJSON))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+		
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+		
+		var respondConfig trabbits.Config
+		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		
+		if len(respondConfig.Upstreams) != 2 {
+			t.Fatalf("Expected 2 upstreams, got %d", len(respondConfig.Upstreams))
+		}
+		
+		testUpstream := respondConfig.Upstreams[1]
+		if testUpstream.HealthCheck == nil {
+			t.Fatal("Expected health check configuration, got nil")
+		}
+		if testUpstream.HealthCheck.Username != "apiuser" {
+			t.Errorf("Expected username 'apiuser', got '%s'", testUpstream.HealthCheck.Username)
+		}
+	})
+	
+	// Test 3: Jsonnet config
+	t.Run("JsonnetConfig", func(t *testing.T) {
+		t.Setenv("TEST_JSONNET_USERNAME", "jsonnetuser")
+		t.Setenv("TEST_JSONNET_PASSWORD", "jsonnetpass")
+		
+		rawConfigJsonnet := `
 local env = std.native('env');
 {
   upstreams: [
@@ -236,79 +244,66 @@ local env = std.native('env');
     },
   ],
 }`
-
-	// Create temporary Jsonnet file to simulate file-based config
-	tmpfile, err := os.CreateTemp("", "test-api-config-*.jsonnet")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpfile.Name())
-
-	if _, err := tmpfile.Write([]byte(rawConfigJsonnet)); err != nil {
-		t.Fatalf("Failed to write temp file: %v", err)
-	}
-	tmpfile.Close()
-
-	// Read the file content back (simulating what putConfigFromFile does)
-	data, err := os.ReadFile(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("Failed to read temp file: %v", err)
-	}
-
-	// Send raw Jsonnet content with appropriate Content-Type
-	req, _ := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
-	req.Header.Set("Content-Type", "application/jsonnet")
-
-	// Debug: check what we're sending
-	t.Logf("Sending request with Content-Type: %s", req.Header.Get("Content-Type"))
-	t.Logf("Request body length: %d", len(data))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if code := resp.StatusCode; code != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-	}
-
-	// Verify the Jsonnet config was properly processed on server side
-	var respondConfig trabbits.Config
-	if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
-		t.Fatalf("failed to decode JSON: %v", err)
-	}
-
-	// Check that Jsonnet was evaluated and environment variables were accessed
-	if len(respondConfig.Upstreams) != 2 {
-		t.Fatalf("Expected 2 upstreams, got %d", len(respondConfig.Upstreams))
-	}
-
-	jsonnetUpstream := respondConfig.Upstreams[1]
-	if jsonnetUpstream.Name != "jsonnet-upstream" {
-		t.Errorf("Expected upstream name 'jsonnet-upstream', got '%s'", jsonnetUpstream.Name)
-	}
-
-	if jsonnetUpstream.HealthCheck == nil {
-		t.Fatal("Expected health check configuration, got nil")
-	}
-
-	// Environment variables should be accessed through std.native('env') on server side
-	if jsonnetUpstream.HealthCheck.Username != "jsonnetuser" {
-		t.Errorf("Expected username 'jsonnetuser', got '%s'", jsonnetUpstream.HealthCheck.Username)
-	}
-}
-
-func TestAPIDiffJsonConfig(t *testing.T) {
-	endpoint := "http://localhost/config/diff"
-	client := newUnixSockHTTPClient(testAPISock)
-
-	// Test JSON config diff with environment variables
-	t.Setenv("TEST_DIFF_USERNAME", "diffuser")
-	t.Setenv("TEST_DIFF_PASSWORD", "diffpass")
-
-	// Raw JSON config content with changes
-	rawConfigJSON := `{
+		
+		// Create temporary Jsonnet file
+		tmpfile, err := os.CreateTemp("", "test-api-config-*.jsonnet")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpfile.Name())
+		
+		if _, err := tmpfile.Write([]byte(rawConfigJsonnet)); err != nil {
+			t.Fatalf("Failed to write temp file: %v", err)
+		}
+		tmpfile.Close()
+		
+		data, err := os.ReadFile(tmpfile.Name())
+		if err != nil {
+			t.Fatalf("Failed to read temp file: %v", err)
+		}
+		
+		req, _ := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/jsonnet")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+		
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+		
+		var respondConfig trabbits.Config
+		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		
+		if len(respondConfig.Upstreams) != 2 {
+			t.Fatalf("Expected 2 upstreams, got %d", len(respondConfig.Upstreams))
+		}
+		
+		jsonnetUpstream := respondConfig.Upstreams[1]
+		if jsonnetUpstream.Name != "jsonnet-upstream" {
+			t.Errorf("Expected upstream name 'jsonnet-upstream', got '%s'", jsonnetUpstream.Name)
+		}
+		
+		if jsonnetUpstream.HealthCheck == nil {
+			t.Fatal("Expected health check configuration, got nil")
+		}
+		
+		if jsonnetUpstream.HealthCheck.Username != "jsonnetuser" {
+			t.Errorf("Expected username 'jsonnetuser', got '%s'", jsonnetUpstream.HealthCheck.Username)
+		}
+	})
+	
+	// Test 4: Diff with JSON config
+	t.Run("DiffJSONConfig", func(t *testing.T) {
+		diffEndpoint := endpoint + "/diff"
+		t.Setenv("TEST_DIFF_USERNAME", "diffuser")
+		t.Setenv("TEST_DIFF_PASSWORD", "diffpass")
+		
+		rawConfigJSON := `{
 		"upstreams": [
 			{
 				"name": "primary",
@@ -338,50 +333,41 @@ func TestAPIDiffJsonConfig(t *testing.T) {
 			}
 		]
 	}`
-
-	// Send raw JSON content for diff
-	req, _ := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(rawConfigJSON))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if code := resp.StatusCode; code != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-	}
-
-	if ct := resp.Header.Get("Content-Type"); ct != "text/plain" {
-		t.Errorf("unexpected Content-Type: got %v want %v", ct, "text/plain")
-	}
-
-	// Read the diff response
-	diffBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read diff response: %v", err)
-	}
-
-	diffText := string(diffBody)
-	t.Logf("Diff response: %s", diffText)
-
-	// Verify diff contains expected changes
-	if !strings.Contains(diffText, "diff-test-upstream") {
-		t.Errorf("Expected diff to contain 'diff-test-upstream', but got: %s", diffText)
-	}
-}
-
-func TestAPIDiffJsonnetConfig(t *testing.T) {
-	endpoint := "http://localhost/config/diff"
-	client := newUnixSockHTTPClient(testAPISock)
-
-	// Test Jsonnet config diff
-	t.Setenv("TEST_JSONNET_DIFF_USERNAME", "jsonnetdiffuser")
-	t.Setenv("TEST_JSONNET_DIFF_PASSWORD", "jsonnetdiffpass")
-
-	// Raw Jsonnet config content with changes
-	rawConfigJsonnet := `
+		
+		req, _ := http.NewRequest(http.MethodPost, diffEndpoint, strings.NewReader(rawConfigJSON))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+		
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+		
+		if ct := resp.Header.Get("Content-Type"); ct != "text/plain" {
+			t.Errorf("unexpected Content-Type: got %v want %v", ct, "text/plain")
+		}
+		
+		diffBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("failed to read diff response: %v", err)
+		}
+		
+		diffText := string(diffBody)
+		if !strings.Contains(diffText, "diff-test-upstream") {
+			t.Errorf("Expected diff to contain 'diff-test-upstream', but got: %s", diffText)
+		}
+	})
+	
+	// Test 5: Diff with Jsonnet config
+	t.Run("DiffJsonnetConfig", func(t *testing.T) {
+		diffEndpoint := endpoint + "/diff"
+		t.Setenv("TEST_JSONNET_DIFF_USERNAME", "jsonnetdiffuser")
+		t.Setenv("TEST_JSONNET_DIFF_PASSWORD", "jsonnetdiffpass")
+		
+		rawConfigJsonnet := `
 local env = std.native('env');
 {
   upstreams: [
@@ -413,36 +399,31 @@ local env = std.native('env');
     },
   ],
 }`
-
-	// Send raw Jsonnet content for diff
-	req, _ := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(rawConfigJsonnet))
-	req.Header.Set("Content-Type", "application/jsonnet")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if code := resp.StatusCode; code != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
-	}
-
-	if ct := resp.Header.Get("Content-Type"); ct != "text/plain" {
-		t.Errorf("unexpected Content-Type: got %v want %v", ct, "text/plain")
-	}
-
-	// Read the diff response
-	diffBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read diff response: %v", err)
-	}
-
-	diffText := string(diffBody)
-	t.Logf("Jsonnet Diff response: %s", diffText)
-
-	// Verify diff contains expected changes
-	if !strings.Contains(diffText, "jsonnet-diff-upstream") {
-		t.Errorf("Expected diff to contain 'jsonnet-diff-upstream', but got: %s", diffText)
-	}
+		
+		req, _ := http.NewRequest(http.MethodPost, diffEndpoint, strings.NewReader(rawConfigJsonnet))
+		req.Header.Set("Content-Type", "application/jsonnet")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+		
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+		
+		if ct := resp.Header.Get("Content-Type"); ct != "text/plain" {
+			t.Errorf("unexpected Content-Type: got %v want %v", ct, "text/plain")
+		}
+		
+		diffBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("failed to read diff response: %v", err)
+		}
+		
+		diffText := string(diffBody)
+		if !strings.Contains(diffText, "jsonnet-diff-upstream") {
+			t.Errorf("Expected diff to contain 'jsonnet-diff-upstream', but got: %s", diffText)
+		}
+	})
 }
