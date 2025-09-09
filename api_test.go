@@ -298,3 +298,151 @@ local env = std.native('env');
 		t.Errorf("Expected username 'jsonnetuser', got '%s'", jsonnetUpstream.HealthCheck.Username)
 	}
 }
+
+func TestAPIDiffJsonConfig(t *testing.T) {
+	endpoint := "http://localhost/config/diff"
+	client := newUnixSockHTTPClient(testAPISock)
+
+	// Test JSON config diff with environment variables
+	t.Setenv("TEST_DIFF_USERNAME", "diffuser")
+	t.Setenv("TEST_DIFF_PASSWORD", "diffpass")
+
+	// Raw JSON config content with changes
+	rawConfigJSON := `{
+		"upstreams": [
+			{
+				"name": "primary",
+				"address": "localhost:5672",
+				"routing": {}
+			},
+			{
+				"name": "diff-test-upstream",
+				"cluster": {
+					"nodes": [
+						"localhost:5673"
+					]
+				},
+				"health_check": {
+					"interval": "45s",
+					"timeout": "10s",
+					"unhealthy_threshold": 2,
+					"recovery_interval": "90s",
+					"username": "${TEST_DIFF_USERNAME}",
+					"password": "${TEST_DIFF_PASSWORD}"
+				},
+				"routing": {
+					"key_patterns": [
+						"diff.test.*"
+					]
+				}
+			}
+		]
+	}`
+
+	// Send raw JSON content for diff
+	req, _ := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(rawConfigJSON))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if code := resp.StatusCode; code != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+	}
+
+	if ct := resp.Header.Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("unexpected Content-Type: got %v want %v", ct, "text/plain")
+	}
+
+	// Read the diff response
+	diffBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read diff response: %v", err)
+	}
+
+	diffText := string(diffBody)
+	t.Logf("Diff response: %s", diffText)
+
+	// Verify diff contains expected changes
+	if !strings.Contains(diffText, "diff-test-upstream") {
+		t.Errorf("Expected diff to contain 'diff-test-upstream', but got: %s", diffText)
+	}
+}
+
+func TestAPIDiffJsonnetConfig(t *testing.T) {
+	endpoint := "http://localhost/config/diff"
+	client := newUnixSockHTTPClient(testAPISock)
+
+	// Test Jsonnet config diff
+	t.Setenv("TEST_JSONNET_DIFF_USERNAME", "jsonnetdiffuser")
+	t.Setenv("TEST_JSONNET_DIFF_PASSWORD", "jsonnetdiffpass")
+
+	// Raw Jsonnet config content with changes
+	rawConfigJsonnet := `
+local env = std.native('env');
+{
+  upstreams: [
+    {
+      name: 'primary',
+      address: 'localhost:5672',
+      routing: {},
+    },
+    {
+      name: 'jsonnet-diff-upstream',
+      cluster: {
+        nodes: [
+          'localhost:5675',
+        ],
+      },
+      health_check: {
+        interval: '60s',
+        timeout: '15s',
+        unhealthy_threshold: 4,
+        recovery_interval: '120s',
+        username: env('TEST_JSONNET_DIFF_USERNAME', 'default'),
+        password: env('TEST_JSONNET_DIFF_PASSWORD', 'default'),
+      },
+      routing: {
+        key_patterns: [
+          'jsonnet.diff.test.*',
+        ],
+      },
+    },
+  ],
+}`
+
+	// Send raw Jsonnet content for diff
+	req, _ := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(rawConfigJsonnet))
+	req.Header.Set("Content-Type", "application/jsonnet")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if code := resp.StatusCode; code != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+	}
+
+	if ct := resp.Header.Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("unexpected Content-Type: got %v want %v", ct, "text/plain")
+	}
+
+	// Read the diff response
+	diffBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read diff response: %v", err)
+	}
+
+	diffText := string(diffBody)
+	t.Logf("Jsonnet Diff response: %s", diffText)
+
+	// Verify diff contains expected changes
+	if !strings.Contains(diffText, "jsonnet-diff-upstream") {
+		t.Errorf("Expected diff to contain 'jsonnet-diff-upstream', but got: %s", diffText)
+	}
+}
