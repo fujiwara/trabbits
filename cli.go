@@ -54,7 +54,7 @@ func Run(ctx context.Context) error {
 	case "run":
 		// Run the server
 		return run(ctx, &cli)
-	case "manage config <command>":
+	case "manage config <command> <file>":
 		// Manage the server
 		return manageConfig(ctx, &cli)
 	default:

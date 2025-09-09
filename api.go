@@ -11,9 +11,14 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/aereal/jsondiff"
 )
 
-const APIContentType = "application/json"
+const (
+	APIContentType        = "application/json"
+	APIContentTypeJsonnet = "application/jsonnet"
+)
 
 func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 	if socketPath == "" {
@@ -42,6 +47,7 @@ func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /config", apiGetConfigHandler(opt))
 	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt))
+	mux.HandleFunc("POST /config/diff", apiDiffConfigHandler(opt))
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -76,6 +82,65 @@ func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
 	}, nil
 }
 
+// detectContentType checks the Content-Type header and returns whether it's Jsonnet
+func detectContentType(ct string) (isJsonnet bool, err error) {
+	if strings.HasPrefix(ct, APIContentTypeJsonnet) {
+		return true, nil
+	} else if strings.HasPrefix(ct, APIContentType) {
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid Content-Type: %s", ct)
+}
+
+// createTempConfigFile creates a temporary file for config based on content type
+func createTempConfigFile(isJsonnet bool, prefix string) (*os.File, error) {
+	var suffix string
+	if isJsonnet {
+		suffix = "*.jsonnet"
+	} else {
+		suffix = "*.json"
+	}
+	return os.CreateTemp("", prefix+suffix)
+}
+
+// processConfigRequest handles common config request processing
+func processConfigRequest(w http.ResponseWriter, r *http.Request, prefix string) (string, error) {
+	ct := r.Header.Get("Content-Type")
+	isJsonnet, err := detectContentType(ct)
+	if err != nil {
+		slog.Error("Content-Type must be application/json or application/jsonnet", "content-type", ct)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return "", err
+	}
+
+	formatType := "JSON"
+	if isJsonnet {
+		formatType = "Jsonnet"
+	}
+	slog.Debug(fmt.Sprintf("API %s request received", strings.ToUpper(prefix)), "content-type", ct, "format", formatType)
+
+	tmpfile, err := createTempConfigFile(isJsonnet, prefix)
+	if err != nil {
+		slog.Error("failed to create temporary file", "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "", err
+	}
+
+	configFile := tmpfile.Name()
+	if n, err := io.Copy(tmpfile, r.Body); err != nil {
+		tmpfile.Close()
+		os.Remove(configFile)
+		slog.Error("failed to write to temporary file", "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "", err
+	} else {
+		slog.Info("configuration received", "size", n, "file", configFile, "format", formatType)
+	}
+	tmpfile.Close()
+
+	return configFile, nil
+}
+
 func apiGetConfigHandler(opt *CLI) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
@@ -86,58 +151,14 @@ func apiGetConfigHandler(opt *CLI) http.HandlerFunc {
 
 func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ct := r.Header.Get("Content-Type")
-		var isJsonnet bool
-
-		slog.Debug("API PUT request received", "content-type", ct)
-
-		// Accept both JSON and Jsonnet content types
-		if strings.HasPrefix(ct, "application/jsonnet") {
-			isJsonnet = true
-			slog.Debug("Detected Jsonnet content")
-		} else if strings.HasPrefix(ct, APIContentType) {
-			isJsonnet = false
-			slog.Debug("Detected JSON content")
-		} else {
-			slog.Error("Content-Type must be application/json or application/jsonnet", "content-type", ct)
-			http.Error(w, "invalid Content-Type: "+ct, http.StatusBadRequest)
+		configFile, err := processConfigRequest(w, r, "trabbits-config-")
+		if err != nil {
 			return
 		}
+		defer os.Remove(configFile)
 
 		w.Header().Set("Content-Type", "application/json")
 
-		// Create appropriate temporary file based on content type
-		var tmpfile *os.File
-		var err error
-		if isJsonnet {
-			tmpfile, err = os.CreateTemp("", "trabbits-config-*.jsonnet")
-		} else {
-			tmpfile, err = os.CreateTemp("", "trabbits-config-*.json")
-		}
-
-		if err != nil {
-			slog.Error("failed to create temporary file", "error", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		configFile := tmpfile.Name()
-		defer func() {
-			os.Remove(configFile)
-		}()
-
-		if n, err := io.Copy(tmpfile, r.Body); err != nil {
-			slog.Error("failed to write to temporary file", "error", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		} else {
-			formatType := "JSON"
-			if isJsonnet {
-				formatType = "Jsonnet"
-			}
-			slog.Info("configuration received", "size", n, "file", configFile, "format", formatType)
-		}
-		tmpfile.Close()
 		cfg, err := LoadConfig(r.Context(), configFile)
 		if err != nil {
 			slog.Error("failed to load configuration", "error", err)
@@ -153,5 +174,42 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 		}
 
 		json.NewEncoder(w).Encode(cfg)
+	})
+}
+
+func apiDiffConfigHandler(opt *CLI) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		configFile, err := processConfigRequest(w, r, "trabbits-config-diff-")
+		if err != nil {
+			return
+		}
+		defer os.Remove(configFile)
+
+		w.Header().Set("Content-Type", "text/plain")
+
+		// Load new config from request
+		newCfg, err := LoadConfig(r.Context(), configFile)
+		if err != nil {
+			slog.Error("failed to load new configuration", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Get current config
+		currentCfg := mustGetConfig()
+
+		// Generate diff using jsondiff
+		diff, err := jsondiff.Diff(
+			&jsondiff.Input{Name: "current", X: currentCfg},
+			&jsondiff.Input{Name: "new", X: newCfg},
+		)
+		if err != nil {
+			slog.Error("failed to generate diff", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return diff as plain text
+		w.Write([]byte(diff))
 	})
 }
