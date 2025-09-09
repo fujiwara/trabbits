@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.4](https://github.com/fujiwara/trabbits/compare/v0.0.3...v0.0.4) - 2025-09-09
+- Add Jsonnet configuration file support by @fujiwara in https://github.com/fujiwara/trabbits/pull/36
+- Implement server-side diff API endpoint and refactor config handling by @fujiwara in https://github.com/fujiwara/trabbits/pull/38
+
 ## [v0.0.3](https://github.com/fujiwara/trabbits/compare/v0.0.2...v0.0.3) - 2025-08-27
 - Cluster upstream by @fujiwara in https://github.com/fujiwara/trabbits/pull/32
 - Add health check feature for cluster nodes by @fujiwara in https://github.com/fujiwara/trabbits/pull/34
