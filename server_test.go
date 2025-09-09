@@ -26,7 +26,7 @@ var testAPISock string
 
 func runTestProxy(ctx context.Context) error {
 	slog.Info("starting test server")
-	cfg, err := trabbits.LoadConfig("testdata/config.json")
+	cfg, err := trabbits.LoadConfig(ctx, "testdata/config.json")
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
