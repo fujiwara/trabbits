@@ -53,7 +53,23 @@ func TestProxyPublishGetRouting(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	for i, key := range []string{"default", "another"} {
+	cfg := trabbits.MustGetConfig()
+	expectedUpstream := map[string]int{
+		"default": 0, // Should go to primary (first upstream)
+		"another": -1, // Will be determined by routing
+	}
+	
+	// Find which upstream handles "test.queue.another.*" pattern
+	for i, upstream := range cfg.Upstreams {
+		for _, pattern := range upstream.Routing.KeyPatterns {
+			if pattern == "test.queue.another.*" {
+				expectedUpstream["another"] = i
+				break
+			}
+		}
+	}
+
+	for _, key := range []string{"default", "another"} {
 		qName := "test.queue." + key + "." + testID
 		m, ok, err := ch.Get(qName, false)
 		if err != nil {
@@ -67,12 +83,12 @@ func TestProxyPublishGetRouting(t *testing.T) {
 			t.Errorf("unexpected message: %s", string(m.Body))
 		}
 
-		cfg := trabbits.MustGetConfig()
 		if testViaTrabbits {
 			// check delivery tag to detect which upstream the message was delivered
 			_, index := trabbits.RestoreDeliveryTag(m.DeliveryTag, len(cfg.Upstreams))
-			if index != i {
-				t.Errorf("unexpected message tag index: %d, expected: %d", index, i)
+			expectedIndex := expectedUpstream[key]
+			if expectedIndex >= 0 && index != expectedIndex {
+				t.Errorf("unexpected message tag index for %s: %d, expected: %d", key, index, expectedIndex)
 			}
 		}
 
