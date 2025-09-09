@@ -369,12 +369,13 @@ trabbits cli also supports the configuration management. You can use `trabbits m
 the configuration. The cli access to the API server on the localhost.
 
 ```
-Usage: trabbits manage config <command>
+Usage: trabbits manage config <command> [<file>]
 
 Manage the configuration.
 
 Arguments:
   <command>    Command to run (get, diff, put).
+  <file>       Configuration file (required for diff/put commands).
 ```
 
 #### Use curl to access the API server
@@ -419,7 +420,7 @@ trabbits will reload the configuration and apply the new configuration.
 You can also use the `trabbits` cli to update the configuration.
 
 ```console
-$ trabbits manage config put --config new_config.json
+$ trabbits manage config put new_config.json
 ```
 
 #### Diff the configuration
@@ -427,7 +428,7 @@ $ trabbits manage config put --config new_config.json
 You can diff the current configuration and a new configuration using trabbits cli.
 
 ```console
-$ trabbits manage config diff --config new_config.json
+$ trabbits manage config diff new_config.json
 ```
 ```diff
 --- http://localhost:16692/config

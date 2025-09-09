@@ -54,7 +54,7 @@ func Run(ctx context.Context) error {
 	case "run":
 		// Run the server
 		return run(ctx, &cli)
-	case "manage config <command>":
+	case "manage config <command> <file>":
 		// Manage the server
 		return manageConfig(ctx, &cli)
 	default:
@@ -71,5 +71,6 @@ func setupLogger(level slog.Level) {
 type ManageOptions struct {
 	Config struct {
 		Command string `arg:"" enum:"get,diff,put" help:"Command to run (get, diff, put)."`
+		File    string `arg:"" optional:"" help:"Configuration file (required for diff/put commands)."`
 	} `cmd:"" help:"Manage the configuration."`
 }
