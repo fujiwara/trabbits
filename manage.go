@@ -39,7 +39,7 @@ func manageConfigGet(ctx context.Context, opt *CLI) error {
 }
 
 func manageConfigDiff(ctx context.Context, opt *CLI) error {
-	newCfg, err := LoadConfig(opt.Config)
+	newCfg, err := LoadConfig(ctx, opt.Config)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func manageConfigDiff(ctx context.Context, opt *CLI) error {
 
 func manageConfigPut(ctx context.Context, opt *CLI) error {
 	client := newAPIClient(opt.APISocket)
-	newCfg, err := LoadConfig(opt.Config)
+	newCfg, err := LoadConfig(ctx, opt.Config)
 	if err != nil {
 		return err
 	}

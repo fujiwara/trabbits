@@ -109,7 +109,7 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 		} else {
 			slog.Info("configuration received", "size", n, "file", configFile)
 		}
-		cfg, err := LoadConfig(configFile)
+		cfg, err := LoadConfig(r.Context(), configFile)
 		if err != nil {
 			slog.Error("failed to load configuration", "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest) // payload is invalid
@@ -118,7 +118,7 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 		storeConfig(cfg)
 
 		// Reinitialize health managers with new configuration
-		if err := initHealthManagers(context.Background(), cfg); err != nil {
+		if err := initHealthManagers(r.Context(), cfg); err != nil {
 			slog.Error("failed to reinit health managers", "error", err)
 			// Don't fail the config update, just log the error
 		}

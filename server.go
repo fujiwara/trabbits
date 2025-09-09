@@ -43,7 +43,7 @@ var Debug bool
 var healthManagers = sync.Map{} // upstream name -> *NodeHealthManager
 
 func run(ctx context.Context, opt *CLI) error {
-	cfg, err := LoadConfig(opt.Config)
+	cfg, err := LoadConfig(ctx, opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
