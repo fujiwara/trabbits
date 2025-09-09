@@ -198,7 +198,7 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		time.Sleep(100 * time.Millisecond) // Wait for the message to be delivered
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 		defer cancel()
 		d, err := ch.ConsumeWithContext(ctx, q.Name, "", false, false, false, false, nil)
 		if err != nil {
@@ -456,7 +456,7 @@ func TestProxyQos(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 			defer cancel()
 			d, err := ch.ConsumeWithContext(ctx, qName, "", false, false, false, false, nil)
 			if err != nil {
