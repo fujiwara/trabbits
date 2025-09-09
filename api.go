@@ -86,29 +86,58 @@ func apiGetConfigHandler(opt *CLI) http.HandlerFunc {
 
 func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, APIContentType) {
-			slog.Error("Content-Type must be "+APIContentType, "content-type", ct)
+		ct := r.Header.Get("Content-Type")
+		var isJsonnet bool
+
+		slog.Debug("API PUT request received", "content-type", ct)
+
+		// Accept both JSON and Jsonnet content types
+		if strings.HasPrefix(ct, "application/jsonnet") {
+			isJsonnet = true
+			slog.Debug("Detected Jsonnet content")
+		} else if strings.HasPrefix(ct, APIContentType) {
+			isJsonnet = false
+			slog.Debug("Detected JSON content")
+		} else {
+			slog.Error("Content-Type must be application/json or application/jsonnet", "content-type", ct)
 			http.Error(w, "invalid Content-Type: "+ct, http.StatusBadRequest)
 			return
 		}
+
 		w.Header().Set("Content-Type", "application/json")
-		tmpfile, err := os.CreateTemp("", "trabbits-config-*.json")
+
+		// Create appropriate temporary file based on content type
+		var tmpfile *os.File
+		var err error
+		if isJsonnet {
+			tmpfile, err = os.CreateTemp("", "trabbits-config-*.jsonnet")
+		} else {
+			tmpfile, err = os.CreateTemp("", "trabbits-config-*.json")
+		}
+
 		if err != nil {
 			slog.Error("failed to create temporary file", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		configFile := tmpfile.Name()
 		defer func() {
 			os.Remove(configFile)
 		}()
+
 		if n, err := io.Copy(tmpfile, r.Body); err != nil {
 			slog.Error("failed to write to temporary file", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		} else {
-			slog.Info("configuration received", "size", n, "file", configFile)
+			formatType := "JSON"
+			if isJsonnet {
+				formatType = "Jsonnet"
+			}
+			slog.Info("configuration received", "size", n, "file", configFile, "format", formatType)
 		}
+		tmpfile.Close()
 		cfg, err := LoadConfig(r.Context(), configFile)
 		if err != nil {
 			slog.Error("failed to load configuration", "error", err)
