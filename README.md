@@ -208,9 +208,60 @@ trabbits tries to match the routing key with the specified pattern in the order 
 
 If the routing key does not match any patterns, trabbits will use the first upstream as the default.
 
+## Configuration File Formats
+
+trabbits supports two configuration file formats:
+
+### JSON Configuration
+
+Standard JSON format configuration files are supported with environment variable expansion using the `${VAR}` syntax.
+
+### Jsonnet Configuration
+
+trabbits also supports [Jsonnet](https://jsonnet.org/) configuration files (`.jsonnet` extension), which provides:
+- Dynamic configuration generation
+- Functions and conditionals
+- Imports and includes
+- Environment variable access via `std.native('env')`
+- Additional utility functions from [jsonnet-armed](https://github.com/fujiwara/jsonnet-armed) such as file reading, JSON/YAML parsing, and more
+
+#### Jsonnet Example
+
+```jsonnet
+local env = std.native('env');
+{
+  upstreams: [
+    {
+      name: 'cluster',
+      cluster: {
+        nodes: [
+          'localhost:5672',
+        ],
+      },
+      health_check: {
+        username: env('RABBITMQ_HEALTH_USER', 'guest'),
+        password: env('RABBITMQ_HEALTH_PASS', 'guest'),
+        interval: '30s',
+        timeout: '5s',
+        unhealthy_threshold: 3,
+        recovery_interval: '60s',
+      },
+    },
+  ],
+}
+```
+
+To use a Jsonnet configuration:
+
+```sh
+export RABBITMQ_HEALTH_USER=healthcheck
+export RABBITMQ_HEALTH_PASS=secretpassword
+trabbits run --config config.jsonnet
+```
+
 ## Environment Variable Expansion
 
-trabbits supports environment variable expansion in configuration files using the `${VAR}` syntax. This is particularly useful for sensitive information like passwords that should not be stored in plain text in configuration files.
+For JSON configuration files, trabbits supports environment variable expansion using the `${VAR}` syntax. This is particularly useful for sensitive information like passwords that should not be stored in plain text in configuration files.
 
 ### Example
 
@@ -249,7 +300,8 @@ trabbits run --config config.json
 
 ### Notes
 
-- If an environment variable is not set, it expands to an empty string
+- If an environment variable is not set, it expands to an empty string in JSON files
+- For Jsonnet files, use `std.native('env')` function with default values
 - Environment variable expansion works for any string field in the configuration
 - Variable names are case-sensitive
 - Use double quotes around the `${VAR}` syntax in JSON

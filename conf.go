@@ -4,14 +4,18 @@
 package trabbits
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
+	armed "github.com/fujiwara/jsonnet-armed"
 	"github.com/fujiwara/trabbits/amqp091"
 )
 
@@ -27,18 +31,30 @@ func (c *Config) String() string {
 	return string(data)
 }
 
-func LoadConfig(f string) (*Config, error) {
+func LoadConfig(ctx context.Context, f string) (*Config, error) {
 	var c Config
 	slog.Info("Loading configuration", "file", f)
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+
+	buf := new(bytes.Buffer)
+	if strings.HasSuffix(f, ".jsonnet") {
+		cli := &armed.CLI{
+			Filename: f,
+		}
+		cli.SetWriter(buf)
+		if err := cli.Run(ctx); err != nil {
+			return nil, fmt.Errorf("failed to run load config: %w", err)
+		}
+	} else {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %w", err)
+		}
+		// Expand environment variables in the configuration
+		expandedData := os.ExpandEnv(string(data))
+		buf.WriteString(expandedData)
 	}
 
-	// Expand environment variables in the configuration
-	expandedData := os.ExpandEnv(string(data))
-
-	if err := json.Unmarshal([]byte(expandedData), &c); err != nil {
+	if err := json.Unmarshal(buf.Bytes(), &c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
 	slog.Info("Configuration loaded", "config", c.String())

@@ -50,7 +50,7 @@ func TestConfigEnvironmentVariableExpansion(t *testing.T) {
 	tmpfile.Close()
 
 	// Load config and verify environment variable expansion
-	cfg, err := trabbits.LoadConfig(tmpfile.Name())
+	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestConfigEnvironmentVariableNotSet(t *testing.T) {
 	tmpfile.Close()
 
 	// Loading should fail because validation fails for missing username
-	_, err = trabbits.LoadConfig(tmpfile.Name())
+	_, err = trabbits.LoadConfig(t.Context(), tmpfile.Name())
 	if err == nil {
 		t.Error("Expected config loading to fail for missing environment variable, got nil")
 	}
@@ -165,7 +165,7 @@ func TestConfigWithoutEnvironmentVariables(t *testing.T) {
 	}
 	tmpfile.Close()
 
-	cfg, err := trabbits.LoadConfig(tmpfile.Name())
+	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestConfigPasswordMasking(t *testing.T) {
 	}
 	tmpfile.Close()
 
-	cfg, err := trabbits.LoadConfig(tmpfile.Name())
+	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -239,5 +239,80 @@ func TestConfigPasswordMasking(t *testing.T) {
 	// Original config should still have the real password
 	if cfg.Upstreams[0].HealthCheck.Password.String() != "supersecret" {
 		t.Errorf("Original config password should not be modified, got: %s", cfg.Upstreams[0].HealthCheck.Password.String())
+	}
+}
+
+func TestConfigJsonnet(t *testing.T) {
+	// Set environment variables for test
+	t.Setenv("TEST_RABBITMQ_USERNAME", "testuser")
+	t.Setenv("TEST_RABBITMQ_PASSWORD", "testpass")
+	t.Setenv("TEST_INTERVAL", "45s")
+
+	// Create config file content with environment variables
+	configJsonnet := `
+local env = std.native('env');
+{
+  upstreams: [
+    {
+      name: 'test-cluster',
+      cluster: {
+        nodes: [
+          'localhost:5672',
+        ],
+      },
+      health_check: {
+        interval: env('TEST_INTERVAL', ''),
+        timeout: '5s',
+        unhealthy_threshold: 3,
+        recovery_interval: '60s',
+        username: env('TEST_RABBITMQ_USERNAME', 'guest'),
+        password: env('TEST_RABBITMQ_PASSWORD', 'guest'),
+      },
+    },
+  ],
+}`
+
+	// Write to temporary file
+	tmpfile, err := os.CreateTemp("", "test-config-env-*.jsonnet")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(configJsonnet)); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+	tmpfile.Close()
+
+	// Load config and verify environment variable expansion
+	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Verify the config was loaded correctly
+	if len(cfg.Upstreams) != 1 {
+		t.Fatalf("Expected 1 upstream, got %d", len(cfg.Upstreams))
+	}
+
+	upstream := cfg.Upstreams[0]
+	if upstream.HealthCheck == nil {
+		t.Fatal("Expected health check configuration, got nil")
+	}
+
+	hc := upstream.HealthCheck
+
+	// Verify environment variables were expanded
+	if hc.Username != "testuser" {
+		t.Errorf("Expected username 'testuser', got '%s'", hc.Username)
+	}
+
+	if hc.Password.String() != "testpass" {
+		t.Errorf("Expected password 'testpass', got '%s'", hc.Password.String())
+	}
+
+	expectedInterval := 45 * time.Second
+	if hc.Interval.ToDuration() != expectedInterval {
+		t.Errorf("Expected interval %v, got %v", expectedInterval, hc.Interval.ToDuration())
 	}
 }
