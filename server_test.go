@@ -504,7 +504,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 
 	var (
 		exchange    = "test-exchange-direct"
-		queue       = "test-queue"
+		queue       = "test-queue." + rand.Text()
 		routingKey  = "test-routing-key"
 		testMessage = "test message" + rand.Text()
 	)
