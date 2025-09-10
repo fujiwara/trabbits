@@ -424,4 +424,75 @@ local env = std.native('env');
 			t.Errorf("Expected diff to contain 'jsonnet-diff-upstream', but got: %s", diffText)
 		}
 	})
+
+	// Test 6: Reload config
+	t.Run("ReloadConfig", func(t *testing.T) {
+		reloadEndpoint := endpoint + "/reload"
+
+		// First, update the config with PUT
+		updatedConfig := `{
+		"upstreams": [
+			{
+				"name": "primary",
+				"address": "localhost:5672",
+				"routing": {}
+			},
+			{
+				"name": "reload-test-upstream",
+				"address": "localhost:5673",
+				"routing": {
+					"key_patterns": [
+						"reload.test.*"
+					]
+				}
+			}
+		]
+	}`
+
+		req, _ := http.NewRequest(http.MethodPut, endpoint, strings.NewReader(updatedConfig))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send PUT request: %v", err)
+		}
+		resp.Body.Close()
+
+		// Now test reload - it should restore original config from file
+		req, _ = http.NewRequest(http.MethodPost, reloadEndpoint, nil)
+		resp, err = client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send reload request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if code := resp.StatusCode; code != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
+		}
+
+		var reloadedConfig trabbits.Config
+		if err := json.NewDecoder(resp.Body).Decode(&reloadedConfig); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+
+		// Verify it reloaded from original file (should have "secondary" upstream, not "reload-test-upstream")
+		if len(reloadedConfig.Upstreams) != 2 {
+			t.Fatalf("Expected 2 upstreams after reload, got %d", len(reloadedConfig.Upstreams))
+		}
+
+		// Check that we have the original "secondary" upstream
+		foundSecondary := false
+		for _, upstream := range reloadedConfig.Upstreams {
+			if upstream.Name == "secondary" {
+				foundSecondary = true
+				break
+			}
+			if upstream.Name == "reload-test-upstream" {
+				t.Error("Found 'reload-test-upstream' after reload, should have been reverted to original config")
+			}
+		}
+
+		if !foundSecondary {
+			t.Error("Expected to find 'secondary' upstream after reload")
+		}
+	})
 }

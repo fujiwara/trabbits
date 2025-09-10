@@ -374,7 +374,7 @@ Usage: trabbits manage config <command> [<file>]
 Manage the configuration.
 
 Arguments:
-  <command>    Command to run (get, diff, put).
+  <command>    Command to run (get, diff, put, reload).
   <file>       Configuration file (required for diff/put commands).
 ```
 
@@ -430,6 +430,16 @@ You can diff the current configuration and a new configuration using trabbits cl
 ```console
 $ trabbits manage config diff new_config.json
 ```
+
+#### Reload the configuration
+
+You can reload the configuration from the original configuration file using trabbits cli.
+
+```console
+$ trabbits manage config reload
+```
+
+This command reloads the configuration from the file specified by `--config` option (default: `config.json`).
 ```diff
 --- http://localhost:16692/config
 +++ new_config.json
