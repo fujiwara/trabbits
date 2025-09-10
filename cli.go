@@ -30,6 +30,7 @@ type CLI struct {
 }
 
 type RunOptions struct {
+	PidFile string `help:"Path to write the process ID file." env:"TRABBITS_PID_FILE"`
 }
 
 func Run(ctx context.Context) error {
