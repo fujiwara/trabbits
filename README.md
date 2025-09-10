@@ -440,6 +440,22 @@ $ trabbits manage config reload
 ```
 
 This command reloads the configuration from the file specified by `--config` option (default: `config.json`).
+
+#### Reload configuration with SIGHUP
+
+You can also reload the configuration by sending a SIGHUP signal to the trabbits process.
+
+```console
+$ kill -HUP $(pidof trabbits)
+```
+
+or
+
+```console
+$ pkill -HUP trabbits
+```
+
+This will reload the configuration from the original configuration file specified when trabbits was started.
 ```diff
 --- http://localhost:16692/config
 +++ new_config.json
