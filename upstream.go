@@ -40,8 +40,10 @@ func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamCo
 		destruct:    []func(*rabbitmq.Channel){},
 		closeChan:   make(chan *rabbitmq.Error, 1),
 	}
-	// Register for connection close notifications
-	conn.NotifyClose(u.closeChan)
+	// Register for connection close notifications if connection is not nil
+	if conn != nil {
+		conn.NotifyClose(u.closeChan)
+	}
 	metrics.UpstreamTotalConnections.WithLabelValues(address).Inc()
 	metrics.UpstreamConnections.WithLabelValues(address).Inc()
 	return u
