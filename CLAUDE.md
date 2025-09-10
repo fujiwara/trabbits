@@ -17,6 +17,8 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Test files are located alongside source files as `*_test.go`
 - Test data is in `testdata/` directory
 - Use table-driven tests where appropriate
+- Use `t.Context()` in test functions instead of manually creating contexts
+- Use `mustTestConn(t)` for connecting to test proxy server
 
 ### Build and Run
 - Build: `go build -o trabbits ./cmd/trabbits`
@@ -29,6 +31,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - `proxy.go` - Client-server proxy logic
 - `amqp091/` - AMQP 0.9.1 protocol implementation
 - `routing.go` - Message routing based on patterns
+- `error.go` - AMQP error handling and propagation
 
 ### Configuration
 - JSON-based configuration in `config.json`
@@ -57,3 +60,10 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Protocol compliance with RabbitMQ AMQP 0.9.1 is critical
 - Maintain backward compatibility where possible
 - SO_REUSEPORT support for multiple instances
+
+### Upstream Connection Management
+- Each upstream connection is monitored via `rabbitmq.Connection.NotifyClose()`
+- Upstream disconnections trigger `Connection.Close` with error code 320 (connection-forced) to clients
+- Monitoring goroutines are started for each upstream in `ConnectToUpstreams()`
+- `MonitorUpstreamConnection()` handles upstream disconnection events
+- Client disconnection on upstream failure ensures proper error propagation

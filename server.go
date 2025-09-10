@@ -213,16 +213,17 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	s.logger.Info("handshake completed")
 
+	// subCtx is used for client connection depends on parent context
+	subCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	
 	cfg := mustGetConfig()
-	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, s.clientProps); err != nil {
+	if err := s.ConnectToUpstreams(subCtx, cfg.Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
 	s.logger.Info("connected to upstreams")
 
-	// subCtx is used for client connection depends on parent context
-	subCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
 	// wait for client frames
@@ -232,6 +233,14 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 			s.shutdown(subCtx) // graceful shutdown
 			return             // subCtx will be canceled by defer ^
 		case <-subCtx.Done():
+			return
+		case upstreamName := <-s.upstreamDisconnect:
+			// An upstream connection was lost
+			s.logger.Error("Upstream connection lost, closing client connection",
+				"upstream", upstreamName)
+			// Send Connection.Close to client with connection-forced error
+			s.sendConnectionError(NewError(amqp091.ConnectionForced,
+				fmt.Sprintf("Upstream connection lost: %s", upstreamName)))
 			return
 		default:
 		}
@@ -254,13 +263,17 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 		Path:   s.VirtualHost,
 	}
 	s.logger.Info("connect to upstream", "url", safeURLString(*u))
+	// Copy all client properties and override specific ones
+	upstreamProps := rabbitmq.Table{}
+	for k, v := range props {
+		upstreamProps[k] = v
+	}
+	// overwrite product property to include trabbits and client address
+	upstreamProps["product"] = fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version)
+
 	cfg := rabbitmq.Config{
-		Properties: rabbitmq.Table{
-			"version":  props["version"],
-			"platform": props["platform"],
-			"product":  fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version),
-		},
-		Dial: rabbitmq.DefaultDial(timeout),
+		Properties: upstreamProps,
+		Dial:       rabbitmq.DefaultDial(timeout),
 	}
 	conn, err := rabbitmq.DialConfig(u.String(), cfg)
 	if err != nil {
@@ -345,7 +358,7 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	return result
 }
 
-func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
+func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
 		timeout := c.Timeout.ToDuration()
 		if timeout == 0 {
@@ -357,6 +370,9 @@ func (s *Proxy) ConnectToUpstreams(_ context.Context, upstreamConfigs []Upstream
 		}
 		us := NewUpstream(conn, s.logger, c, addr)
 		s.upstreams = append(s.upstreams, us)
+
+		// Start monitoring the upstream connection
+		go s.MonitorUpstreamConnection(ctx, us)
 	}
 	return nil
 }
@@ -474,6 +490,25 @@ func (s *Proxy) shutdown(ctx context.Context) error {
 	_, err := s.recv(0, &msg)
 	if err != nil {
 		s.logger.Warn("failed to read Connection.Close-Ok", "error", err)
+	}
+	return nil
+}
+
+// sendConnectionError sends a Connection.Close frame with error to the client
+func (s *Proxy) sendConnectionError(err AMQPError) error {
+	close := &amqp091.ConnectionClose{
+		ReplyCode: err.Code(),
+		ReplyText: err.Error(),
+	}
+	if sendErr := s.send(0, close); sendErr != nil {
+		s.logger.Error("Failed to send Connection.Close to client", "error", sendErr)
+		return sendErr
+	}
+	// Try to read Connection.Close-Ok, but don't wait too long
+	s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	msg := amqp091.ConnectionCloseOk{}
+	if _, recvErr := s.recv(0, &msg); recvErr != nil {
+		s.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
 	}
 	return nil
 }

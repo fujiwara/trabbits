@@ -4,6 +4,7 @@
 package trabbits
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -29,15 +30,18 @@ type Proxy struct {
 	user        string
 	password    string
 	clientProps amqp091.Table
+
+	upstreamDisconnect chan string // channel to notify upstream disconnection
 }
 
 func NewProxy(conn net.Conn) *Proxy {
 	id := generateID()
 	s := &Proxy{
-		conn: conn,
-		id:   id,
-		r:    amqp091.NewReader(conn),
-		w:    amqp091.NewWriter(conn),
+		conn:               conn,
+		id:                 id,
+		r:                  amqp091.NewReader(conn),
+		w:                  amqp091.NewWriter(conn),
+		upstreamDisconnect: make(chan string, 10), // buffered to avoid blocking
 	}
 	s.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", s.ClientAddr())
 	return s
@@ -123,4 +127,32 @@ func (s *Proxy) ClientBanner() string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s/%s", s.clientProps["platform"], s.clientProps["product"], s.clientProps["version"])
+}
+
+// MonitorUpstreamConnection monitors an upstream connection and notifies when it closes
+func (s *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstream) {
+	select {
+	case <-ctx.Done():
+		s.logger.Debug("Upstream monitoring stopped by context", "upstream", upstream.String())
+		return
+	case err := <-upstream.NotifyClose():
+		if err != nil {
+			s.logger.Warn("Upstream connection closed with error",
+				"upstream", upstream.String(),
+				"address", upstream.address,
+				"error", err)
+		} else {
+			s.logger.Warn("Upstream connection closed gracefully",
+				"upstream", upstream.String(),
+				"address", upstream.address)
+		}
+		// Notify proxy about the disconnection
+		select {
+		case s.upstreamDisconnect <- upstream.String():
+		default:
+			// Channel is full, log and continue
+			s.logger.Error("Failed to notify upstream disconnection - channel full",
+				"upstream", upstream.String())
+		}
+	}
 }
