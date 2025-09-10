@@ -48,6 +48,7 @@ func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
 	mux.HandleFunc("GET /config", apiGetConfigHandler(opt))
 	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt))
 	mux.HandleFunc("POST /config/diff", apiDiffConfigHandler(opt))
+	mux.HandleFunc("POST /config/reload", apiReloadConfigHandler(opt))
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -211,5 +212,31 @@ func apiDiffConfigHandler(opt *CLI) http.HandlerFunc {
 
 		// Return diff as plain text
 		w.Write([]byte(diff))
+	})
+}
+
+func apiReloadConfigHandler(opt *CLI) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slog.Info("Reloading configuration from file", "file", opt.Config)
+
+		w.Header().Set("Content-Type", "application/json")
+
+		// Reload config from the original config file
+		cfg, err := LoadConfig(r.Context(), opt.Config)
+		if err != nil {
+			slog.Error("failed to reload configuration", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		storeConfig(cfg)
+
+		// Reinitialize health managers with new configuration
+		if err := initHealthManagers(r.Context(), cfg); err != nil {
+			slog.Error("failed to reinit health managers", "error", err)
+			// Don't fail the config reload, just log the error
+		}
+
+		slog.Info("Configuration reloaded successfully")
+		json.NewEncoder(w).Encode(cfg)
 	})
 }
