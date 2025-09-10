@@ -19,10 +19,12 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/signal"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -65,6 +67,23 @@ func run(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("failed to start metrics server: %w", err)
 	}
 	defer cancelMetrics()
+
+	// Setup SIGHUP handler for config reload
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sigChan:
+				slog.Info("Received SIGHUP signal, reloading configuration")
+				if _, err := reloadConfigFromFile(ctx, opt.Config); err != nil {
+					slog.Error("Failed to reload config via SIGHUP", "error", err)
+				}
+			}
+		}
+	}()
 
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
 	listener, err := newListener(ctx, fmt.Sprintf(":%d", opt.Port))
