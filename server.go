@@ -19,10 +19,13 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/signal"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
@@ -49,6 +52,14 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 	storeConfig(cfg)
 
+	// Write PID file if specified
+	if opt.Run.PidFile != "" {
+		if err := writePidFile(opt.Run.PidFile); err != nil {
+			return fmt.Errorf("failed to write PID file: %w", err)
+		}
+		defer removePidFile(opt.Run.PidFile)
+	}
+
 	// Initialize health check managers for cluster upstreams
 	if err := initHealthManagers(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to init health managers: %w", err)
@@ -66,6 +77,23 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 	defer cancelMetrics()
 
+	// Setup SIGHUP handler for config reload
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sigChan:
+				slog.Info("Received SIGHUP signal, reloading configuration")
+				if _, err := reloadConfigFromFile(ctx, opt.Config); err != nil {
+					slog.Error("Failed to reload config via SIGHUP", "error", err)
+				}
+			}
+		}
+	}()
+
 	slog.Info("trabbits starting", "version", Version, "port", opt.Port)
 	listener, err := newListener(ctx, fmt.Sprintf(":%d", opt.Port))
 	if err != nil {
@@ -74,6 +102,26 @@ func run(ctx context.Context, opt *CLI) error {
 	defer listener.Close()
 
 	return boot(ctx, listener)
+}
+
+// writePidFile writes the current process ID to the specified file
+func writePidFile(pidFile string) error {
+	pid := os.Getpid()
+	slog.Info("Writing PID file", "file", pidFile, "pid", pid)
+
+	content := strconv.Itoa(pid)
+	if err := os.WriteFile(pidFile, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write PID file %s: %w", pidFile, err)
+	}
+	return nil
+}
+
+// removePidFile removes the PID file
+func removePidFile(pidFile string) {
+	slog.Info("Removing PID file", "file", pidFile)
+	if err := os.Remove(pidFile); err != nil {
+		slog.Warn("Failed to remove PID file", "file", pidFile, "error", err)
+	}
 }
 
 func boot(ctx context.Context, listener net.Listener) error {

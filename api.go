@@ -215,28 +215,38 @@ func apiDiffConfigHandler(opt *CLI) http.HandlerFunc {
 	})
 }
 
+// reloadConfigFromFile reloads configuration from the specified file
+func reloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+	slog.Info("Reloading configuration from file", "file", configPath)
+
+	// Reload config from the original config file
+	cfg, err := LoadConfig(ctx, configPath)
+	if err != nil {
+		slog.Error("failed to reload configuration", "error", err)
+		return nil, fmt.Errorf("failed to reload configuration: %w", err)
+	}
+	storeConfig(cfg)
+
+	// Reinitialize health managers with new configuration
+	if err := initHealthManagers(ctx, cfg); err != nil {
+		slog.Error("failed to reinit health managers", "error", err)
+		// Don't fail the config reload, just log the error
+	}
+
+	slog.Info("Configuration reloaded successfully")
+	return cfg, nil
+}
+
 func apiReloadConfigHandler(opt *CLI) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("Reloading configuration from file", "file", opt.Config)
-
 		w.Header().Set("Content-Type", "application/json")
 
-		// Reload config from the original config file
-		cfg, err := LoadConfig(r.Context(), opt.Config)
+		cfg, err := reloadConfigFromFile(r.Context(), opt.Config)
 		if err != nil {
-			slog.Error("failed to reload configuration", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		storeConfig(cfg)
 
-		// Reinitialize health managers with new configuration
-		if err := initHealthManagers(r.Context(), cfg); err != nil {
-			slog.Error("failed to reinit health managers", "error", err)
-			// Don't fail the config reload, just log the error
-		}
-
-		slog.Info("Configuration reloaded successfully")
 		json.NewEncoder(w).Encode(cfg)
 	})
 }
