@@ -24,6 +24,8 @@ func manageConfig(ctx context.Context, opt *CLI) error {
 		return manageConfigDiff(ctx, opt)
 	case "put":
 		return manageConfigPut(ctx, opt)
+	case "reload":
+		return manageConfigReload(ctx, opt)
 	default:
 		return fmt.Errorf("unknown command: %s", opt.Manage.Config.Command)
 	}
@@ -64,6 +66,17 @@ func manageConfigPut(ctx context.Context, opt *CLI) error {
 
 	client := newAPIClient(opt.APISocket)
 	return client.putConfigFromFile(ctx, opt.Manage.Config.File)
+}
+
+func manageConfigReload(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	cfg, err := client.reloadConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to reload config: %w", err)
+	}
+	slog.Info("Configuration reloaded successfully")
+	fmt.Print(cfg.String())
+	return nil
 }
 
 func coloredDiff(src string) string {
@@ -194,4 +207,24 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 	}
 
 	return string(diffBytes), nil
+}
+
+func (c *apiClient) reloadConfig(ctx context.Context) (*Config, error) {
+	slog.Info("reloading config from server")
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/reload", nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to reload config: %s", resp.Status)
+	}
+
+	var cfg Config
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON: %w", err)
+	}
+	return &cfg, nil
 }
