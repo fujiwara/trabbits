@@ -216,7 +216,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	
+
 	cfg := mustGetConfig()
 	if err := s.ConnectToUpstreams(subCtx, cfg.Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
