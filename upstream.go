@@ -24,6 +24,7 @@ type Upstream struct {
 	queueAttr     *QueueAttributes
 	shutdownFuncs sync.Map
 	destruct      []func(*rabbitmq.Channel)
+	closeChan     chan *rabbitmq.Error
 }
 
 func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig, address string) *Upstream {
@@ -37,7 +38,10 @@ func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamCo
 		keyPatterns: conf.Routing.KeyPatterns,
 		queueAttr:   conf.QueueAttributes,
 		destruct:    []func(*rabbitmq.Channel){},
+		closeChan:   make(chan *rabbitmq.Error, 1),
 	}
+	// Register for connection close notifications
+	conn.NotifyClose(u.closeChan)
 	metrics.UpstreamTotalConnections.WithLabelValues(address).Inc()
 	metrics.UpstreamConnections.WithLabelValues(address).Inc()
 	return u
@@ -45,6 +49,11 @@ func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamCo
 
 func (u *Upstream) String() string {
 	return u.name
+}
+
+// NotifyClose returns a channel that will be closed when the upstream connection is closed
+func (u *Upstream) NotifyClose() <-chan *rabbitmq.Error {
+	return u.closeChan
 }
 
 func (u *Upstream) Close() error {

@@ -295,8 +295,26 @@ func TestProxyPublishPurgeGet(t *testing.T) {
 	}
 }
 
-func mustTestConn(t *testing.T) *rabbitmq.Connection {
-	conn, err := rabbitmq.Dial(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort))
+func mustTestConn(t *testing.T, keyValues ...string) *rabbitmq.Connection {
+	props := rabbitmq.Table{
+		"product":  "golang/AMQP 0.9.1 Client",
+		"version":  "1.10.0",
+		"platform": "golang",
+	}
+
+	// Add custom properties from key-value pairs
+	if len(keyValues)%2 != 0 {
+		t.Fatal("keyValues must be provided in pairs")
+	}
+	for i := 0; i < len(keyValues); i += 2 {
+		props[keyValues[i]] = keyValues[i+1]
+	}
+
+	cfg := rabbitmq.Config{
+		Properties: props,
+	}
+
+	conn, err := rabbitmq.DialConfig(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", testProxyPort), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
