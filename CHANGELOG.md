@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.5](https://github.com/fujiwara/trabbits/compare/v0.0.4...v0.0.5) - 2025-09-10
+- Add reload config API endpoint by @fujiwara in https://github.com/fujiwara/trabbits/pull/39
+- Add SIGHUP signal handling for configuration reload by @fujiwara in https://github.com/fujiwara/trabbits/pull/41
+
 ## [v0.0.4](https://github.com/fujiwara/trabbits/compare/v0.0.3...v0.0.4) - 2025-09-09
 - Add Jsonnet configuration file support by @fujiwara in https://github.com/fujiwara/trabbits/pull/36
 - Implement server-side diff API endpoint and refactor config handling by @fujiwara in https://github.com/fujiwara/trabbits/pull/38
