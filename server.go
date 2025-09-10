@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -50,6 +51,14 @@ func run(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	storeConfig(cfg)
+
+	// Write PID file if specified
+	if opt.Run.PidFile != "" {
+		if err := writePidFile(opt.Run.PidFile); err != nil {
+			return fmt.Errorf("failed to write PID file: %w", err)
+		}
+		defer removePidFile(opt.Run.PidFile)
+	}
 
 	// Initialize health check managers for cluster upstreams
 	if err := initHealthManagers(ctx, cfg); err != nil {
@@ -93,6 +102,26 @@ func run(ctx context.Context, opt *CLI) error {
 	defer listener.Close()
 
 	return boot(ctx, listener)
+}
+
+// writePidFile writes the current process ID to the specified file
+func writePidFile(pidFile string) error {
+	pid := os.Getpid()
+	slog.Info("Writing PID file", "file", pidFile, "pid", pid)
+
+	content := strconv.Itoa(pid)
+	if err := os.WriteFile(pidFile, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write PID file %s: %w", pidFile, err)
+	}
+	return nil
+}
+
+// removePidFile removes the PID file
+func removePidFile(pidFile string) {
+	slog.Info("Removing PID file", "file", pidFile)
+	if err := os.Remove(pidFile); err != nil {
+		slog.Warn("Failed to remove PID file", "file", pidFile, "error", err)
+	}
 }
 
 func boot(ctx context.Context, listener net.Listener) error {

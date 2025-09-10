@@ -445,6 +445,15 @@ This command reloads the configuration from the file specified by `--config` opt
 
 You can also reload the configuration by sending a SIGHUP signal to the trabbits process.
 
+For better reliability, use a PID file to ensure you target the correct process:
+
+```console
+$ trabbits run --pid-file /var/run/trabbits.pid --config config.json
+$ kill -HUP $(cat /var/run/trabbits.pid)
+```
+
+Alternatively, you can use process discovery (less reliable):
+
 ```console
 $ kill -HUP $(pidof trabbits)
 ```
