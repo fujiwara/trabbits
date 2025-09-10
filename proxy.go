@@ -4,6 +4,7 @@
 package trabbits
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -129,8 +130,11 @@ func (s *Proxy) ClientBanner() string {
 }
 
 // MonitorUpstreamConnection monitors an upstream connection and notifies when it closes
-func (s *Proxy) MonitorUpstreamConnection(upstream *Upstream) {
+func (s *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstream) {
 	select {
+	case <-ctx.Done():
+		s.logger.Debug("Upstream monitoring stopped by context", "upstream", upstream.String())
+		return
 	case err := <-upstream.NotifyClose():
 		if err != nil {
 			s.logger.Warn("Upstream connection closed with error",

@@ -213,16 +213,17 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	s.logger.Info("handshake completed")
 
+	// subCtx is used for client connection depends on parent context
+	subCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	
 	cfg := mustGetConfig()
-	if err := s.ConnectToUpstreams(ctx, cfg.Upstreams, s.clientProps); err != nil {
+	if err := s.ConnectToUpstreams(subCtx, cfg.Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
 	s.logger.Info("connected to upstreams")
 
-	// subCtx is used for client connection depends on parent context
-	subCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
 	// wait for client frames
@@ -371,7 +372,7 @@ func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []Upstre
 		s.upstreams = append(s.upstreams, us)
 
 		// Start monitoring the upstream connection
-		go s.MonitorUpstreamConnection(us)
+		go s.MonitorUpstreamConnection(ctx, us)
 	}
 	return nil
 }
