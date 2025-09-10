@@ -7,6 +7,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 
 ### Code Standards
 - Follow standard Go formatting with `go fmt`
+- Always run `go fmt ./...` before committing code
 - Add tests for new functionality in `*_test.go` files
 - Use structured logging with `log/slog`
 - Maintain AMQP 0.9.1 protocol compliance

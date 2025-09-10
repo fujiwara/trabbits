@@ -55,10 +55,10 @@ func TestProxyPublishGetRouting(t *testing.T) {
 
 	cfg := trabbits.MustGetConfig()
 	expectedUpstream := map[string]int{
-		"default": 0, // Should go to primary (first upstream)
+		"default": 0,  // Should go to primary (first upstream)
 		"another": -1, // Will be determined by routing
 	}
-	
+
 	// Find which upstream handles "test.queue.another.*" pattern
 	for i, upstream := range cfg.Upstreams {
 		for _, pattern := range upstream.Routing.KeyPatterns {
