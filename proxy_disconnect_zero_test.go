@@ -10,7 +10,6 @@ import (
 
 func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Create test config
 	config := &trabbits.Config{
@@ -23,18 +22,21 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	}
 	configHash := config.Hash()
 
+	// Create server instance
+	testServer := trabbits.NewTestServer(config)
+
 	// Create proxy with CURRENT config hash (not outdated)
 	server, client := net.Pipe()
 	defer server.Close()
 	defer client.Close()
 
-	proxy := trabbits.NewProxy(server)
+	proxy := testServer.NewProxy(server)
 	proxy.SetConfigHash(configHash) // Same hash as current config
-	trabbits.RegisterProxy(proxy)
+	testServer.RegisterProxy(proxy)
 
 	// Disconnect outdated proxies - should find 0 because proxy has current hash
 	start := time.Now()
-	disconnectChan := trabbits.DisconnectOutdatedProxies(configHash)
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(configHash)
 
 	select {
 	case disconnectedCount := <-disconnectChan:
@@ -60,18 +62,17 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	}
 
 	// Verify proxy is still active
-	finalCount := trabbits.CountActiveProxies()
+	finalCount := testServer.CountActiveProxies()
 	if finalCount != 1 {
 		t.Errorf("Expected 1 active proxy remaining, got %d", finalCount)
 	}
 
 	// Clean up
-	trabbits.UnregisterProxy(proxy)
+	testServer.UnregisterProxy(proxy)
 }
 
 func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Test with no proxies registered at all
 	config := &trabbits.Config{
@@ -83,8 +84,11 @@ func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
 		},
 	}
 
+	// Create server instance
+	testServer := trabbits.NewTestServer(config)
+
 	start := time.Now()
-	disconnectChan := trabbits.DisconnectOutdatedProxies(config.Hash())
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(config.Hash())
 
 	select {
 	case disconnectedCount := <-disconnectChan:
