@@ -86,6 +86,9 @@ Commands:
   manage config <command>
     Manage the configuration.
 
+  test match-routing <pattern> <key>
+    Test routing pattern matching.
+
 Run "trabbits <command> --help" for more information on a command.
 ```
 
@@ -481,6 +484,37 @@ This will reload the configuration from the original configuration file specifie
        },
        "queue_attributes": {
 ```
+
+### Test utilities
+
+#### Test routing pattern matching
+
+The `test match-routing` command allows you to test whether a routing key matches a given binding pattern. This is useful for debugging routing rules before applying them in your configuration.
+
+```console
+# Test pattern matching
+$ trabbits test match-routing "logs.*.error" "logs.app.error"
+✓ MATCHED: pattern 'logs.*.error' matches key 'logs.app.error'
+
+$ trabbits test match-routing "logs.*.error" "metrics.app.error"
+✗ NOT MATCHED: pattern 'logs.*.error' does not match key 'metrics.app.error'
+
+# Exit code is 0 for match, 1 for no match
+$ trabbits test match-routing "logs.#" "logs.app.error.critical"
+✓ MATCHED: pattern 'logs.#' matches key 'logs.app.error.critical'
+$ echo $?
+0
+
+$ trabbits test match-routing "metrics.*" "metrics.cpu.usage"  
+✗ NOT MATCHED: pattern 'metrics.*' does not match key 'metrics.cpu.usage'
+$ echo $?
+1
+```
+
+Pattern matching follows RabbitMQ's topic exchange rules:
+- `*` (star) matches exactly one word
+- `#` (hash) matches zero or more words
+- Words are delimited by dots (`.`)
 
 ## Support for multiple instances
 
