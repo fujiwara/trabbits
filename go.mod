@@ -1,6 +1,6 @@
 module github.com/fujiwara/trabbits
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/aereal/jsondiff v0.4.1
@@ -13,6 +13,7 @@ require (
 	github.com/prometheus/common v0.65.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	golang.org/x/sys v0.35.0
+	golang.org/x/time v0.13.0
 )
 
 require (
