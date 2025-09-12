@@ -18,6 +18,7 @@ var (
 	RunAPIServer         = runAPIServer
 	NewAPIClient         = newAPIClient
 	ReloadConfigFromFile = reloadConfigFromFile
+	TestMatchRouting     = testMatchRouting
 )
 
 type Delivery = delivery
