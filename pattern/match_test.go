@@ -1,13 +1,11 @@
-package trabbits_test
+package pattern
 
 import (
 	"fmt"
 	"testing"
-
-	"github.com/fujiwara/trabbits"
 )
 
-var patternTests = []struct {
+var matchTests = []struct {
 	pattern string
 	key     string
 	want    bool
@@ -98,10 +96,10 @@ var patternTests = []struct {
 	{"app.%", "app.", true}, // % matches empty token
 }
 
-func TestMatchPattern(t *testing.T) {
-	for _, test := range patternTests {
+func TestMatch(t *testing.T) {
+	for _, test := range matchTests {
 		t.Run(fmt.Sprintf("%s_%s_%v", test.pattern, test.key, test.want), func(t *testing.T) {
-			result := trabbits.MatchPattern(test.key, test.pattern)
+			result := Match(test.key, test.pattern)
 			if result != test.want {
 				t.Errorf("pattern %s and key %s: got %t, want %t", test.pattern, test.key, result, test.want)
 			}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/fujiwara/trabbits/pattern"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -74,10 +75,10 @@ func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
 	var routed *Upstream
 	for _, us := range s.upstreams {
-		for _, pattern := range us.keyPatterns {
-			if matchPattern(routingKey, pattern) {
+		for _, keyPattern := range us.keyPatterns {
+			if pattern.Match(routingKey, keyPattern) {
 				routed = us
-				us.logger.Debug("matched pattern", "pattern", pattern, "routing_key", routingKey)
+				us.logger.Debug("matched pattern", "pattern", keyPattern, "routing_key", routingKey)
 				break
 			}
 		}
