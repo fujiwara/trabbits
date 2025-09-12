@@ -96,35 +96,35 @@ func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
 			burstSize = 100
 		}
 		limiter := rate.NewLimiter(rateLimit, burstSize)
-		
+
 		// Number of worker goroutines for parallel processing
 		const numWorkers = 10
-		
+
 		// Channel to distribute work to workers
 		proxyChan := make(chan *Proxy, len(outdatedProxies))
-		
+
 		// Send all proxies to the channel
 		for _, proxy := range outdatedProxies {
 			proxyChan <- proxy
 		}
 		close(proxyChan)
-		
+
 		// Use sync.WaitGroup to wait for all worker goroutines to complete
 		var wg sync.WaitGroup
-		
+
 		// Start worker goroutines
 		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
 			go func(workerID int) {
 				defer wg.Done()
-				
+
 				for proxy := range proxyChan {
 					// Wait for rate limiter
 					if err := limiter.Wait(context.Background()); err != nil {
 						proxy.logger.Warn("Rate limiter context cancelled", "error", err)
 						continue
 					}
-					
+
 					proxy.logger.Info("Disconnecting proxy due to config update",
 						"old_hash", proxy.configHash[:8],
 						"new_hash", currentConfigHash[:8],
@@ -150,7 +150,7 @@ func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
 		if timeoutDuration > 30*time.Second {
 			timeoutDuration = 30 * time.Second // Cap at 30 seconds
 		}
-		
+
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
@@ -163,8 +163,8 @@ func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
 			slog.Info("All proxy disconnections completed", "count", disconnectedCount)
 		case <-time.After(timeoutDuration):
 			// Timeout - some disconnections might be hanging
-			slog.Warn("Timeout waiting for proxy disconnections to complete", 
-				"timeout", timeoutDuration, 
+			slog.Warn("Timeout waiting for proxy disconnections to complete",
+				"timeout", timeoutDuration,
 				"expected_duration", fmt.Sprintf("%.1fs", float64(disconnectedCount)/100))
 		}
 
