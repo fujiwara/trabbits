@@ -13,8 +13,8 @@ func TestProxyRegistration(t *testing.T) {
 	trabbits.ClearActiveProxies()
 
 	// Create a mock connection for testing
-	server, client := net.Pipe()
-	defer server.Close()
+	serverConn, client := net.Pipe()
+	defer serverConn.Close()
 	defer client.Close()
 
 	// Set up test config
@@ -26,14 +26,15 @@ func TestProxyRegistration(t *testing.T) {
 			},
 		},
 	}
-	configHash := config.Hash()
 
-	// Create proxy with config hash
-	proxy := trabbits.NewProxy(server)
-	proxy.SetConfigHash(configHash)
+	// Create server instance
+	server := trabbits.NewTestServer(config)
+
+	// Create proxy with server instance
+	proxy := server.TestNewProxy(serverConn)
 
 	// Register proxy
-	trabbits.RegisterProxy(proxy)
+	server.TestRegisterProxy(proxy)
 
 	// Verify proxy is registered
 	registeredProxy := trabbits.GetProxy(proxy.ID())
@@ -45,7 +46,7 @@ func TestProxyRegistration(t *testing.T) {
 	}
 
 	// Unregister proxy
-	trabbits.UnregisterProxy(proxy)
+	server.TestUnregisterProxy(proxy)
 
 	// Verify proxy is unregistered
 	registeredProxy = trabbits.GetProxy(proxy.ID())
@@ -92,14 +93,17 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		t.Fatal("configs should have different hashes for this test")
 	}
 
-	// Create proxies with different config hashes
-	proxy1 := trabbits.NewProxy(server1)
-	proxy1.SetConfigHash(oldHash)
-	trabbits.RegisterProxy(proxy1)
+	// Create single server instance and manually set config hashes for testing
+	server := trabbits.NewTestServer(oldConfig)
 
-	proxy2 := trabbits.NewProxy(server2)
-	proxy2.SetConfigHash(newHash)
-	trabbits.RegisterProxy(proxy2)
+	// Create proxies and manually set different config hashes
+	proxy1 := server.TestNewProxy(server1)
+	proxy1.SetConfigHash(oldHash) // This proxy has old config
+	server.TestRegisterProxy(proxy1)
+
+	proxy2 := server.TestNewProxy(server2)
+	proxy2.SetConfigHash(newHash) // This proxy has new config
+	server.TestRegisterProxy(proxy2)
 
 	// Count active proxies before disconnection
 	initialCount := trabbits.CountActiveProxies()
@@ -118,8 +122,8 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		}
 	}()
 
-	// Disconnect outdated proxies and wait for completion
-	disconnectChan := trabbits.DisconnectOutdatedProxies(newHash)
+	// Use the server to disconnect outdated proxies
+	disconnectChan := server.TestDisconnectOutdatedProxies(newHash)
 
 	// Wait for disconnection to complete with timeout
 	select {
@@ -150,6 +154,6 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 	}
 
 	// Clean up
-	trabbits.UnregisterProxy(proxy1)
-	trabbits.UnregisterProxy(proxy2)
+	server.TestUnregisterProxy(proxy1)
+	server.TestUnregisterProxy(proxy2)
 }

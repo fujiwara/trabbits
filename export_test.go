@@ -1,31 +1,54 @@
 package trabbits
 
 import (
+	"context"
+	"net"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
-	Boot                      = boot
-	SetupLogger               = setupLogger
-	NewDelivery               = newDelivery
-	RestoreDeliveryTag        = restoreDeliveryTag
-	MatchPattern              = matchPattern
-	StoreConfig               = storeConfig
-	MustGetConfig             = mustGetConfig
-	MetricsStore              = metrics
-	RunAPIServer              = runAPIServer
-	NewAPIClient              = newAPIClient
-	ReloadConfigFromFile      = reloadConfigFromFile
-	TestMatchRouting          = testMatchRouting
-	RegisterProxy             = registerProxy
-	UnregisterProxy           = unregisterProxy
-	GetProxy                  = getProxy
-	CountActiveProxies        = countActiveProxies
-	ClearActiveProxies        = clearActiveProxies
-	DisconnectOutdatedProxies = disconnectOutdatedProxies
+	SetupLogger          = setupLogger
+	NewDelivery          = newDelivery
+	RestoreDeliveryTag   = restoreDeliveryTag
+	MatchPattern         = matchPattern
+	StoreConfig          = storeConfig
+	MustGetConfig        = mustGetConfig
+	MetricsStore         = metrics
+	RunAPIServer         = runAPIServer
+	NewAPIClient         = newAPIClient
+	ReloadConfigFromFile = reloadConfigFromFile
+	TestMatchRouting     = testMatchRouting
+	GetProxy             = getProxy
+	CountActiveProxies   = countActiveProxies
+	ClearActiveProxies   = clearActiveProxies
 )
+
+// Server instance functions for testing
+func NewTestServer(config *Config) *Server {
+	return NewServer(config)
+}
+
+func (s *Server) TestNewProxy(conn net.Conn) *Proxy {
+	return s.NewProxy(conn)
+}
+
+func (s *Server) TestRegisterProxy(proxy *Proxy) {
+	s.registerProxy(proxy)
+}
+
+func (s *Server) TestUnregisterProxy(proxy *Proxy) {
+	s.unregisterProxy(proxy)
+}
+
+func (s *Server) TestDisconnectOutdatedProxies(currentConfigHash string) <-chan int {
+	return s.disconnectOutdatedProxies(currentConfigHash)
+}
+
+func (s *Server) TestBoot(ctx context.Context, listener net.Listener) error {
+	return s.boot(ctx, listener)
+}
 
 type Delivery = delivery
 
