@@ -70,6 +70,32 @@ var patternTests = []struct {
 	{"a.#.b.#.c", "a.x.y.b.z.c", true},
 	{"a.#.b.#.c", "a.b.c", true},
 	{"a.#.b.#.c", "a.b.x.y", false},
+
+	// % wildcard tests (token-level substring matching)
+	{"foo.*.a%", "foo.yyy.aaa", true},        // * matches "yyy", a% matches "aaa"
+	{"foo.*.a%", "foo.yyy.app", true},        // * matches "yyy", a% matches "app"
+	{"foo.*.a%", "foo.yyy.bbb", false},       // * matches "yyy", a% doesn't match "bbb"
+	{"app.%service", "app.webservice", true}, // %service matches "webservice"
+	{"app.%service", "app.apiservice", true}, // %service matches "apiservice"
+	{"app.%service", "app.service", true},    // %service matches "service" (% matches empty)
+	{"app.%service", "app.server", false},    // %service doesn't match "server"
+	{"%.server.*", "web.server.01", true},    // % matches "web", * matches "01"
+	{"%.server.*", "api.server.prod", true},  // % matches "api", * matches "prod"
+	{"%.server.*", "server.01", false},       // % needs something to match (dot separation)
+
+	// Multiple % in same token
+	{"app.%-%", "app.web-api", true}, // %-%  matches "web-api"
+	{"app.%-%", "app.single", false}, // %-% needs a dash
+
+	// % with # wildcard (cross-token)
+	{"app.%.#", "app.service.log.error", true}, // % in token, # matches rest
+	{"app.%.#", "app.service", true},           // % matches "service", # matches nothing
+
+	// Edge cases
+	{"%.%", "a.b", true},    // % matches "a", % matches "b"
+	{"%.%", ".", true},      // % matches empty token on each side
+	{"%", "anything", true}, // single token with %
+	{"app.%", "app.", true}, // % matches empty token
 }
 
 func TestMatchPattern(t *testing.T) {
