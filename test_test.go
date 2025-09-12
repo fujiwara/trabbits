@@ -1,7 +1,7 @@
 // MIT License
 // Copyright (c) 2025 FUJIWARA Shunichiro
 
-package trabbits
+package trabbits_test
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/fujiwara/trabbits"
 )
 
 func TestMatchRoutingCommand(t *testing.T) {
@@ -71,8 +73,8 @@ func TestMatchRoutingCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cli := &CLI{
-				Test: &TestOptions{
+			cli := &trabbits.CLI{
+				Test: &trabbits.TestOptions{
 					MatchRouting: struct {
 						Pattern string `arg:"" required:"" help:"Binding pattern to test (e.g., 'logs.*.error', 'metrics.#')."`
 						Key     string `arg:"" required:"" help:"Routing key to match against the pattern."`
@@ -88,7 +90,7 @@ func TestMatchRoutingCommand(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			err := testMatchRouting(context.Background(), cli)
+			err := trabbits.TestMatchRouting(context.Background(), cli)
 
 			// Restore stdout
 			w.Close()
@@ -150,7 +152,7 @@ func TestPrintMatchResult(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			printMatchResult(tt.pattern, tt.key, tt.result)
+			trabbits.PrintMatchResult(tt.pattern, tt.key, tt.result)
 
 			// Restore stdout
 			w.Close()
