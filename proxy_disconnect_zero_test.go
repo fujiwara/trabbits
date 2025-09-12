@@ -1,0 +1,110 @@
+package trabbits_test
+
+import (
+	"net"
+	"testing"
+	"time"
+
+	"github.com/fujiwara/trabbits"
+)
+
+func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
+	// Clear any remaining proxies from previous tests
+	trabbits.ClearActiveProxies()
+	
+	// Create test config
+	config := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name:    "test-upstream",
+				Address: "localhost:5672",
+			},
+		},
+	}
+	configHash := config.Hash()
+
+	// Create proxy with CURRENT config hash (not outdated)
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	proxy := trabbits.NewProxy(server)
+	proxy.SetConfigHash(configHash) // Same hash as current config
+	trabbits.RegisterProxy(proxy)
+
+	// Disconnect outdated proxies - should find 0 because proxy has current hash
+	start := time.Now()
+	disconnectChan := trabbits.DisconnectOutdatedProxies(configHash)
+
+	select {
+	case disconnectedCount := <-disconnectChan:
+		elapsed := time.Since(start)
+
+		// Should return 0 immediately
+		expectedCount := 0
+		if disconnectedCount != expectedCount {
+			t.Errorf("Expected %d proxies to be disconnected, got %d", expectedCount, disconnectedCount)
+		} else {
+			t.Logf("✓ Correctly returned %d disconnected proxies", disconnectedCount)
+		}
+
+		// Should complete very quickly (much less than timeout)
+		if elapsed > 100*time.Millisecond {
+			t.Errorf("Took too long for zero proxy case: %v", elapsed)
+		} else {
+			t.Logf("✓ Completed quickly in %v (expected fast return)", elapsed)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Error("✗ Timeout waiting for zero proxy disconnection (should be immediate)")
+	}
+
+	// Verify proxy is still active
+	finalCount := trabbits.CountActiveProxies()
+	if finalCount != 1 {
+		t.Errorf("Expected 1 active proxy remaining, got %d", finalCount)
+	}
+
+	// Clean up
+	trabbits.UnregisterProxy(proxy)
+}
+
+func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
+	// Clear any remaining proxies from previous tests
+	trabbits.ClearActiveProxies()
+	
+	// Test with no proxies registered at all
+	config := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name:    "test-upstream",
+				Address: "localhost:5672",
+			},
+		},
+	}
+
+	start := time.Now()
+	disconnectChan := trabbits.DisconnectOutdatedProxies(config.Hash())
+
+	select {
+	case disconnectedCount := <-disconnectChan:
+		elapsed := time.Since(start)
+
+		// Should return 0 immediately
+		if disconnectedCount != 0 {
+			t.Errorf("Expected 0 proxies to be disconnected, got %d", disconnectedCount)
+		} else {
+			t.Logf("✓ Correctly returned %d disconnected proxies for empty proxy list", disconnectedCount)
+		}
+
+		// Should complete very quickly
+		if elapsed > 50*time.Millisecond {
+			t.Errorf("Took too long for no proxy case: %v", elapsed)
+		} else {
+			t.Logf("✓ Completed quickly in %v (expected immediate return)", elapsed)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Error("✗ Timeout waiting for no proxy disconnection (should be immediate)")
+	}
+}

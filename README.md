@@ -381,6 +381,18 @@ Arguments:
   <file>       Configuration file (required for diff/put commands).
 ```
 
+#### Configuration Versioning and Graceful Disconnection
+
+When a new configuration is loaded (via API PUT request or SIGHUP signal), trabbits implements a graceful proxy management system:
+
+- Each active proxy connection maintains a hash of the configuration it was created with
+- Upon configuration update, trabbits calculates a new configuration hash
+- Proxy connections using outdated configurations are gracefully disconnected with `connection-forced` (320) error code
+- Clients receive a "Configuration updated, please reconnect" message and can immediately reconnect with the new configuration
+- This ensures that configuration changes are reflected quickly across all connections while maintaining service availability
+
+This behavior helps ensure that configuration updates (such as upstream changes, routing rule modifications, or credential updates) are applied consistently across all active connections without requiring a full server restart.
+
 #### Use curl to access the API server
 
 You can use `curl` to access the API server. The API server listens on the unix domain socket by default. You can change the socket path by using the `--api-socket` option.

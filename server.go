@@ -31,6 +31,7 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -44,6 +45,135 @@ var Debug bool
 
 // healthManagers stores health check managers for cluster upstreams
 var healthManagers = sync.Map{} // upstream name -> *NodeHealthManager
+
+// activeProxies stores currently active proxy connections
+var activeProxies = sync.Map{} // proxy id -> *Proxy
+
+// registerProxy adds a proxy to the active proxy list
+func registerProxy(proxy *Proxy) {
+	activeProxies.Store(proxy.id, proxy)
+}
+
+// unregisterProxy removes a proxy from the active proxy list
+func unregisterProxy(proxy *Proxy) {
+	activeProxies.Delete(proxy.id)
+}
+
+// disconnectOutdatedProxies gracefully disconnects proxies with old config hash
+// Returns a channel that will receive the number of disconnected proxies when complete
+func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
+	resultChan := make(chan int, 1)
+
+	go func() {
+		defer close(resultChan)
+
+		var outdatedProxies []*Proxy
+
+		activeProxies.Range(func(key, value interface{}) bool {
+			proxy := value.(*Proxy)
+			if proxy.configHash != currentConfigHash {
+				outdatedProxies = append(outdatedProxies, proxy)
+			}
+			return true
+		})
+
+		disconnectedCount := len(outdatedProxies)
+		if disconnectedCount == 0 {
+			// No outdated proxies found, return immediately
+			resultChan <- 0
+			return
+		}
+		slog.Info("Disconnecting outdated proxies",
+			"count", disconnectedCount,
+			"current_hash", currentConfigHash[:8])
+
+		// Rate limiter: 100 disconnections per second
+		// In test environment, use higher rate for faster tests
+		rateLimit := rate.Limit(100)
+		burstSize := 10
+		if disconnectedCount <= 10 { // Small number for tests
+			rateLimit = rate.Limit(1000) // 1000/sec for small tests
+			burstSize = 100
+		}
+		limiter := rate.NewLimiter(rateLimit, burstSize)
+		
+		// Number of worker goroutines for parallel processing
+		const numWorkers = 10
+		
+		// Channel to distribute work to workers
+		proxyChan := make(chan *Proxy, len(outdatedProxies))
+		
+		// Send all proxies to the channel
+		for _, proxy := range outdatedProxies {
+			proxyChan <- proxy
+		}
+		close(proxyChan)
+		
+		// Use sync.WaitGroup to wait for all worker goroutines to complete
+		var wg sync.WaitGroup
+		
+		// Start worker goroutines
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				
+				for proxy := range proxyChan {
+					// Wait for rate limiter
+					if err := limiter.Wait(context.Background()); err != nil {
+						proxy.logger.Warn("Rate limiter context cancelled", "error", err)
+						continue
+					}
+					
+					proxy.logger.Info("Disconnecting proxy due to config update",
+						"old_hash", proxy.configHash[:8],
+						"new_hash", currentConfigHash[:8],
+						"worker", workerID)
+
+					err := proxy.sendConnectionError(NewError(amqp091.ConnectionForced,
+						"Configuration updated, please reconnect"))
+					if err != nil {
+						proxy.logger.Warn("Failed to send graceful disconnection", "error", err)
+					}
+				}
+			}(i)
+		}
+
+		// Wait for all workers to complete with appropriate timeout
+		// Calculate timeout based on proxy count and rate limit
+		actualRate := float64(rateLimit)
+		expectedDuration := float64(disconnectedCount)/actualRate + 1 // Plus 1 second buffer
+		timeoutDuration := time.Duration(expectedDuration) * time.Second
+		if timeoutDuration < 2*time.Second {
+			timeoutDuration = 2 * time.Second // Minimum 2 seconds
+		}
+		if timeoutDuration > 30*time.Second {
+			timeoutDuration = 30 * time.Second // Cap at 30 seconds
+		}
+		
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// All disconnections completed successfully
+			slog.Info("All proxy disconnections completed", "count", disconnectedCount)
+		case <-time.After(timeoutDuration):
+			// Timeout - some disconnections might be hanging
+			slog.Warn("Timeout waiting for proxy disconnections to complete", 
+				"timeout", timeoutDuration, 
+				"expected_duration", fmt.Sprintf("%.1fs", float64(disconnectedCount)/100))
+		}
+
+		// Send the count of disconnected proxies
+		resultChan <- disconnectedCount
+	}()
+
+	return resultChan
+}
 
 func run(ctx context.Context, opt *CLI) error {
 	cfg, err := LoadConfig(ctx, opt.Config)
@@ -203,8 +333,16 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	s := NewProxy(conn)
-	defer s.Close()
-	s.logger.Info("proxy created")
+	defer func() {
+		unregisterProxy(s)
+		s.Close()
+	}()
+
+	// Set config hash for this proxy
+	cfg := mustGetConfig()
+	s.configHash = cfg.Hash()
+	registerProxy(s)
+	s.logger.Info("proxy created", "config_hash", s.configHash[:8])
 
 	if err := s.handshake(ctx); err != nil {
 		s.logger.Warn("Failed to handshake", "error", err)
@@ -217,7 +355,6 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cfg := mustGetConfig()
 	if err := s.ConnectToUpstreams(subCtx, cfg.Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
@@ -505,7 +642,7 @@ func (s *Proxy) sendConnectionError(err AMQPError) error {
 		return sendErr
 	}
 	// Try to read Connection.Close-Ok, but don't wait too long
-	s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	s.conn.SetReadDeadline(time.Now().Add(connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
 	if _, recvErr := s.recv(0, &msg); recvErr != nil {
 		s.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
@@ -514,6 +651,7 @@ func (s *Proxy) sendConnectionError(err AMQPError) error {
 }
 
 var readTimeout = 5 * time.Second
+var connectionCloseTimeout = 1 * time.Second
 
 func (s *Proxy) readClientFrame() (amqp091.Frame, error) {
 	s.conn.SetReadDeadline(time.Now().Add(readTimeout))
@@ -736,4 +874,30 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 			return nil, fmt.Errorf("unexpected frame: %+v", f)
 		}
 	}
+}
+
+// getProxy retrieves a proxy by ID (for testing)
+func getProxy(id string) *Proxy {
+	if value, ok := activeProxies.Load(id); ok {
+		return value.(*Proxy)
+	}
+	return nil
+}
+
+// countActiveProxies returns the number of active proxies (for testing)
+func countActiveProxies() int {
+	count := 0
+	activeProxies.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// clearActiveProxies clears all active proxies (for testing)
+func clearActiveProxies() {
+	activeProxies.Range(func(key, value interface{}) bool {
+		activeProxies.Delete(key)
+		return true
+	})
 }
