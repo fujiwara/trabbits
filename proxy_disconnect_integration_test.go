@@ -52,9 +52,9 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	defer server.Close()
 	defer client.Close()
 
-	proxy := testServer.TestNewProxy(server)
+	proxy := testServer.NewProxy(server)
 	proxy.SetConfigHash(oldHash)
-	testServer.TestRegisterProxy(proxy)
+	testServer.RegisterProxy(proxy)
 
 	// Update to new config
 	newHash := newConfig.Hash()
@@ -101,5 +101,5 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	t.Logf("✓ Disconnection process logged correctly:\n%s", logStr)
 
 	// Clean up
-	testServer.TestUnregisterProxy(proxy)
+	testServer.UnregisterProxy(proxy)
 }

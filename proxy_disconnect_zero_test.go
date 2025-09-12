@@ -31,9 +31,9 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	defer server.Close()
 	defer client.Close()
 
-	proxy := testServer.TestNewProxy(server)
+	proxy := testServer.NewProxy(server)
 	proxy.SetConfigHash(configHash) // Same hash as current config
-	testServer.TestRegisterProxy(proxy)
+	testServer.RegisterProxy(proxy)
 
 	// Disconnect outdated proxies - should find 0 because proxy has current hash
 	start := time.Now()
@@ -69,7 +69,7 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	}
 
 	// Clean up
-	testServer.TestUnregisterProxy(proxy)
+	testServer.UnregisterProxy(proxy)
 }
 
 func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
