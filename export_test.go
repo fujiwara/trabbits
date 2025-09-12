@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/fujiwara/trabbits/pattern"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -11,7 +12,7 @@ var (
 	SetupLogger        = setupLogger
 	NewDelivery        = newDelivery
 	RestoreDeliveryTag = restoreDeliveryTag
-	MatchPattern       = matchPattern
+	MatchPattern       = pattern.Match
 	MetricsStore       = metrics
 	NewAPIClient       = newAPIClient
 	TestMatchRouting   = testMatchRouting
