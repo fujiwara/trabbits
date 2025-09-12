@@ -49,6 +49,7 @@ var activeProxies = sync.Map{}  // proxy id -> *Proxy
 
 // Server represents a trabbits server instance
 type Server struct {
+	configMu       sync.RWMutex
 	config         *Config
 	configHash     string
 	activeProxies  sync.Map // proxy id -> *Proxy
@@ -65,6 +66,28 @@ func NewServer(config *Config) *Server {
 	}
 }
 
+// GetConfig returns the current config (thread-safe)
+func (s *Server) GetConfig() *Config {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	return s.config
+}
+
+// GetConfigHash returns the current config hash (thread-safe)
+func (s *Server) GetConfigHash() string {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	return s.configHash
+}
+
+// UpdateConfig updates the config and hash atomically
+func (s *Server) UpdateConfig(config *Config) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.config = config
+	s.configHash = config.Hash()
+}
+
 // NewProxy creates a new proxy associated with this server
 func (s *Server) NewProxy(conn net.Conn) *Proxy {
 	id := generateID()
@@ -74,7 +97,7 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		r:                  amqp091.NewReader(conn),
 		w:                  amqp091.NewWriter(conn),
 		upstreamDisconnect: make(chan string, 10), // buffered to avoid blocking
-		configHash:         s.configHash,
+		configHash:         s.GetConfigHash(),
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
@@ -213,7 +236,6 @@ func run(ctx context.Context, opt *CLI) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	storeConfig(cfg)
 
 	// Create server instance
 	server := NewServer(cfg)
@@ -231,7 +253,7 @@ func run(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("failed to init health managers: %w", err)
 	}
 
-	cancelAPI, err := runAPIServer(ctx, opt)
+	cancelAPI, err := runAPIServer(ctx, opt, server)
 	if err != nil {
 		return fmt.Errorf("failed to start API server: %w", err)
 	}
@@ -253,12 +275,8 @@ func run(ctx context.Context, opt *CLI) error {
 				return
 			case <-sigChan:
 				slog.Info("Received SIGHUP signal, reloading configuration")
-				if newCfg, err := reloadConfigFromFile(ctx, opt.Config); err != nil {
+				if _, err := reloadConfigFromFile(ctx, opt.Config, server); err != nil {
 					slog.Error("Failed to reload config via SIGHUP", "error", err)
-				} else {
-					// Update server config
-					server.config = newCfg
-					server.configHash = newCfg.Hash()
 				}
 			}
 		}
@@ -351,134 +369,6 @@ func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-// Global functions for API compatibility (temporary solution)
-func initHealthManagers(ctx context.Context, cfg *Config) error {
-	// Stop existing health managers
-	healthManagers.Range(func(key, value interface{}) bool {
-		if mgr, ok := value.(*NodeHealthManager); ok {
-			mgr.Stop()
-		}
-		healthManagers.Delete(key)
-		return true
-	})
-
-	// Create new health managers for cluster upstreams
-	for _, upstream := range cfg.Upstreams {
-		if upstream.Cluster != nil && upstream.HealthCheck != nil {
-			mgr := NewNodeHealthManager(upstream)
-			if mgr != nil {
-				mgr.StartHealthCheck(ctx)
-				healthManagers.Store(upstream.Name, mgr)
-				slog.Info("Health check manager initialized",
-					"upstream", upstream.Name,
-					"nodes", len(upstream.Cluster.Nodes))
-			}
-		}
-	}
-
-	return nil
-}
-
-func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
-	resultChan := make(chan int, 1)
-
-	go func() {
-		defer close(resultChan)
-
-		var outdatedProxies []*Proxy
-
-		activeProxies.Range(func(key, value interface{}) bool {
-			proxy := value.(*Proxy)
-			if proxy.configHash != currentConfigHash {
-				outdatedProxies = append(outdatedProxies, proxy)
-			}
-			return true
-		})
-
-		disconnectedCount := len(outdatedProxies)
-		if disconnectedCount == 0 {
-			resultChan <- 0
-			return
-		}
-		slog.Info("Disconnecting outdated proxies",
-			"count", disconnectedCount,
-			"current_hash", currentConfigHash[:8])
-
-		// Rate limiter: 100 disconnections per second
-		rateLimit := rate.Limit(100)
-		burstSize := 10
-		if disconnectedCount <= 10 {
-			rateLimit = rate.Limit(1000)
-			burstSize = 100
-		}
-		limiter := rate.NewLimiter(rateLimit, burstSize)
-
-		const numWorkers = 10
-		proxyChan := make(chan *Proxy, len(outdatedProxies))
-
-		for _, proxy := range outdatedProxies {
-			proxyChan <- proxy
-		}
-		close(proxyChan)
-
-		var wg sync.WaitGroup
-
-		for i := 0; i < numWorkers; i++ {
-			wg.Add(1)
-			go func(workerID int) {
-				defer wg.Done()
-
-				for proxy := range proxyChan {
-					if err := limiter.Wait(context.Background()); err != nil {
-						proxy.logger.Warn("Rate limiter context cancelled", "error", err)
-						continue
-					}
-
-					proxy.logger.Info("Disconnecting proxy due to config update",
-						"old_hash", proxy.configHash[:8],
-						"new_hash", currentConfigHash[:8],
-						"worker", workerID)
-
-					err := proxy.sendConnectionError(NewError(amqp091.ConnectionForced,
-						"Configuration updated, please reconnect"))
-					if err != nil {
-						proxy.logger.Warn("Failed to send graceful disconnection", "error", err)
-					}
-				}
-			}(i)
-		}
-
-		actualRate := float64(rateLimit)
-		expectedDuration := float64(disconnectedCount)/actualRate + 1
-		timeoutDuration := time.Duration(expectedDuration) * time.Second
-		if timeoutDuration < 2*time.Second {
-			timeoutDuration = 2 * time.Second
-		}
-		if timeoutDuration > 30*time.Second {
-			timeoutDuration = 30 * time.Second
-		}
-
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			slog.Info("All proxy disconnections completed", "count", disconnectedCount)
-		case <-time.After(timeoutDuration):
-			slog.Warn("Timeout waiting for proxy disconnections to complete",
-				"timeout", timeoutDuration,
-				"expected_duration", fmt.Sprintf("%.1fs", float64(disconnectedCount)/100))
-		}
-
-		resultChan <- disconnectedCount
-	}()
-
-	return resultChan
-}
-
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 // handleConnection handles a new client connection for this server
@@ -524,7 +414,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if err := s.ConnectToUpstreams(subCtx, srv.config.Upstreams, s.clientProps); err != nil {
+	if err := s.ConnectToUpstreams(subCtx, srv.GetConfig().Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}

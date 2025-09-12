@@ -9,21 +9,21 @@ import (
 )
 
 var (
-	SetupLogger          = setupLogger
-	NewDelivery          = newDelivery
-	RestoreDeliveryTag   = restoreDeliveryTag
-	MatchPattern         = matchPattern
-	StoreConfig          = storeConfig
-	MustGetConfig        = mustGetConfig
-	MetricsStore         = metrics
-	RunAPIServer         = runAPIServer
-	NewAPIClient         = newAPIClient
-	ReloadConfigFromFile = reloadConfigFromFile
-	TestMatchRouting     = testMatchRouting
-	GetProxy             = getProxy
-	CountActiveProxies   = countActiveProxies
-	ClearActiveProxies   = clearActiveProxies
+	SetupLogger        = setupLogger
+	NewDelivery        = newDelivery
+	RestoreDeliveryTag = restoreDeliveryTag
+	MatchPattern       = matchPattern
+	MetricsStore       = metrics
+	RunAPIServer       = runAPIServer
+	NewAPIClient       = newAPIClient
+	TestMatchRouting   = testMatchRouting
+	GetProxy           = getProxy
+	CountActiveProxies = countActiveProxies
+	ClearActiveProxies = clearActiveProxies
 )
+
+// Global test server instance - set by server_test.go for use by routing_test.go
+var TestServer *Server
 
 // Server instance functions for testing
 func NewTestServer(config *Config) *Server {
@@ -48,6 +48,17 @@ func (s *Server) TestDisconnectOutdatedProxies(currentConfigHash string) <-chan 
 
 func (s *Server) TestBoot(ctx context.Context, listener net.Listener) error {
 	return s.boot(ctx, listener)
+}
+
+// Test helper for reloadConfigFromFile
+func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+	// Create a temporary server instance for config reloading
+	cfg, err := LoadConfig(ctx, configPath)
+	if err != nil {
+		return nil, err
+	}
+	server := NewServer(cfg)
+	return reloadConfigFromFile(ctx, configPath, server)
 }
 
 type Delivery = delivery
