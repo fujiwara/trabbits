@@ -6,6 +6,8 @@ package trabbits
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -24,6 +26,32 @@ var GlobalConfig = sync.Map{}
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
 	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+}
+
+// Hash calculates the SHA256 hash of the config for version comparison
+// Note: This includes passwords unmasked to detect actual config changes
+func (c *Config) Hash() string {
+	// Marshal config to JSON first
+	data, err := json.Marshal(c)
+	if err != nil {
+		slog.Error("Failed to marshal config for hashing", "error", err)
+		return ""
+	}
+
+	// Replace masked passwords with actual values
+	jsonStr := string(data)
+	for _, upstream := range c.Upstreams {
+		if upstream.HealthCheck != nil && upstream.HealthCheck.Password != "" {
+			// Replace the masked password "********" with actual password value
+			actualPassword := upstream.HealthCheck.Password.String()
+			jsonStr = strings.Replace(jsonStr, `"password":"********"`,
+				fmt.Sprintf(`"password":"%s"`, actualPassword), 1)
+		}
+	}
+
+	// Calculate SHA256 hash
+	hash := sha256.Sum256([]byte(jsonStr))
+	return hex.EncodeToString(hash[:])
 }
 
 func (c *Config) String() string {
@@ -76,6 +104,11 @@ func mustGetConfig() *Config {
 	} else {
 		panic("config is not loaded")
 	}
+}
+
+func getCurrentConfigHash() string {
+	cfg := mustGetConfig()
+	return cfg.Hash()
 }
 
 func (c *Config) Validate() error {

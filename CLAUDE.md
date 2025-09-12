@@ -11,6 +11,9 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Add tests for new functionality in `*_test.go` files
 - Use structured logging with `log/slog`
 - Maintain AMQP 0.9.1 protocol compliance
+- **Error handling**: Always log errors before returning, use structured logging with context
+- **Goroutine management**: Use proper synchronization with `sync.WaitGroup` and timeout patterns to prevent hanging
+- **Resource cleanup**: Implement proper cleanup in defer functions, especially for connections and channels
 
 ### Testing
 - Run tests with: `go test ./...`
@@ -21,6 +24,10 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Use `mustTestConn(t)` for connecting to test proxy server
 - Test files should use `package trabbits_test` (not `package trabbits`) for consistency with other tests
 - Export functions needed for testing via `export_test.go`
+- **Test isolation**: Always call `trabbits.ClearActiveProxies()` at the beginning of tests that use proxy management to ensure clean test state
+- **Mock connections**: When testing with `net.Pipe()` connections, be aware that AMQP protocol operations will fail - design tests accordingly
+- **Async testing**: Use channel-based interfaces for testing asynchronous operations like `DisconnectOutdatedProxies()` to verify completion
+- **Test timeouts**: Configure shorter timeouts for test environment using `export_test.go` to speed up test execution
 
 ### Build and Run
 - Build: `go build -o trabbits ./cmd/trabbits`
@@ -57,6 +64,13 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Add metrics in `metrics.go`
 - Configuration changes require `conf.go` updates
 
+### Design Patterns and Best Practices
+- **Configuration hashing**: Use simplified JSON marshalling with password unmasking for reliable change detection
+- **Rate limiting for mass operations**: Prevent reconnection storms by implementing controlled disconnection rates
+- **Environment-specific configuration**: Use `export_test.go` to configure different values for test vs production environments
+- **Early returns for optimization**: Implement zero-work shortcuts to avoid unnecessary processing overhead
+- **Separate test files by functionality**: Split large test suites into focused files (e.g., `proxy_disconnect_*.go` series)
+
 ### CLI Command Development
 - When adding new CLI commands, consider if they should be optional arguments or required
 - Interactive modes should be avoided - commands should complete with provided arguments
@@ -75,3 +89,12 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Monitoring goroutines are started for each upstream in `ConnectToUpstreams()`
 - `MonitorUpstreamConnection()` handles upstream disconnection events
 - Client disconnection on upstream failure ensures proper error propagation
+
+### Proxy Management and Configuration Updates
+- **Config versioning**: Use SHA256 hash of configuration (with unmasked passwords) to detect changes
+- **Graceful disconnection**: When config changes, outdated proxies are disconnected with `amqp091.ConnectionForced` error
+- **Rate limiting**: Use `golang.org/x/time/rate` for controlled disconnection (100/sec default, 1000/sec for small counts)
+- **Worker pool pattern**: Parallel processing with controlled concurrency (10 workers) and proper synchronization
+- **Dynamic timeouts**: Calculate timeouts based on proxy count and rate limits to avoid premature failures
+- **Global proxy registry**: Use `sync.Map` for thread-safe proxy tracking across the application
+- **Channel-based async interfaces**: Return completion channels for async operations to enable proper testing and monitoring

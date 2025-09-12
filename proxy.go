@@ -31,6 +31,7 @@ type Proxy struct {
 	password    string
 	clientProps amqp091.Table
 
+	configHash         string      // hash of config used for this proxy
 	upstreamDisconnect chan string // channel to notify upstream disconnection
 }
 
@@ -84,6 +85,14 @@ func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 	us := s.upstreams[0] // default upstream
 	us.logger.Debug("not matched any patterns, using default upstream", "routing_key", routingKey)
 	return us.GetChannel(id)
+}
+
+func (s *Proxy) ID() string {
+	return s.id
+}
+
+func (s *Proxy) SetConfigHash(hash string) {
+	s.configHash = hash
 }
 
 func (s *Proxy) ClientAddr() string {
