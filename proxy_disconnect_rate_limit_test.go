@@ -34,6 +34,9 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	oldHash := oldConfig.Hash()
 	newHash := newConfig.Hash()
 
+	// Create server instance
+	testServer := trabbits.NewTestServer(oldConfig)
+
 	// Create multiple proxies with old config hash
 	const numProxies = 50
 	var proxies []*trabbits.Proxy
@@ -43,9 +46,9 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 		server, client := net.Pipe()
 		connections = append(connections, server, client)
 
-		proxy := trabbits.NewProxy(server)
+		proxy := testServer.TestNewProxy(server)
 		proxy.SetConfigHash(oldHash)
-		trabbits.RegisterProxy(proxy)
+		testServer.TestRegisterProxy(proxy)
 		proxies = append(proxies, proxy)
 	}
 
@@ -55,7 +58,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 			conn.Close()
 		}
 		for _, proxy := range proxies {
-			trabbits.UnregisterProxy(proxy)
+			testServer.TestUnregisterProxy(proxy)
 		}
 	}()
 
@@ -67,7 +70,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 
 	// Start disconnection and measure time
 	start := time.Now()
-	disconnectChan := trabbits.DisconnectOutdatedProxies(newHash)
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(newHash)
 
 	select {
 	case disconnectedCount := <-disconnectChan:
@@ -125,6 +128,9 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	oldHash := oldConfig.Hash()
 	newHash := newConfig.Hash()
 
+	// Create server instance
+	testServer := trabbits.NewTestServer(oldConfig)
+
 	// Create many proxies to test timeout calculation
 	const numProxies = 5 // Small number for quick test
 	var proxies []*trabbits.Proxy
@@ -134,9 +140,9 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 		server, client := net.Pipe()
 		connections = append(connections, server, client)
 
-		proxy := trabbits.NewProxy(server)
+		proxy := testServer.TestNewProxy(server)
 		proxy.SetConfigHash(oldHash)
-		trabbits.RegisterProxy(proxy)
+		testServer.TestRegisterProxy(proxy)
 		proxies = append(proxies, proxy)
 	}
 
@@ -146,13 +152,13 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 			conn.Close()
 		}
 		for _, proxy := range proxies {
-			trabbits.UnregisterProxy(proxy)
+			testServer.TestUnregisterProxy(proxy)
 		}
 	}()
 
 	// Test that disconnection completes within calculated timeout
 	start := time.Now()
-	disconnectChan := trabbits.DisconnectOutdatedProxies(newHash)
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(newHash)
 
 	// Expected timeout for 5 proxies: 5/100 * 1.2 + 2 = ~2.06 seconds
 	// Should complete much faster than that

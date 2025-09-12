@@ -48,7 +48,10 @@ func runTestProxy(ctx context.Context) error {
 		testProxyPort, _ = strconv.Atoi(os.Getenv("TEST_PROXY_PORT"))
 	}
 	trabbits.SetReadTimeout(1 * time.Second) // for testing
-	go trabbits.Boot(ctx, listener)
+
+	// Create server instance and use it
+	server := trabbits.NewTestServer(cfg)
+	go server.TestBoot(ctx, listener)
 	return nil
 }
 

@@ -23,18 +23,21 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	}
 	configHash := config.Hash()
 
+	// Create server instance
+	testServer := trabbits.NewTestServer(config)
+
 	// Create proxy with CURRENT config hash (not outdated)
 	server, client := net.Pipe()
 	defer server.Close()
 	defer client.Close()
 
-	proxy := trabbits.NewProxy(server)
+	proxy := testServer.TestNewProxy(server)
 	proxy.SetConfigHash(configHash) // Same hash as current config
-	trabbits.RegisterProxy(proxy)
+	testServer.TestRegisterProxy(proxy)
 
 	// Disconnect outdated proxies - should find 0 because proxy has current hash
 	start := time.Now()
-	disconnectChan := trabbits.DisconnectOutdatedProxies(configHash)
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(configHash)
 
 	select {
 	case disconnectedCount := <-disconnectChan:
@@ -66,7 +69,7 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	}
 
 	// Clean up
-	trabbits.UnregisterProxy(proxy)
+	testServer.TestUnregisterProxy(proxy)
 }
 
 func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
@@ -83,8 +86,11 @@ func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
 		},
 	}
 
+	// Create server instance
+	testServer := trabbits.NewTestServer(config)
+
 	start := time.Now()
-	disconnectChan := trabbits.DisconnectOutdatedProxies(config.Hash())
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(config.Hash())
 
 	select {
 	case disconnectedCount := <-disconnectChan:
