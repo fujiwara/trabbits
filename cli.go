@@ -18,6 +18,7 @@ import (
 type CLI struct {
 	Run    *RunOptions    `cmd:"" help:"Run the trabbits server."`
 	Manage *ManageOptions `cmd:"" help:"Manage the trabbits server."`
+	Test   *TestOptions   `cmd:"" help:"Test utilities for trabbits."`
 
 	Config      string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
 	Port        int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
@@ -58,6 +59,9 @@ func Run(ctx context.Context) error {
 	case "manage config <command>", "manage config <command> <file>":
 		// Manage the server
 		return manageConfig(ctx, &cli)
+	case "test match-routing <pattern> <key>":
+		// Test routing pattern matching
+		return testMatchRouting(ctx, &cli)
 	default:
 		return fmt.Errorf("unknown command: %s", k.Command())
 	}
@@ -74,4 +78,11 @@ type ManageOptions struct {
 		Command string `arg:"" enum:"get,diff,put,reload" help:"Command to run (get, diff, put, reload)."`
 		File    string `arg:"" optional:"" help:"Configuration file (required for diff/put commands)."`
 	} `cmd:"" help:"Manage the configuration."`
+}
+
+type TestOptions struct {
+	MatchRouting struct {
+		Pattern string `arg:"" required:"" help:"Binding pattern to test (e.g., 'logs.*.error', 'metrics.#')."`
+		Key     string `arg:"" required:"" help:"Routing key to match against the pattern."`
+	} `cmd:"" help:"Test routing pattern matching."`
 }
