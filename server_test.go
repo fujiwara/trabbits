@@ -49,8 +49,8 @@ func runTestProxy(ctx context.Context) error {
 	trabbits.SetReadTimeout(1 * time.Second) // for testing
 
 	// Create server instance and use it
-	trabbits.TestServer = trabbits.NewTestServer(cfg)
-	go trabbits.TestServer.TestBoot(ctx, listener)
+	testServer := trabbits.NewTestServer(cfg)
+	go testServer.TestBoot(ctx, listener)
 	return nil
 }
 
@@ -63,7 +63,10 @@ func runTestAPI(ctx context.Context) error {
 	os.Remove(testAPISock) // trabbits will re create it
 
 	// Create server instance for API server
-	cfg := trabbits.TestServer.GetConfig()
+	cfg, err := trabbits.LoadConfig(ctx, "testdata/config.json")
+	if err != nil {
+		return err
+	}
 	server := trabbits.NewServer(cfg, testAPISock)
 
 	go server.TestStartAPIServer(ctx, "testdata/config.json")

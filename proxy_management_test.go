@@ -9,8 +9,7 @@ import (
 )
 
 func TestProxyRegistration(t *testing.T) {
-	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
+	// Clear any remaining proxies from previous tests - not needed with instance isolation
 
 	// Create a mock connection for testing
 	serverConn, client := net.Pipe()
@@ -37,7 +36,7 @@ func TestProxyRegistration(t *testing.T) {
 	server.RegisterProxy(proxy)
 
 	// Verify proxy is registered
-	registeredProxy := trabbits.GetProxy(proxy.ID())
+	registeredProxy := server.GetProxy(proxy.ID())
 	if registeredProxy == nil {
 		t.Error("proxy should be registered")
 	}
@@ -49,15 +48,14 @@ func TestProxyRegistration(t *testing.T) {
 	server.UnregisterProxy(proxy)
 
 	// Verify proxy is unregistered
-	registeredProxy = trabbits.GetProxy(proxy.ID())
+	registeredProxy = server.GetProxy(proxy.ID())
 	if registeredProxy != nil {
 		t.Error("proxy should be unregistered")
 	}
 }
 
 func TestDisconnectOutdatedProxies(t *testing.T) {
-	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
+	// Clear any remaining proxies from previous tests - not needed with instance isolation
 
 	// Create mock connections
 	server1, client1 := net.Pipe()
@@ -106,7 +104,7 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 	server.RegisterProxy(proxy2)
 
 	// Count active proxies before disconnection
-	initialCount := trabbits.CountActiveProxies()
+	initialCount := server.CountActiveProxies()
 	if initialCount != 2 {
 		t.Errorf("expected 2 active proxies, got %d", initialCount)
 	}
@@ -138,7 +136,7 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		// Check that proper number of proxies remain active
 		// Note: In real usage, proxies are unregistered when connections close
 		// For this test, both proxies are still registered but proxy1 received disconnect signal
-		remainingCount := trabbits.CountActiveProxies()
+		remainingCount := server.CountActiveProxies()
 		expectedRemainingCount := 2 // Both still registered until connections actually close
 
 		if remainingCount != expectedRemainingCount {

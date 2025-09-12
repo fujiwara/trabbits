@@ -16,13 +16,7 @@ var (
 	MetricsStore       = metrics
 	NewAPIClient       = newAPIClient
 	TestMatchRouting   = testMatchRouting
-	GetProxy           = getProxy
-	CountActiveProxies = countActiveProxies
-	ClearActiveProxies = clearActiveProxies
 )
-
-// Global test server instance - set by server_test.go for use by routing_test.go
-var TestServer *Server
 
 // Server instance functions for testing
 func NewTestServer(config *Config) *Server {

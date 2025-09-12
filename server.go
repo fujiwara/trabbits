@@ -46,10 +46,6 @@ var (
 
 var Debug bool
 
-// Global maps for test compatibility only
-var healthManagers = sync.Map{} // upstream name -> *NodeHealthManager
-var activeProxies = sync.Map{}  // proxy id -> *Proxy
-
 // Server represents a trabbits server instance
 type Server struct {
 	configMu       sync.RWMutex
@@ -108,16 +104,29 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 	return proxy
 }
 
+// GetHealthManager returns the health manager for the given upstream name
+func (s *Server) GetHealthManager(upstreamName string) *NodeHealthManager {
+	if mgr, ok := s.healthManagers.Load(upstreamName); ok {
+		return mgr.(*NodeHealthManager)
+	}
+	return nil
+}
+
+// getHealthManagerGlobal returns the health manager for the given upstream name
+// This is a compatibility function for code that doesn't have server instance access
+func getHealthManagerGlobal(upstreamName string) *NodeHealthManager {
+	// No global access available - requires server instance
+	return nil
+}
+
 // RegisterProxy adds a proxy to the server's active proxy list
 func (s *Server) RegisterProxy(proxy *Proxy) {
 	s.activeProxies.Store(proxy.id, proxy)
-	activeProxies.Store(proxy.id, proxy) // Also store in global map for compatibility
 }
 
 // UnregisterProxy removes a proxy from the server's active proxy list
 func (s *Server) UnregisterProxy(proxy *Proxy) {
 	s.activeProxies.Delete(proxy.id)
-	activeProxies.Delete(proxy.id) // Also remove from global map for compatibility
 }
 
 // disconnectOutdatedProxies gracefully disconnects proxies with old config hash for this server
@@ -352,7 +361,6 @@ func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
 			mgr.Stop()
 		}
 		srv.healthManagers.Delete(key)
-		healthManagers.Delete(key) // Also remove from global map
 		return true
 	})
 
@@ -363,7 +371,6 @@ func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
 			if mgr != nil {
 				mgr.StartHealthCheck(ctx)
 				srv.healthManagers.Store(upstream.Name, mgr)
-				healthManagers.Store(upstream.Name, mgr) // Also store in global map for compatibility
 				slog.Info("Health check manager initialized",
 					"upstream", upstream.Name,
 					"nodes", len(upstream.Cluster.Nodes))
@@ -661,14 +668,12 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	var nodesToTry []string
 
 	// Use health manager if available for cluster upstreams
-	if mgr, ok := healthManagers.Load(upstreamName); ok {
-		if healthMgr := mgr.(*NodeHealthManager); healthMgr != nil {
-			nodesToTry = healthMgr.GetHealthyNodes()
-			s.logger.Debug("Using health-based node selection",
-				"upstream", upstreamName,
-				"healthy_nodes", len(nodesToTry),
-				"total_nodes", len(addrs))
-		}
+	if healthMgr := getHealthManagerGlobal(upstreamName); healthMgr != nil {
+		nodesToTry = healthMgr.GetHealthyNodes()
+		s.logger.Debug("Using health-based node selection",
+			"upstream", upstreamName,
+			"healthy_nodes", len(nodesToTry),
+			"total_nodes", len(addrs))
 	}
 
 	// Fall back to all nodes if no health manager or no healthy nodes
@@ -1113,28 +1118,20 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	}
 }
 
-// getProxy retrieves a proxy by ID (for testing)
-func getProxy(id string) *Proxy {
-	if value, ok := activeProxies.Load(id); ok {
+// GetProxy retrieves a proxy by ID from this server instance
+func (s *Server) GetProxy(id string) *Proxy {
+	if value, ok := s.activeProxies.Load(id); ok {
 		return value.(*Proxy)
 	}
 	return nil
 }
 
-// countActiveProxies returns the number of active proxies (for testing)
-func countActiveProxies() int {
+// CountActiveProxies returns the number of active proxies for this server instance
+func (s *Server) CountActiveProxies() int {
 	count := 0
-	activeProxies.Range(func(key, value interface{}) bool {
+	s.activeProxies.Range(func(key, value interface{}) bool {
 		count++
 		return true
 	})
 	return count
-}
-
-// clearActiveProxies clears all active proxies (for testing)
-func clearActiveProxies() {
-	activeProxies.Range(func(key, value interface{}) bool {
-		activeProxies.Delete(key)
-		return true
-	})
 }

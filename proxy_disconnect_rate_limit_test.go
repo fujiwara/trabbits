@@ -10,7 +10,6 @@ import (
 
 func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Test rate limiting with multiple proxies
 	oldConfig := &trabbits.Config{
@@ -63,7 +62,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	}()
 
 	// Verify initial count
-	initialCount := trabbits.CountActiveProxies()
+	initialCount := testServer.CountActiveProxies()
 	if initialCount < numProxies {
 		t.Errorf("Expected at least %d active proxies, got %d", numProxies, initialCount)
 	}
@@ -104,7 +103,6 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 
 func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Test timeout calculation for large numbers of proxies
 	oldConfig := &trabbits.Config{
