@@ -24,7 +24,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Use `mustTestConn(t)` for connecting to test proxy server
 - Test files should use `package trabbits_test` (not `package trabbits`) for consistency with other tests
 - Export functions needed for testing via `export_test.go`
-- **Test isolation**: Always call `trabbits.ClearActiveProxies()` at the beginning of tests that use proxy management to ensure clean test state
+- **Test isolation**: Always clear active proxies at the beginning of tests that use proxy management to ensure clean test state (use server instance methods or check TestServer != nil)
 - **Mock connections**: When testing with `net.Pipe()` connections, be aware that AMQP protocol operations will fail - design tests accordingly
 - **Async testing**: Use channel-based interfaces for testing asynchronous operations like `DisconnectOutdatedProxies()` to verify completion
 - **Test timeouts**: Configure shorter timeouts for test environment using `export_test.go` to speed up test execution
@@ -98,3 +98,12 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - **Dynamic timeouts**: Calculate timeouts based on proxy count and rate limits to avoid premature failures
 - **Global proxy registry**: Use `sync.Map` for thread-safe proxy tracking across the application
 - **Channel-based async interfaces**: Return completion channels for async operations to enable proper testing and monitoring
+
+### Timeout Configuration Management
+- **Configuration-based timeouts**: ReadTimeout and ConnectionCloseTimeout are configured in the main Config struct
+- **No circular dependencies**: Proxy must not hold Server reference - use dependency injection patterns instead
+- **Default values**: Use SetDefaults() method to apply default timeout values if not specified in config
+- **Package constants**: DefaultReadTimeout and DefaultConnectionCloseTimeout constants define default values
+- **Timeout passing**: Pass timeout values to Proxy during creation rather than accessing them later
+- **Thread-safe access**: Use Server methods with proper locking to access timeout configuration
+- **ConnectionCloseTimeout**: Timeout for waiting Connection.Close-Ok during graceful connection shutdown

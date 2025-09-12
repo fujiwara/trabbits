@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
@@ -26,10 +27,12 @@ type Proxy struct {
 
 	upstreams []*Upstream
 
-	logger      *slog.Logger
-	user        string
-	password    string
-	clientProps amqp091.Table
+	logger                 *slog.Logger
+	user                   string
+	password               string
+	clientProps            amqp091.Table
+	readTimeout            time.Duration
+	connectionCloseTimeout time.Duration
 
 	configHash         string      // hash of config used for this proxy
 	upstreamDisconnect chan string // channel to notify upstream disconnection

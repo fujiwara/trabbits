@@ -106,6 +106,8 @@ trabbit's configuration file is located at `config.json`. The configuration file
 
 ```json
 {
+    "read_timeout": "5s",
+    "connection_close_timeout": "1s",
     "upstreams": [
         {
             "name": "primary",
@@ -210,6 +212,17 @@ Supported patterns are equivalent to the RabbitMQ's topic exchange routing key p
 trabbits tries to match the routing key with the specified pattern in the order they are defined in the configuration file. If the routing key matches a pattern, trabbits will use the corresponding upstream immediately (will not check other patterns).
 
 If the routing key does not match any patterns, trabbits will use the first upstream as the default.
+
+### Global Configuration Options
+
+#### Timeout Settings (Advanced)
+
+These timeout settings control internal connection behavior and typically do not need to be modified:
+
+- `read_timeout`: (Optional) Maximum time to wait for reading data from client connections (default: 5s). Accepts Go duration format (e.g., "5s", "10s").
+- `connection_close_timeout`: (Optional) Maximum time to wait for Connection.Close-Ok response during graceful connection shutdown (default: 1s). Accepts Go duration format.
+
+**Note:** These are advanced settings that should only be adjusted if you experience specific timeout-related issues. The default values are suitable for most use cases.
 
 ## Configuration File Formats
 

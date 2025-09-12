@@ -23,7 +23,9 @@ import (
 
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
-	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+	Upstreams              []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+	ReadTimeout            Duration         `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
+	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
 }
 
 // Hash calculates SHA256 hash of the config using gob encoding
@@ -76,7 +78,19 @@ func LoadConfig(ctx context.Context, f string) (*Config, error) {
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
+	c.SetDefaults()
 	return &c, nil
+}
+
+// SetDefaults sets default values for config fields if not specified
+func (c *Config) SetDefaults() {
+	// Set default timeout values if not specified
+	if c.ReadTimeout == 0 {
+		c.ReadTimeout = Duration(DefaultReadTimeout)
+	}
+	if c.ConnectionCloseTimeout == 0 {
+		c.ConnectionCloseTimeout = Duration(DefaultConnectionCloseTimeout)
+	}
 }
 
 func (c *Config) Validate() error {
