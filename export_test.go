@@ -3,7 +3,6 @@ package trabbits
 import (
 	"context"
 	"net"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -49,24 +48,7 @@ func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, erro
 type Delivery = delivery
 
 func init() {
-	FrameMax = 256                                 // for testing
-	connectionCloseTimeout = 50 * time.Millisecond // shorter timeout for tests
-}
-
-func SetReadTimeout(t time.Duration) {
-	readTimeout = t
-}
-
-func GetReadTimeout() time.Duration {
-	return readTimeout
-}
-
-func SetConnectionCloseTimeout(t time.Duration) {
-	connectionCloseTimeout = t
-}
-
-func GetConnectionCloseTimeout() time.Duration {
-	return connectionCloseTimeout
+	FrameMax = 256 // for testing
 }
 
 func GetMetricsRegistry() *prometheus.Registry {

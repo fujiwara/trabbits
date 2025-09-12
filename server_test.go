@@ -46,7 +46,6 @@ func runTestProxy(ctx context.Context) error {
 	if os.Getenv("TEST_PROXY_PORT") != "" {
 		testProxyPort, _ = strconv.Atoi(os.Getenv("TEST_PROXY_PORT"))
 	}
-	trabbits.SetReadTimeout(1 * time.Second) // for testing
 
 	// Create server instance and use it
 	testServer := trabbits.NewTestServer(cfg)
@@ -815,7 +814,7 @@ func TestProxyExchangeTopic(t *testing.T) {
 func TestSlowClient(t *testing.T) {
 	conn := mustTestConn(t)
 	defer conn.Close()
-	time.Sleep(trabbits.GetReadTimeout() + 100*time.Millisecond)
+	time.Sleep(1*time.Second + 100*time.Millisecond) // read timeout + buffer
 	ch := mustTestChannel(t, conn)
 	defer ch.Close()
 }

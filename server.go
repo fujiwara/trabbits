@@ -38,10 +38,12 @@ import (
 )
 
 var (
-	ChannelMax             = 1023
-	HeartbeatInterval      = 60
-	FrameMax               = 128 * 1024
-	UpstreamDefaultTimeout = 5 * time.Second
+	ChannelMax                    = 1023
+	HeartbeatInterval             = 60
+	FrameMax                      = 128 * 1024
+	UpstreamDefaultTimeout        = 5 * time.Second
+	DefaultReadTimeout            = 5 * time.Second
+	DefaultConnectionCloseTimeout = 1 * time.Second
 )
 
 var Debug bool
@@ -92,13 +94,19 @@ func (s *Server) UpdateConfig(config *Config) {
 // NewProxy creates a new proxy associated with this server
 func (s *Server) NewProxy(conn net.Conn) *Proxy {
 	id := generateID()
+
+	// Get config with timeout values
+	config := s.GetConfig()
+
 	proxy := &Proxy{
-		conn:               conn,
-		id:                 id,
-		r:                  amqp091.NewReader(conn),
-		w:                  amqp091.NewWriter(conn),
-		upstreamDisconnect: make(chan string, 10), // buffered to avoid blocking
-		configHash:         s.GetConfigHash(),
+		conn:                   conn,
+		id:                     id,
+		r:                      amqp091.NewReader(conn),
+		w:                      amqp091.NewWriter(conn),
+		upstreamDisconnect:     make(chan string, 10), // buffered to avoid blocking
+		configHash:             s.GetConfigHash(),
+		readTimeout:            config.ReadTimeout.ToDuration(),
+		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
@@ -884,7 +892,7 @@ func (s *Proxy) sendConnectionError(err AMQPError) error {
 		return sendErr
 	}
 	// Try to read Connection.Close-Ok, but don't wait too long
-	s.conn.SetReadDeadline(time.Now().Add(connectionCloseTimeout))
+	s.conn.SetReadDeadline(time.Now().Add(s.connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
 	if _, recvErr := s.recv(0, &msg); recvErr != nil {
 		s.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
@@ -892,11 +900,8 @@ func (s *Proxy) sendConnectionError(err AMQPError) error {
 	return nil
 }
 
-var readTimeout = 5 * time.Second
-var connectionCloseTimeout = 1 * time.Second
-
 func (s *Proxy) readClientFrame() (amqp091.Frame, error) {
-	s.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	s.conn.SetReadDeadline(time.Now().Add(s.readTimeout))
 	return s.r.ReadFrame()
 }
 
