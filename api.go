@@ -43,12 +43,12 @@ func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 	return listener, cancelFunc, nil
 }
 
-func runAPIServer(ctx context.Context, opt *CLI) (func(), error) {
+func runAPIServer(ctx context.Context, opt *CLI, server *Server) (func(), error) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /config", apiGetConfigHandler(opt))
-	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt))
-	mux.HandleFunc("POST /config/diff", apiDiffConfigHandler(opt))
-	mux.HandleFunc("POST /config/reload", apiReloadConfigHandler(opt))
+	mux.HandleFunc("GET /config", apiGetConfigHandler(opt, server))
+	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt, server))
+	mux.HandleFunc("POST /config/diff", apiDiffConfigHandler(opt, server))
+	mux.HandleFunc("POST /config/reload", apiReloadConfigHandler(opt, server))
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -142,15 +142,15 @@ func processConfigRequest(w http.ResponseWriter, r *http.Request, prefix string)
 	return configFile, nil
 }
 
-func apiGetConfigHandler(opt *CLI) http.HandlerFunc {
+func apiGetConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
-		cfg := mustGetConfig()
+		cfg := server.GetConfig()
 		json.NewEncoder(w).Encode(cfg)
 	})
 }
 
-func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
+func apiPutConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		configFile, err := processConfigRequest(w, r, "trabbits-config-")
 		if err != nil {
@@ -166,16 +166,16 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest) // payload is invalid
 			return
 		}
-		storeConfig(cfg)
 
 		// Reinitialize health managers with new configuration
-		if err := initHealthManagers(r.Context(), cfg); err != nil {
+		if err := server.initHealthManagers(r.Context(), cfg); err != nil {
 			slog.Error("failed to reinit health managers", "error", err)
 			// Don't fail the config update, just log the error
 		}
 
-		// Disconnect outdated proxies and wait for completion
-		disconnectChan := disconnectOutdatedProxies(cfg.Hash())
+		// Update server config and disconnect outdated proxies
+		server.UpdateConfig(cfg)
+		disconnectChan := server.disconnectOutdatedProxies(cfg.Hash())
 		go func() {
 			disconnectedCount := <-disconnectChan
 			if disconnectedCount > 0 {
@@ -187,7 +187,7 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 	})
 }
 
-func apiDiffConfigHandler(opt *CLI) http.HandlerFunc {
+func apiDiffConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		configFile, err := processConfigRequest(w, r, "trabbits-config-diff-")
 		if err != nil {
@@ -206,7 +206,7 @@ func apiDiffConfigHandler(opt *CLI) http.HandlerFunc {
 		}
 
 		// Get current config
-		currentCfg := mustGetConfig()
+		currentCfg := server.GetConfig()
 
 		// Generate diff using jsondiff
 		diff, err := jsondiff.Diff(
@@ -225,7 +225,7 @@ func apiDiffConfigHandler(opt *CLI) http.HandlerFunc {
 }
 
 // reloadConfigFromFile reloads configuration from the specified file
-func reloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+func reloadConfigFromFile(ctx context.Context, configPath string, server *Server) (*Config, error) {
 	slog.Info("Reloading configuration from file", "file", configPath)
 
 	// Reload config from the original config file
@@ -234,16 +234,16 @@ func reloadConfigFromFile(ctx context.Context, configPath string) (*Config, erro
 		slog.Error("failed to reload configuration", "error", err)
 		return nil, fmt.Errorf("failed to reload configuration: %w", err)
 	}
-	storeConfig(cfg)
 
 	// Reinitialize health managers with new configuration
-	if err := initHealthManagers(ctx, cfg); err != nil {
+	if err := server.initHealthManagers(ctx, cfg); err != nil {
 		slog.Error("failed to reinit health managers", "error", err)
 		// Don't fail the config reload, just log the error
 	}
 
-	// Disconnect outdated proxies and wait for completion
-	disconnectChan := disconnectOutdatedProxies(cfg.Hash())
+	// Update server config and disconnect outdated proxies
+	server.UpdateConfig(cfg)
+	disconnectChan := server.disconnectOutdatedProxies(cfg.Hash())
 	go func() {
 		disconnectedCount := <-disconnectChan
 		if disconnectedCount > 0 {
@@ -255,11 +255,11 @@ func reloadConfigFromFile(ctx context.Context, configPath string) (*Config, erro
 	return cfg, nil
 }
 
-func apiReloadConfigHandler(opt *CLI) http.HandlerFunc {
+func apiReloadConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		cfg, err := reloadConfigFromFile(r.Context(), opt.Config)
+		cfg, err := reloadConfigFromFile(r.Context(), opt.Config, server)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

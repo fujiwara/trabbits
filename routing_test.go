@@ -53,7 +53,7 @@ func TestProxyPublishGetRouting(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	cfg := trabbits.MustGetConfig()
+	cfg := trabbits.TestServer.GetConfig()
 	expectedUpstream := map[string]int{
 		"default": 0,  // Should go to primary (first upstream)
 		"another": -1, // Will be determined by routing

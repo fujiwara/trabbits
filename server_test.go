@@ -30,7 +30,6 @@ func runTestProxy(ctx context.Context) error {
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
-	trabbits.StoreConfig(cfg)
 
 	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
 		slog.Info("skipping test server, use real RabbitMQ directly")
@@ -50,8 +49,8 @@ func runTestProxy(ctx context.Context) error {
 	trabbits.SetReadTimeout(1 * time.Second) // for testing
 
 	// Create server instance and use it
-	server := trabbits.NewTestServer(cfg)
-	go server.TestBoot(ctx, listener)
+	trabbits.TestServer = trabbits.NewTestServer(cfg)
+	go trabbits.TestServer.TestBoot(ctx, listener)
 	return nil
 }
 
@@ -62,7 +61,12 @@ func runTestAPI(ctx context.Context) error {
 	}
 	testAPISock = tmpfile.Name()
 	os.Remove(testAPISock) // trabbits will re create it
-	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APISocket: testAPISock})
+
+	// Create server instance for API server
+	cfg := trabbits.TestServer.GetConfig()
+	server := trabbits.NewTestServer(cfg)
+
+	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APISocket: testAPISock}, server)
 	return nil
 }
 

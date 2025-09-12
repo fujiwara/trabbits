@@ -42,8 +42,6 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 		},
 	}
 
-	// Store old config
-	trabbits.StoreConfig(oldConfig)
 	oldHash := oldConfig.Hash()
 
 	// Create server instance
@@ -59,7 +57,6 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	testServer.TestRegisterProxy(proxy)
 
 	// Update to new config
-	trabbits.StoreConfig(newConfig)
 	newHash := newConfig.Hash()
 
 	// Clear log buffer

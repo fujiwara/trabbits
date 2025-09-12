@@ -45,8 +45,15 @@ func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc
 		Config:    configFile,
 	}
 
+	// Create server instance for API server
+	cfg, err := trabbits.LoadConfig(ctx, configFile)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	server := trabbits.NewTestServer(cfg)
+
 	go func() {
-		_, err := trabbits.RunAPIServer(ctx, cli)
+		_, err := trabbits.RunAPIServer(ctx, cli, server)
 		if err != nil && ctx.Err() == nil {
 			t.Errorf("API server failed: %v", err)
 		}

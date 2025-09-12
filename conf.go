@@ -15,14 +15,11 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	armed "github.com/fujiwara/jsonnet-armed"
 	"github.com/fujiwara/trabbits/amqp091"
 )
-
-var GlobalConfig = sync.Map{}
 
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
@@ -80,25 +77,6 @@ func LoadConfig(ctx context.Context, f string) (*Config, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 	return &c, nil
-}
-
-const globalConfigKey = "config"
-
-func storeConfig(c *Config) {
-	GlobalConfig.Store(globalConfigKey, c)
-}
-
-func mustGetConfig() *Config {
-	if c, ok := GlobalConfig.Load(globalConfigKey); ok {
-		return c.(*Config)
-	} else {
-		panic("config is not loaded")
-	}
-}
-
-func getCurrentConfigHash() string {
-	cfg := mustGetConfig()
-	return cfg.Hash()
 }
 
 func (c *Config) Validate() error {
