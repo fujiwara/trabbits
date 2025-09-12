@@ -19,6 +19,8 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Use table-driven tests where appropriate
 - Use `t.Context()` in test functions instead of manually creating contexts
 - Use `mustTestConn(t)` for connecting to test proxy server
+- Test files should use `package trabbits_test` (not `package trabbits`) for consistency with other tests
+- Export functions needed for testing via `export_test.go`
 
 ### Build and Run
 - Build: `go build -o trabbits ./cmd/trabbits`
@@ -54,6 +56,12 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Extend routing patterns in `pattern.go`
 - Add metrics in `metrics.go`
 - Configuration changes require `conf.go` updates
+
+### CLI Command Development
+- When adding new CLI commands, consider if they should be optional arguments or required
+- Interactive modes should be avoided - commands should complete with provided arguments
+- Commands that test/validate should return appropriate exit codes (0 for success, 1 for failure)
+- Keep utility functions simple - avoid creating separate functions for trivial operations
 
 ### Important Notes
 - This is ALPHA software - not for production use
