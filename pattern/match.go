@@ -1,13 +1,18 @@
 // MIT License
 // Copyright (c) 2025 FUJIWARA Shunichiro
 
-package trabbits
+package pattern
 
 import (
 	"strings"
 )
 
-func matchPattern(routingKey, bindingPattern string) bool {
+// Match checks if a routing key matches a binding pattern.
+// Supports AMQP topic exchange patterns with wildcards:
+//   - * matches exactly one word
+//   - # matches zero or more words
+//   - % matches any substring within a single word
+func Match(routingKey, bindingPattern string) bool {
 	// Split the routing key and binding pattern by dots
 	routingTokens := strings.Split(routingKey, ".")
 	bindingTokens := strings.Split(bindingPattern, ".")

@@ -6,18 +6,20 @@ package trabbits
 import (
 	"context"
 	"fmt"
+
+	"github.com/fujiwara/trabbits/pattern"
 )
 
 func testMatchRouting(_ context.Context, cli *CLI) error {
-	pattern := cli.Test.MatchRouting.Pattern
+	bindingPattern := cli.Test.MatchRouting.Pattern
 	key := cli.Test.MatchRouting.Key
 
-	result := matchPattern(key, pattern)
+	result := pattern.Match(key, bindingPattern)
 
 	if result {
-		fmt.Printf("✓ MATCHED: pattern '%s' matches key '%s'\n", pattern, key)
+		fmt.Printf("✓ MATCHED: pattern '%s' matches key '%s'\n", bindingPattern, key)
 	} else {
-		fmt.Printf("✗ NOT MATCHED: pattern '%s' does not match key '%s'\n", pattern, key)
+		fmt.Printf("✗ NOT MATCHED: pattern '%s' does not match key '%s'\n", bindingPattern, key)
 	}
 
 	if !result {

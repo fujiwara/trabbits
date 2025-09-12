@@ -1,53 +1,55 @@
 package trabbits
 
 import (
-	"time"
+	"context"
+	"net"
 
+	"github.com/fujiwara/trabbits/pattern"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
-	Boot                      = boot
-	SetupLogger               = setupLogger
-	NewDelivery               = newDelivery
-	RestoreDeliveryTag        = restoreDeliveryTag
-	MatchPattern              = matchPattern
-	StoreConfig               = storeConfig
-	MustGetConfig             = mustGetConfig
-	MetricsStore              = metrics
-	RunAPIServer              = runAPIServer
-	NewAPIClient              = newAPIClient
-	ReloadConfigFromFile      = reloadConfigFromFile
-	TestMatchRouting          = testMatchRouting
-	RegisterProxy             = registerProxy
-	UnregisterProxy           = unregisterProxy
-	GetProxy                  = getProxy
-	CountActiveProxies        = countActiveProxies
-	ClearActiveProxies        = clearActiveProxies
-	DisconnectOutdatedProxies = disconnectOutdatedProxies
+	SetupLogger        = setupLogger
+	NewDelivery        = newDelivery
+	RestoreDeliveryTag = restoreDeliveryTag
+	MatchPattern       = pattern.Match
+	MetricsStore       = metrics
+	NewAPIClient       = newAPIClient
+	TestMatchRouting   = testMatchRouting
 )
+
+// Server instance functions for testing
+func NewTestServer(config *Config) *Server {
+	return NewServer(config, "") // Empty API socket for tests
+}
+
+func (s *Server) TestDisconnectOutdatedProxies(currentConfigHash string) <-chan int {
+	return s.disconnectOutdatedProxies(currentConfigHash)
+}
+
+func (s *Server) TestBoot(ctx context.Context, listener net.Listener) error {
+	return s.boot(ctx, listener)
+}
+
+func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (func(), error) {
+	return s.startAPIServer(ctx, configPath)
+}
+
+// Test helper for reloadConfigFromFile
+func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+	// Create a temporary server instance for config reloading
+	cfg, err := LoadConfig(ctx, configPath)
+	if err != nil {
+		return nil, err
+	}
+	server := NewServer(cfg, "")
+	return server.reloadConfigFromFile(ctx, configPath)
+}
 
 type Delivery = delivery
 
 func init() {
-	FrameMax = 256                                 // for testing
-	connectionCloseTimeout = 50 * time.Millisecond // shorter timeout for tests
-}
-
-func SetReadTimeout(t time.Duration) {
-	readTimeout = t
-}
-
-func GetReadTimeout() time.Duration {
-	return readTimeout
-}
-
-func SetConnectionCloseTimeout(t time.Duration) {
-	connectionCloseTimeout = t
-}
-
-func GetConnectionCloseTimeout() time.Duration {
-	return connectionCloseTimeout
+	FrameMax = 256 // for testing
 }
 
 func GetMetricsRegistry() *prometheus.Registry {

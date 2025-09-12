@@ -12,7 +12,6 @@ import (
 
 func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Capture log output to verify disconnection messages
 	var logOutput strings.Builder
@@ -42,28 +41,28 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 		},
 	}
 
-	// Store old config
-	trabbits.StoreConfig(oldConfig)
 	oldHash := oldConfig.Hash()
+
+	// Create server instance
+	testServer := trabbits.NewTestServer(oldConfig)
 
 	// Create a mock proxy with old config hash
 	server, client := net.Pipe()
 	defer server.Close()
 	defer client.Close()
 
-	proxy := trabbits.NewProxy(server)
+	proxy := testServer.NewProxy(server)
 	proxy.SetConfigHash(oldHash)
-	trabbits.RegisterProxy(proxy)
+	testServer.RegisterProxy(proxy)
 
 	// Update to new config
-	trabbits.StoreConfig(newConfig)
 	newHash := newConfig.Hash()
 
 	// Clear log buffer
 	logOutput.Reset()
 
 	// Trigger disconnection of outdated proxies and wait for completion
-	disconnectChan := trabbits.DisconnectOutdatedProxies(newHash)
+	disconnectChan := testServer.TestDisconnectOutdatedProxies(newHash)
 
 	// Wait for disconnection to complete
 	select {
@@ -101,5 +100,5 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	t.Logf("✓ Disconnection process logged correctly:\n%s", logStr)
 
 	// Clean up
-	trabbits.UnregisterProxy(proxy)
+	testServer.UnregisterProxy(proxy)
 }

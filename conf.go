@@ -15,18 +15,17 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	armed "github.com/fujiwara/jsonnet-armed"
 	"github.com/fujiwara/trabbits/amqp091"
 )
 
-var GlobalConfig = sync.Map{}
-
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
-	Upstreams []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+	Upstreams              []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
+	ReadTimeout            Duration         `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
+	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
 }
 
 // Hash calculates SHA256 hash of the config using gob encoding
@@ -79,26 +78,19 @@ func LoadConfig(ctx context.Context, f string) (*Config, error) {
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
+	c.SetDefaults()
 	return &c, nil
 }
 
-const globalConfigKey = "config"
-
-func storeConfig(c *Config) {
-	GlobalConfig.Store(globalConfigKey, c)
-}
-
-func mustGetConfig() *Config {
-	if c, ok := GlobalConfig.Load(globalConfigKey); ok {
-		return c.(*Config)
-	} else {
-		panic("config is not loaded")
+// SetDefaults sets default values for config fields if not specified
+func (c *Config) SetDefaults() {
+	// Set default timeout values if not specified
+	if c.ReadTimeout == 0 {
+		c.ReadTimeout = Duration(DefaultReadTimeout)
 	}
-}
-
-func getCurrentConfigHash() string {
-	cfg := mustGetConfig()
-	return cfg.Hash()
+	if c.ConnectionCloseTimeout == 0 {
+		c.ConnectionCloseTimeout = Duration(DefaultConnectionCloseTimeout)
+	}
 }
 
 func (c *Config) Validate() error {

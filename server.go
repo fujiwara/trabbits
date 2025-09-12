@@ -35,33 +35,108 @@ import (
 )
 
 var (
-	ChannelMax             = 1023
-	HeartbeatInterval      = 60
-	FrameMax               = 128 * 1024
-	UpstreamDefaultTimeout = 5 * time.Second
+	ChannelMax                    = 1023
+	HeartbeatInterval             = 60
+	FrameMax                      = 128 * 1024
+	UpstreamDefaultTimeout        = 5 * time.Second
+	DefaultReadTimeout            = 5 * time.Second
+	DefaultConnectionCloseTimeout = 1 * time.Second
 )
 
 var Debug bool
 
-// healthManagers stores health check managers for cluster upstreams
-var healthManagers = sync.Map{} // upstream name -> *NodeHealthManager
-
-// activeProxies stores currently active proxy connections
-var activeProxies = sync.Map{} // proxy id -> *Proxy
-
-// registerProxy adds a proxy to the active proxy list
-func registerProxy(proxy *Proxy) {
-	activeProxies.Store(proxy.id, proxy)
+// Server represents a trabbits server instance
+type Server struct {
+	configMu       sync.RWMutex
+	config         *Config
+	configHash     string
+	activeProxies  sync.Map // proxy id -> *Proxy
+	healthManagers sync.Map // upstream name -> *NodeHealthManager
+	logger         *slog.Logger
+	apiSocket      string // API socket path
 }
 
-// unregisterProxy removes a proxy from the active proxy list
-func unregisterProxy(proxy *Proxy) {
-	activeProxies.Delete(proxy.id)
+// NewServer creates a new Server instance
+func NewServer(config *Config, apiSocket string) *Server {
+	return &Server{
+		config:     config,
+		configHash: config.Hash(),
+		logger:     slog.Default(),
+		apiSocket:  apiSocket,
+	}
 }
 
-// disconnectOutdatedProxies gracefully disconnects proxies with old config hash
+// GetConfig returns the current config (thread-safe)
+func (s *Server) GetConfig() *Config {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	return s.config
+}
+
+// GetConfigHash returns the current config hash (thread-safe)
+func (s *Server) GetConfigHash() string {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	return s.configHash
+}
+
+// UpdateConfig updates the config and hash atomically
+func (s *Server) UpdateConfig(config *Config) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.config = config
+	s.configHash = config.Hash()
+}
+
+// NewProxy creates a new proxy associated with this server
+func (s *Server) NewProxy(conn net.Conn) *Proxy {
+	id := generateID()
+
+	// Get config with timeout values
+	config := s.GetConfig()
+
+	proxy := &Proxy{
+		conn:                   conn,
+		id:                     id,
+		r:                      amqp091.NewReader(conn),
+		w:                      amqp091.NewWriter(conn),
+		upstreamDisconnect:     make(chan string, 10), // buffered to avoid blocking
+		configHash:             s.GetConfigHash(),
+		readTimeout:            config.ReadTimeout.ToDuration(),
+		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
+	}
+	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
+	return proxy
+}
+
+// GetHealthManager returns the health manager for the given upstream name
+func (s *Server) GetHealthManager(upstreamName string) *NodeHealthManager {
+	if mgr, ok := s.healthManagers.Load(upstreamName); ok {
+		return mgr.(*NodeHealthManager)
+	}
+	return nil
+}
+
+// getHealthManagerGlobal returns the health manager for the given upstream name
+// This is a compatibility function for code that doesn't have server instance access
+func getHealthManagerGlobal(upstreamName string) *NodeHealthManager {
+	// No global access available - requires server instance
+	return nil
+}
+
+// RegisterProxy adds a proxy to the server's active proxy list
+func (s *Server) RegisterProxy(proxy *Proxy) {
+	s.activeProxies.Store(proxy.id, proxy)
+}
+
+// UnregisterProxy removes a proxy from the server's active proxy list
+func (s *Server) UnregisterProxy(proxy *Proxy) {
+	s.activeProxies.Delete(proxy.id)
+}
+
+// disconnectOutdatedProxies gracefully disconnects proxies with old config hash for this server
 // Returns a channel that will receive the number of disconnected proxies when complete
-func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
+func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan int {
 	resultChan := make(chan int, 1)
 
 	go func() {
@@ -69,7 +144,7 @@ func disconnectOutdatedProxies(currentConfigHash string) <-chan int {
 
 		var outdatedProxies []*Proxy
 
-		activeProxies.Range(func(key, value interface{}) bool {
+		srv.activeProxies.Range(func(key, value interface{}) bool {
 			proxy := value.(*Proxy)
 			if proxy.configHash != currentConfigHash {
 				outdatedProxies = append(outdatedProxies, proxy)
@@ -180,7 +255,9 @@ func run(ctx context.Context, opt *CLI) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	storeConfig(cfg)
+
+	// Create server instance
+	server := NewServer(cfg, opt.APISocket)
 
 	// Write PID file if specified
 	if opt.Run.PidFile != "" {
@@ -191,11 +268,11 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 
 	// Initialize health check managers for cluster upstreams
-	if err := initHealthManagers(ctx, cfg); err != nil {
+	if err := server.initHealthManagers(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to init health managers: %w", err)
 	}
 
-	cancelAPI, err := runAPIServer(ctx, opt)
+	cancelAPI, err := server.startAPIServer(ctx, opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to start API server: %w", err)
 	}
@@ -217,7 +294,7 @@ func run(ctx context.Context, opt *CLI) error {
 				return
 			case <-sigChan:
 				slog.Info("Received SIGHUP signal, reloading configuration")
-				if _, err := reloadConfigFromFile(ctx, opt.Config); err != nil {
+				if _, err := server.reloadConfigFromFile(ctx, opt.Config); err != nil {
 					slog.Error("Failed to reload config via SIGHUP", "error", err)
 				}
 			}
@@ -231,7 +308,7 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 	defer listener.Close()
 
-	return boot(ctx, listener)
+	return server.boot(ctx, listener)
 }
 
 // writePidFile writes the current process ID to the specified file
@@ -254,7 +331,8 @@ func removePidFile(pidFile string) {
 	}
 }
 
-func boot(ctx context.Context, listener net.Listener) error {
+// boot starts accepting connections for this server
+func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	slog.Info("trabbits started", "port", port)
 	go func() {
@@ -276,18 +354,18 @@ func boot(ctx context.Context, listener net.Listener) error {
 			slog.Warn("Failed to accept connection", "error", err)
 			continue
 		}
-		go handleConnection(ctx, conn)
+		go srv.handleConnection(ctx, conn)
 	}
 }
 
 // initHealthManagers initializes health check managers for cluster upstreams
-func initHealthManagers(ctx context.Context, cfg *Config) error {
-	// Stop existing health managers
-	healthManagers.Range(func(key, value interface{}) bool {
+func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
+	// Stop existing health managers in both server and global maps
+	srv.healthManagers.Range(func(key, value interface{}) bool {
 		if mgr, ok := value.(*NodeHealthManager); ok {
 			mgr.Stop()
 		}
-		healthManagers.Delete(key)
+		srv.healthManagers.Delete(key)
 		return true
 	})
 
@@ -297,7 +375,7 @@ func initHealthManagers(ctx context.Context, cfg *Config) error {
 			mgr := NewNodeHealthManager(upstream)
 			if mgr != nil {
 				mgr.StartHealthCheck(ctx)
-				healthManagers.Store(upstream.Name, mgr)
+				srv.healthManagers.Store(upstream.Name, mgr)
 				slog.Info("Health check manager initialized",
 					"upstream", upstream.Name,
 					"nodes", len(upstream.Cluster.Nodes))
@@ -310,7 +388,8 @@ func initHealthManagers(ctx context.Context, cfg *Config) error {
 
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
-func handleConnection(ctx context.Context, conn net.Conn) {
+// handleConnection handles a new client connection for this server
+func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	metrics.ClientConnections.Inc()
 	metrics.ClientTotalConnections.Inc()
 	defer func() {
@@ -332,16 +411,13 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	s := NewProxy(conn)
+	s := srv.NewProxy(conn)
 	defer func() {
-		unregisterProxy(s)
+		srv.UnregisterProxy(s)
 		s.Close()
 	}()
 
-	// Set config hash for this proxy
-	cfg := mustGetConfig()
-	s.configHash = cfg.Hash()
-	registerProxy(s)
+	srv.RegisterProxy(s)
 	s.logger.Info("proxy created", "config_hash", s.configHash[:8])
 
 	if err := s.handshake(ctx); err != nil {
@@ -355,7 +431,7 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if err := s.ConnectToUpstreams(subCtx, cfg.Upstreams, s.clientProps); err != nil {
+	if err := s.ConnectToUpstreams(subCtx, srv.GetConfig().Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
@@ -424,14 +500,12 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	var nodesToTry []string
 
 	// Use health manager if available for cluster upstreams
-	if mgr, ok := healthManagers.Load(upstreamName); ok {
-		if healthMgr := mgr.(*NodeHealthManager); healthMgr != nil {
-			nodesToTry = healthMgr.GetHealthyNodes()
-			s.logger.Debug("Using health-based node selection",
-				"upstream", upstreamName,
-				"healthy_nodes", len(nodesToTry),
-				"total_nodes", len(addrs))
-		}
+	if healthMgr := getHealthManagerGlobal(upstreamName); healthMgr != nil {
+		nodesToTry = healthMgr.GetHealthyNodes()
+		s.logger.Debug("Using health-based node selection",
+			"upstream", upstreamName,
+			"healthy_nodes", len(nodesToTry),
+			"total_nodes", len(addrs))
 	}
 
 	// Fall back to all nodes if no health manager or no healthy nodes
@@ -642,7 +716,7 @@ func (s *Proxy) sendConnectionError(err AMQPError) error {
 		return sendErr
 	}
 	// Try to read Connection.Close-Ok, but don't wait too long
-	s.conn.SetReadDeadline(time.Now().Add(connectionCloseTimeout))
+	s.conn.SetReadDeadline(time.Now().Add(s.connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
 	if _, recvErr := s.recv(0, &msg); recvErr != nil {
 		s.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
@@ -650,11 +724,8 @@ func (s *Proxy) sendConnectionError(err AMQPError) error {
 	return nil
 }
 
-var readTimeout = 5 * time.Second
-var connectionCloseTimeout = 1 * time.Second
-
 func (s *Proxy) readClientFrame() (amqp091.Frame, error) {
-	s.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	s.conn.SetReadDeadline(time.Now().Add(s.readTimeout))
 	return s.r.ReadFrame()
 }
 
@@ -876,28 +947,20 @@ func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	}
 }
 
-// getProxy retrieves a proxy by ID (for testing)
-func getProxy(id string) *Proxy {
-	if value, ok := activeProxies.Load(id); ok {
+// GetProxy retrieves a proxy by ID from this server instance
+func (s *Server) GetProxy(id string) *Proxy {
+	if value, ok := s.activeProxies.Load(id); ok {
 		return value.(*Proxy)
 	}
 	return nil
 }
 
-// countActiveProxies returns the number of active proxies (for testing)
-func countActiveProxies() int {
+// CountActiveProxies returns the number of active proxies for this server instance
+func (s *Server) CountActiveProxies() int {
 	count := 0
-	activeProxies.Range(func(key, value interface{}) bool {
+	s.activeProxies.Range(func(key, value interface{}) bool {
 		count++
 		return true
 	})
 	return count
-}
-
-// clearActiveProxies clears all active proxies (for testing)
-func clearActiveProxies() {
-	activeProxies.Range(func(key, value interface{}) bool {
-		activeProxies.Delete(key)
-		return true
-	})
 }

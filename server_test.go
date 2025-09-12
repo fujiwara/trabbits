@@ -30,7 +30,6 @@ func runTestProxy(ctx context.Context) error {
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
-	trabbits.StoreConfig(cfg)
 
 	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
 		slog.Info("skipping test server, use real RabbitMQ directly")
@@ -47,8 +46,10 @@ func runTestProxy(ctx context.Context) error {
 	if os.Getenv("TEST_PROXY_PORT") != "" {
 		testProxyPort, _ = strconv.Atoi(os.Getenv("TEST_PROXY_PORT"))
 	}
-	trabbits.SetReadTimeout(1 * time.Second) // for testing
-	go trabbits.Boot(ctx, listener)
+
+	// Create server instance and use it
+	testServer := trabbits.NewTestServer(cfg)
+	go testServer.TestBoot(ctx, listener)
 	return nil
 }
 
@@ -59,7 +60,15 @@ func runTestAPI(ctx context.Context) error {
 	}
 	testAPISock = tmpfile.Name()
 	os.Remove(testAPISock) // trabbits will re create it
-	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APISocket: testAPISock})
+
+	// Create server instance for API server
+	cfg, err := trabbits.LoadConfig(ctx, "testdata/config.json")
+	if err != nil {
+		return err
+	}
+	server := trabbits.NewServer(cfg, testAPISock)
+
+	go server.TestStartAPIServer(ctx, "testdata/config.json")
 	return nil
 }
 
@@ -805,7 +814,7 @@ func TestProxyExchangeTopic(t *testing.T) {
 func TestSlowClient(t *testing.T) {
 	conn := mustTestConn(t)
 	defer conn.Close()
-	time.Sleep(trabbits.GetReadTimeout() + 100*time.Millisecond)
+	time.Sleep(1*time.Second + 100*time.Millisecond) // read timeout + buffer
 	ch := mustTestChannel(t, conn)
 	defer ch.Close()
 }
