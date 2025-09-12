@@ -14,7 +14,6 @@ var (
 	RestoreDeliveryTag = restoreDeliveryTag
 	MatchPattern       = matchPattern
 	MetricsStore       = metrics
-	RunAPIServer       = runAPIServer
 	NewAPIClient       = newAPIClient
 	TestMatchRouting   = testMatchRouting
 	GetProxy           = getProxy
@@ -27,19 +26,7 @@ var TestServer *Server
 
 // Server instance functions for testing
 func NewTestServer(config *Config) *Server {
-	return NewServer(config)
-}
-
-func (s *Server) TestNewProxy(conn net.Conn) *Proxy {
-	return s.NewProxy(conn)
-}
-
-func (s *Server) TestRegisterProxy(proxy *Proxy) {
-	s.registerProxy(proxy)
-}
-
-func (s *Server) TestUnregisterProxy(proxy *Proxy) {
-	s.unregisterProxy(proxy)
+	return NewServer(config, "") // Empty API socket for tests
 }
 
 func (s *Server) TestDisconnectOutdatedProxies(currentConfigHash string) <-chan int {
@@ -50,6 +37,10 @@ func (s *Server) TestBoot(ctx context.Context, listener net.Listener) error {
 	return s.boot(ctx, listener)
 }
 
+func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (func(), error) {
+	return s.startAPIServer(ctx, configPath)
+}
+
 // Test helper for reloadConfigFromFile
 func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
 	// Create a temporary server instance for config reloading
@@ -57,8 +48,8 @@ func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, erro
 	if err != nil {
 		return nil, err
 	}
-	server := NewServer(cfg)
-	return reloadConfigFromFile(ctx, configPath, server)
+	server := NewServer(cfg, "")
+	return server.reloadConfigFromFile(ctx, configPath)
 }
 
 type Delivery = delivery

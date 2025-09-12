@@ -11,12 +11,14 @@ package trabbits
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -28,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aereal/jsondiff"
 	"github.com/fujiwara/trabbits/amqp091"
 	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
@@ -55,14 +58,16 @@ type Server struct {
 	activeProxies  sync.Map // proxy id -> *Proxy
 	healthManagers sync.Map // upstream name -> *NodeHealthManager
 	logger         *slog.Logger
+	apiSocket      string // API socket path
 }
 
 // NewServer creates a new Server instance
-func NewServer(config *Config) *Server {
+func NewServer(config *Config, apiSocket string) *Server {
 	return &Server{
 		config:     config,
 		configHash: config.Hash(),
 		logger:     slog.Default(),
+		apiSocket:  apiSocket,
 	}
 }
 
@@ -103,14 +108,14 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 	return proxy
 }
 
-// registerProxy adds a proxy to the server's active proxy list
-func (s *Server) registerProxy(proxy *Proxy) {
+// RegisterProxy adds a proxy to the server's active proxy list
+func (s *Server) RegisterProxy(proxy *Proxy) {
 	s.activeProxies.Store(proxy.id, proxy)
 	activeProxies.Store(proxy.id, proxy) // Also store in global map for compatibility
 }
 
-// unregisterProxy removes a proxy from the server's active proxy list
-func (s *Server) unregisterProxy(proxy *Proxy) {
+// UnregisterProxy removes a proxy from the server's active proxy list
+func (s *Server) UnregisterProxy(proxy *Proxy) {
 	s.activeProxies.Delete(proxy.id)
 	activeProxies.Delete(proxy.id) // Also remove from global map for compatibility
 }
@@ -238,7 +243,7 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 
 	// Create server instance
-	server := NewServer(cfg)
+	server := NewServer(cfg, opt.APISocket)
 
 	// Write PID file if specified
 	if opt.Run.PidFile != "" {
@@ -253,7 +258,7 @@ func run(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("failed to init health managers: %w", err)
 	}
 
-	cancelAPI, err := runAPIServer(ctx, opt, server)
+	cancelAPI, err := server.startAPIServer(ctx, opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to start API server: %w", err)
 	}
@@ -275,7 +280,7 @@ func run(ctx context.Context, opt *CLI) error {
 				return
 			case <-sigChan:
 				slog.Info("Received SIGHUP signal, reloading configuration")
-				if _, err := reloadConfigFromFile(ctx, opt.Config, server); err != nil {
+				if _, err := server.reloadConfigFromFile(ctx, opt.Config); err != nil {
 					slog.Error("Failed to reload config via SIGHUP", "error", err)
 				}
 			}
@@ -369,6 +374,179 @@ func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
+// startAPIServer starts the API server for this server instance
+func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(), error) {
+	if s.apiSocket == "" {
+		return func() {}, nil // No API server if socket not specified
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /config", s.apiGetConfigHandler())
+	mux.HandleFunc("PUT /config", s.apiPutConfigHandler())
+	mux.HandleFunc("POST /config/diff", s.apiDiffConfigHandler())
+	mux.HandleFunc("POST /config/reload", s.apiReloadConfigHandler(configPath))
+	var srv http.Server
+	// start API server
+	ch := make(chan error)
+	go func() {
+		slog.Info("starting API server", "socket", s.apiSocket)
+		listener, cancel, err := listenUnixSocket(s.apiSocket)
+		defer cancel()
+		if err != nil {
+			slog.Error("failed to listen API server socket", "error", err)
+			ch <- err
+			return
+		}
+		srv := &http.Server{
+			Handler: mux,
+		}
+		if err := srv.Serve(listener); err != nil {
+			slog.Error("failed to start API server", "error", err)
+			ch <- err
+		}
+	}()
+
+	wait := time.NewTimer(100 * time.Millisecond)
+	select {
+	case err := <-ch:
+		return nil, err
+	case <-wait.C:
+		slog.Info("API server started", "socket", s.apiSocket)
+	}
+	return func() {
+		os.Remove(s.apiSocket)
+		srv.Shutdown(ctx)
+	}, nil
+}
+
+// API handler methods for the server
+func (s *Server) apiGetConfigHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", APIContentType)
+		cfg := s.GetConfig()
+		json.NewEncoder(w).Encode(cfg)
+	})
+}
+
+func (s *Server) apiPutConfigHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		configFile, err := processConfigRequest(w, r, "trabbits-config-")
+		if err != nil {
+			return
+		}
+		defer os.Remove(configFile)
+
+		w.Header().Set("Content-Type", "application/json")
+
+		cfg, err := LoadConfig(r.Context(), configFile)
+		if err != nil {
+			slog.Error("failed to load configuration", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest) // payload is invalid
+			return
+		}
+
+		// Reinitialize health managers with new configuration
+		if err := s.initHealthManagers(r.Context(), cfg); err != nil {
+			slog.Error("failed to reinit health managers", "error", err)
+			// Don't fail the config update, just log the error
+		}
+
+		// Update server config and disconnect outdated proxies
+		s.UpdateConfig(cfg)
+		disconnectChan := s.disconnectOutdatedProxies(cfg.Hash())
+		go func() {
+			disconnectedCount := <-disconnectChan
+			if disconnectedCount > 0 {
+				slog.Info("Completed disconnection of outdated proxies", "count", disconnectedCount)
+			}
+		}()
+
+		json.NewEncoder(w).Encode(cfg)
+	})
+}
+
+func (s *Server) apiDiffConfigHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		configFile, err := processConfigRequest(w, r, "trabbits-config-diff-")
+		if err != nil {
+			return
+		}
+		defer os.Remove(configFile)
+
+		w.Header().Set("Content-Type", "text/plain")
+
+		// Load new config from request
+		newCfg, err := LoadConfig(r.Context(), configFile)
+		if err != nil {
+			slog.Error("failed to load new configuration", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Get current config
+		currentCfg := s.GetConfig()
+
+		// Generate diff using jsondiff
+		diff, err := jsondiff.Diff(
+			&jsondiff.Input{Name: "current", X: currentCfg},
+			&jsondiff.Input{Name: "new", X: newCfg},
+		)
+		if err != nil {
+			slog.Error("failed to generate diff", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return diff as plain text
+		w.Write([]byte(diff))
+	})
+}
+
+func (s *Server) apiReloadConfigHandler(configPath string) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		cfg, err := s.reloadConfigFromFile(r.Context(), configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		json.NewEncoder(w).Encode(cfg)
+	})
+}
+
+// reloadConfigFromFile reloads configuration from the specified file
+func (s *Server) reloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+	slog.Info("Reloading configuration from file", "file", configPath)
+
+	// Reload config from the original config file
+	cfg, err := LoadConfig(ctx, configPath)
+	if err != nil {
+		slog.Error("failed to reload configuration", "error", err)
+		return nil, fmt.Errorf("failed to reload configuration: %w", err)
+	}
+
+	// Reinitialize health managers with new configuration
+	if err := s.initHealthManagers(ctx, cfg); err != nil {
+		slog.Error("failed to reinit health managers", "error", err)
+		// Don't fail the config reload, just log the error
+	}
+
+	// Update server config and disconnect outdated proxies
+	s.UpdateConfig(cfg)
+	disconnectChan := s.disconnectOutdatedProxies(cfg.Hash())
+	go func() {
+		disconnectedCount := <-disconnectChan
+		if disconnectedCount > 0 {
+			slog.Info("Completed disconnection of outdated proxies", "count", disconnectedCount)
+		}
+	}()
+
+	slog.Info("Configuration reloaded successfully")
+	return cfg, nil
+}
+
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 // handleConnection handles a new client connection for this server
@@ -396,11 +574,11 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	s := srv.NewProxy(conn)
 	defer func() {
-		srv.unregisterProxy(s)
+		srv.UnregisterProxy(s)
 		s.Close()
 	}()
 
-	srv.registerProxy(s)
+	srv.RegisterProxy(s)
 	s.logger.Info("proxy created", "config_hash", s.configHash[:8])
 
 	if err := s.handshake(ctx); err != nil {

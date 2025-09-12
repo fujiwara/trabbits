@@ -64,9 +64,9 @@ func runTestAPI(ctx context.Context) error {
 
 	// Create server instance for API server
 	cfg := trabbits.TestServer.GetConfig()
-	server := trabbits.NewTestServer(cfg)
+	server := trabbits.NewServer(cfg, testAPISock)
 
-	go trabbits.RunAPIServer(ctx, &trabbits.CLI{APISocket: testAPISock}, server)
+	go server.TestStartAPIServer(ctx, "testdata/config.json")
 	return nil
 }
 

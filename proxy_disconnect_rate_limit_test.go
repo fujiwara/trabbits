@@ -46,9 +46,9 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 		server, client := net.Pipe()
 		connections = append(connections, server, client)
 
-		proxy := testServer.TestNewProxy(server)
+		proxy := testServer.NewProxy(server)
 		proxy.SetConfigHash(oldHash)
-		testServer.TestRegisterProxy(proxy)
+		testServer.RegisterProxy(proxy)
 		proxies = append(proxies, proxy)
 	}
 
@@ -58,7 +58,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 			conn.Close()
 		}
 		for _, proxy := range proxies {
-			testServer.TestUnregisterProxy(proxy)
+			testServer.UnregisterProxy(proxy)
 		}
 	}()
 
@@ -140,9 +140,9 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 		server, client := net.Pipe()
 		connections = append(connections, server, client)
 
-		proxy := testServer.TestNewProxy(server)
+		proxy := testServer.NewProxy(server)
 		proxy.SetConfigHash(oldHash)
-		testServer.TestRegisterProxy(proxy)
+		testServer.RegisterProxy(proxy)
 		proxies = append(proxies, proxy)
 	}
 
@@ -152,7 +152,7 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 			conn.Close()
 		}
 		for _, proxy := range proxies {
-			testServer.TestUnregisterProxy(proxy)
+			testServer.UnregisterProxy(proxy)
 		}
 	}()
 

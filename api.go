@@ -1,8 +1,6 @@
 package trabbits
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,9 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
-
-	"github.com/aereal/jsondiff"
 )
 
 const (
@@ -41,46 +36,6 @@ func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 		return nil, cancelFunc, fmt.Errorf("failed to set socket permissions: %w", err)
 	}
 	return listener, cancelFunc, nil
-}
-
-func runAPIServer(ctx context.Context, opt *CLI, server *Server) (func(), error) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /config", apiGetConfigHandler(opt, server))
-	mux.HandleFunc("PUT /config", apiPutConfigHandler(opt, server))
-	mux.HandleFunc("POST /config/diff", apiDiffConfigHandler(opt, server))
-	mux.HandleFunc("POST /config/reload", apiReloadConfigHandler(opt, server))
-	var srv http.Server
-	// start API server
-	ch := make(chan error)
-	go func() {
-		slog.Info("starting API server", "socket", opt.APISocket)
-		listener, cancel, err := listenUnixSocket(opt.APISocket)
-		defer cancel()
-		if err != nil {
-			slog.Error("failed to listen API server socket", "error", err)
-			ch <- err
-			return
-		}
-		srv := &http.Server{
-			Handler: mux,
-		}
-		if err := srv.Serve(listener); err != nil {
-			slog.Error("failed to start API server", "error", err)
-			ch <- err
-		}
-	}()
-
-	wait := time.NewTimer(100 * time.Millisecond)
-	select {
-	case err := <-ch:
-		return nil, err
-	case <-wait.C:
-		slog.Info("API server started", "socket", opt.APISocket)
-	}
-	return func() {
-		os.Remove(opt.APISocket)
-		srv.Shutdown(ctx)
-	}, nil
 }
 
 // detectContentType checks the Content-Type header and returns whether it's Jsonnet
@@ -140,131 +95,4 @@ func processConfigRequest(w http.ResponseWriter, r *http.Request, prefix string)
 	tmpfile.Close()
 
 	return configFile, nil
-}
-
-func apiGetConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", APIContentType)
-		cfg := server.GetConfig()
-		json.NewEncoder(w).Encode(cfg)
-	})
-}
-
-func apiPutConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		configFile, err := processConfigRequest(w, r, "trabbits-config-")
-		if err != nil {
-			return
-		}
-		defer os.Remove(configFile)
-
-		w.Header().Set("Content-Type", "application/json")
-
-		cfg, err := LoadConfig(r.Context(), configFile)
-		if err != nil {
-			slog.Error("failed to load configuration", "error", err)
-			http.Error(w, err.Error(), http.StatusBadRequest) // payload is invalid
-			return
-		}
-
-		// Reinitialize health managers with new configuration
-		if err := server.initHealthManagers(r.Context(), cfg); err != nil {
-			slog.Error("failed to reinit health managers", "error", err)
-			// Don't fail the config update, just log the error
-		}
-
-		// Update server config and disconnect outdated proxies
-		server.UpdateConfig(cfg)
-		disconnectChan := server.disconnectOutdatedProxies(cfg.Hash())
-		go func() {
-			disconnectedCount := <-disconnectChan
-			if disconnectedCount > 0 {
-				slog.Info("Completed disconnection of outdated proxies", "count", disconnectedCount)
-			}
-		}()
-
-		json.NewEncoder(w).Encode(cfg)
-	})
-}
-
-func apiDiffConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		configFile, err := processConfigRequest(w, r, "trabbits-config-diff-")
-		if err != nil {
-			return
-		}
-		defer os.Remove(configFile)
-
-		w.Header().Set("Content-Type", "text/plain")
-
-		// Load new config from request
-		newCfg, err := LoadConfig(r.Context(), configFile)
-		if err != nil {
-			slog.Error("failed to load new configuration", "error", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Get current config
-		currentCfg := server.GetConfig()
-
-		// Generate diff using jsondiff
-		diff, err := jsondiff.Diff(
-			&jsondiff.Input{Name: "current", X: currentCfg},
-			&jsondiff.Input{Name: "new", X: newCfg},
-		)
-		if err != nil {
-			slog.Error("failed to generate diff", "error", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Return diff as plain text
-		w.Write([]byte(diff))
-	})
-}
-
-// reloadConfigFromFile reloads configuration from the specified file
-func reloadConfigFromFile(ctx context.Context, configPath string, server *Server) (*Config, error) {
-	slog.Info("Reloading configuration from file", "file", configPath)
-
-	// Reload config from the original config file
-	cfg, err := LoadConfig(ctx, configPath)
-	if err != nil {
-		slog.Error("failed to reload configuration", "error", err)
-		return nil, fmt.Errorf("failed to reload configuration: %w", err)
-	}
-
-	// Reinitialize health managers with new configuration
-	if err := server.initHealthManagers(ctx, cfg); err != nil {
-		slog.Error("failed to reinit health managers", "error", err)
-		// Don't fail the config reload, just log the error
-	}
-
-	// Update server config and disconnect outdated proxies
-	server.UpdateConfig(cfg)
-	disconnectChan := server.disconnectOutdatedProxies(cfg.Hash())
-	go func() {
-		disconnectedCount := <-disconnectChan
-		if disconnectedCount > 0 {
-			slog.Info("Completed disconnection of outdated proxies", "count", disconnectedCount)
-		}
-	}()
-
-	slog.Info("Configuration reloaded successfully")
-	return cfg, nil
-}
-
-func apiReloadConfigHandler(opt *CLI, server *Server) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		cfg, err := reloadConfigFromFile(r.Context(), opt.Config, server)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		json.NewEncoder(w).Encode(cfg)
-	})
 }
