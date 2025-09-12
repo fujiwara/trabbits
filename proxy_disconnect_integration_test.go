@@ -13,7 +13,7 @@ import (
 func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 	trabbits.ClearActiveProxies()
-	
+
 	// Capture log output to verify disconnection messages
 	var logOutput strings.Builder
 

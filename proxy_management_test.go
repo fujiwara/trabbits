@@ -11,7 +11,7 @@ import (
 func TestProxyRegistration(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 	trabbits.ClearActiveProxies()
-	
+
 	// Create a mock connection for testing
 	server, client := net.Pipe()
 	defer server.Close()
@@ -57,7 +57,7 @@ func TestProxyRegistration(t *testing.T) {
 func TestDisconnectOutdatedProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 	trabbits.ClearActiveProxies()
-	
+
 	// Create mock connections
 	server1, client1 := net.Pipe()
 	defer server1.Close()

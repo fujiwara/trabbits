@@ -34,15 +34,14 @@ func (c *Config) Hash() string {
 	// Use gob encoding to serialize config directly to hash writer
 	hasher := sha256.New()
 	encoder := gob.NewEncoder(hasher)
-	
+
 	if err := encoder.Encode(c); err != nil {
 		slog.Error("Failed to encode config with gob for hashing", "error", err)
 		return ""
 	}
-	
+
 	return hex.EncodeToString(hasher.Sum(nil))
 }
-
 
 func (c *Config) String() string {
 	data, _ := json.MarshalIndent(c, "", "  ")
@@ -75,7 +74,7 @@ func LoadConfig(ctx context.Context, f string) (*Config, error) {
 	if err := json.Unmarshal(buf.Bytes(), &c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
-	
+
 	slog.Info("Configuration loaded", "config", c.String())
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)

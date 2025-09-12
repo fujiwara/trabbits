@@ -30,7 +30,7 @@ var (
 type Delivery = delivery
 
 func init() {
-	FrameMax = 256 // for testing
+	FrameMax = 256                                 // for testing
 	connectionCloseTimeout = 50 * time.Millisecond // shorter timeout for tests
 }
 

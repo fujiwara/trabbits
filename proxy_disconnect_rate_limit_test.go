@@ -11,7 +11,7 @@ import (
 func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 	trabbits.ClearActiveProxies()
-	
+
 	// Test rate limiting with multiple proxies
 	oldConfig := &trabbits.Config{
 		Upstreams: []trabbits.UpstreamConfig{
@@ -42,7 +42,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	for i := 0; i < numProxies; i++ {
 		server, client := net.Pipe()
 		connections = append(connections, server, client)
-		
+
 		proxy := trabbits.NewProxy(server)
 		proxy.SetConfigHash(oldHash)
 		trabbits.RegisterProxy(proxy)
@@ -72,13 +72,13 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	select {
 	case disconnectedCount := <-disconnectChan:
 		elapsed := time.Since(start)
-		
+
 		if disconnectedCount != numProxies {
 			t.Errorf("Expected %d proxies to be disconnected, got %d", numProxies, disconnectedCount)
 		} else {
 			t.Logf("✓ Successfully disconnected %d proxies", disconnectedCount)
 		}
-		
+
 		// At 100/sec rate, 50 proxies should take at least 0.5 seconds
 		// But with 10 workers and burst capacity, it might be faster
 		expectedMinDuration := 200 * time.Millisecond // Conservative estimate
@@ -87,13 +87,13 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 		} else {
 			t.Logf("✓ Rate limiting working correctly: %v for %d proxies", elapsed, numProxies)
 		}
-		
+
 		// Should not take too long either (max 2-3 seconds for 50 proxies)
 		maxExpectedDuration := 5 * time.Second
 		if elapsed > maxExpectedDuration {
 			t.Errorf("Disconnection took too long: %v (expected less than %v)", elapsed, maxExpectedDuration)
 		}
-		
+
 	case <-time.After(10 * time.Second):
 		t.Error("✗ Timeout waiting for rate-limited disconnection to complete")
 	}
@@ -102,7 +102,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 	trabbits.ClearActiveProxies()
-	
+
 	// Test timeout calculation for large numbers of proxies
 	oldConfig := &trabbits.Config{
 		Upstreams: []trabbits.UpstreamConfig{
@@ -116,7 +116,7 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	newConfig := &trabbits.Config{
 		Upstreams: []trabbits.UpstreamConfig{
 			{
-				Name:    "test-upstream", 
+				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash
 			},
 		},
@@ -133,7 +133,7 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	for i := 0; i < numProxies; i++ {
 		server, client := net.Pipe()
 		connections = append(connections, server, client)
-		
+
 		proxy := trabbits.NewProxy(server)
 		proxy.SetConfigHash(oldHash)
 		trabbits.RegisterProxy(proxy)
@@ -159,18 +159,18 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	select {
 	case disconnectedCount := <-disconnectChan:
 		elapsed := time.Since(start)
-		
+
 		if disconnectedCount != numProxies {
 			t.Errorf("Expected %d proxies to be disconnected, got %d", numProxies, disconnectedCount)
 		}
-		
+
 		t.Logf("✓ Disconnected %d proxies in %v", disconnectedCount, elapsed)
-		
+
 		// Should complete quickly for small numbers
 		if elapsed > 3*time.Second {
 			t.Errorf("Small proxy count took too long: %v", elapsed)
 		}
-		
+
 	case <-time.After(5 * time.Second):
 		t.Error("✗ Timeout waiting for small proxy count disconnection")
 	}
