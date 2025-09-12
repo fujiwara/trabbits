@@ -511,10 +511,16 @@ $ echo $?
 1
 ```
 
-Pattern matching follows RabbitMQ's topic exchange rules:
+Pattern matching follows RabbitMQ's topic exchange rules with extensions:
 - `*` (star) matches exactly one word
-- `#` (hash) matches zero or more words
+- `#` (hash) matches zero or more words  
+- `%` (percent) matches zero or more characters within a single word (substring matching)
 - Words are delimited by dots (`.`)
+
+Examples with `%` wildcard:
+- `app.%service` matches `app.webservice`, `app.apiservice`, `app.service`
+- `foo.*.a%` matches `foo.xxx.aaa`, `foo.yyy.app` 
+- `%.server.*` matches `web.server.01`, `api.server.prod`
 
 ## Support for multiple instances
 
