@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -64,8 +65,8 @@ func TestUpstreamDisconnection(t *testing.T) {
 	case closeErr := <-closeChan:
 		if closeErr != nil {
 			t.Logf("Connection closed with error: %v", closeErr)
-			if closeErr.Code == 320 {
-				t.Log("✓ Received expected connection-forced error (320)")
+			if closeErr.Code == amqp091.ConnectionForced {
+				t.Logf("✓ Received expected connection-forced error (%d)", amqp091.ConnectionForced)
 			} else {
 				t.Logf("ℹ Received error code: %d (may vary depending on timing)", closeErr.Code)
 			}

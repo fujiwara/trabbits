@@ -151,3 +151,92 @@ func TestConfigValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigHash(t *testing.T) {
+	config1 := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name:    "primary",
+				Address: "localhost:5672",
+			},
+		},
+	}
+
+	config2 := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name:    "primary",
+				Address: "localhost:5672",
+			},
+		},
+	}
+
+	config3 := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name:    "primary",
+				Address: "localhost:5673", // different port
+			},
+		},
+	}
+
+	hash1 := config1.Hash()
+	hash2 := config2.Hash()
+	hash3 := config3.Hash()
+
+	if hash1 == "" {
+		t.Error("hash1 should not be empty")
+	}
+	if hash1 != hash2 {
+		t.Errorf("identical configs should have same hash: %s != %s", hash1, hash2)
+	}
+	if hash1 == hash3 {
+		t.Errorf("different configs should have different hash: %s == %s", hash1, hash3)
+	}
+
+	t.Logf("hash1: %s", hash1)
+	t.Logf("hash2: %s", hash2)
+	t.Logf("hash3: %s", hash3)
+}
+
+func TestConfigHashWithPassword(t *testing.T) {
+	config1 := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name: "test-cluster",
+				Cluster: &trabbits.ClusterConfig{
+					Nodes: []string{"localhost:5672"},
+				},
+				HealthCheck: &trabbits.HealthCheckConfig{
+					Username: "admin",
+					Password: "secret1",
+				},
+			},
+		},
+	}
+
+	config2 := &trabbits.Config{
+		Upstreams: []trabbits.UpstreamConfig{
+			{
+				Name: "test-cluster",
+				Cluster: &trabbits.ClusterConfig{
+					Nodes: []string{"localhost:5672"},
+				},
+				HealthCheck: &trabbits.HealthCheckConfig{
+					Username: "admin",
+					Password: "secret2", // different password
+				},
+			},
+		},
+	}
+
+	hash1 := config1.Hash()
+	hash2 := config2.Hash()
+
+	if hash1 == hash2 {
+		t.Errorf("configs with different passwords should have different hashes: %s == %s", hash1, hash2)
+	}
+
+	t.Logf("config with password1 hash: %s", hash1)
+	t.Logf("config with password2 hash: %s", hash2)
+}

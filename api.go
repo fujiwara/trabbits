@@ -174,6 +174,15 @@ func apiPutConfigHandler(opt *CLI) http.HandlerFunc {
 			// Don't fail the config update, just log the error
 		}
 
+		// Disconnect outdated proxies and wait for completion
+		disconnectChan := disconnectOutdatedProxies(cfg.Hash())
+		go func() {
+			disconnectedCount := <-disconnectChan
+			if disconnectedCount > 0 {
+				slog.Info("Completed disconnection of outdated proxies", "count", disconnectedCount)
+			}
+		}()
+
 		json.NewEncoder(w).Encode(cfg)
 	})
 }
@@ -232,6 +241,15 @@ func reloadConfigFromFile(ctx context.Context, configPath string) (*Config, erro
 		slog.Error("failed to reinit health managers", "error", err)
 		// Don't fail the config reload, just log the error
 	}
+
+	// Disconnect outdated proxies and wait for completion
+	disconnectChan := disconnectOutdatedProxies(cfg.Hash())
+	go func() {
+		disconnectedCount := <-disconnectChan
+		if disconnectedCount > 0 {
+			slog.Info("Completed disconnection of outdated proxies", "count", disconnectedCount)
+		}
+	}()
 
 	slog.Info("Configuration reloaded successfully")
 	return cfg, nil
