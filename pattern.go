@@ -59,9 +59,63 @@ func matchTokens(routingTokens, bindingTokens []string, rIdx, bIdx int) bool {
 		return matchTokens(routingTokens, bindingTokens, rIdx+1, bIdx+1)
 	}
 
-	// Case 3: Literal match
+	// Case 3: Check for % wildcard within the binding token
+	if strings.Contains(bToken, "%") {
+		// Use substring matching for this token
+		if matchTokenWithPercent(rToken, bToken) {
+			return matchTokens(routingTokens, bindingTokens, rIdx+1, bIdx+1)
+		}
+		return false
+	}
+
+	// Case 4: Literal match
 	if rToken == bToken {
 		return matchTokens(routingTokens, bindingTokens, rIdx+1, bIdx+1)
+	}
+
+	// No match
+	return false
+}
+
+// matchTokenWithPercent handles % wildcards within a single token
+// % matches any substring (including empty string) within the token
+func matchTokenWithPercent(token, pattern string) bool {
+	return matchPercentPattern(token, pattern, 0, 0)
+}
+
+// matchPercentPattern implements recursive pattern matching with % wildcard support
+// This operates on a single token level, not across dot boundaries
+func matchPercentPattern(text, pattern string, textIdx, patternIdx int) bool {
+	// If we've reached the end of the pattern
+	if patternIdx >= len(pattern) {
+		return textIdx >= len(text) // Match if we've also consumed all text
+	}
+
+	// If we've reached the end of the text but pattern remains
+	if textIdx >= len(text) {
+		// Check if remaining pattern consists only of % wildcards
+		for i := patternIdx; i < len(pattern); i++ {
+			if pattern[i] != '%' {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Handle % wildcard
+	if pattern[patternIdx] == '%' {
+		// Try matching % with empty string (skip the %)
+		if matchPercentPattern(text, pattern, textIdx, patternIdx+1) {
+			return true
+		}
+
+		// Try matching % with one or more characters
+		return matchPercentPattern(text, pattern, textIdx+1, patternIdx)
+	}
+
+	// Literal character match (no * or # support within tokens)
+	if pattern[patternIdx] == text[textIdx] {
+		return matchPercentPattern(text, pattern, textIdx+1, patternIdx+1)
 	}
 
 	// No match
