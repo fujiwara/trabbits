@@ -10,7 +10,6 @@ import (
 
 func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Create test config
 	config := &trabbits.Config{
@@ -63,7 +62,7 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	}
 
 	// Verify proxy is still active
-	finalCount := trabbits.CountActiveProxies()
+	finalCount := testServer.CountActiveProxies()
 	if finalCount != 1 {
 		t.Errorf("Expected 1 active proxy remaining, got %d", finalCount)
 	}
@@ -74,7 +73,6 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 
 func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
-	trabbits.ClearActiveProxies()
 
 	// Test with no proxies registered at all
 	config := &trabbits.Config{
