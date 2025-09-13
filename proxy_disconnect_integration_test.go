@@ -3,7 +3,6 @@ package trabbits_test
 import (
 	"context"
 	"log/slog"
-	"net"
 	"strings"
 	"testing"
 	"time"
@@ -47,12 +46,8 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	// Create server instance
 	testServer := trabbits.NewTestServer(oldConfig)
 
-	// Create a mock proxy with old config hash
-	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
-
-	proxy := testServer.NewProxy(server)
+	// Create a proxy with old config hash for internal logic testing
+	proxy := testServer.NewProxy(nil)
 	proxy.SetConfigHash(oldHash)
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -40,28 +40,17 @@ func TestGracefulShutdown(t *testing.T) {
 	// Create server instance
 	testServer := trabbits.NewTestServer(cfg)
 
-	// Create multiple active connections
+	// Create multiple active proxies for internal logic testing
 	const numProxies = 5
 	var proxies []*trabbits.Proxy
-	var connections []net.Conn
 
 	for i := 0; i < numProxies; i++ {
-		server, client := net.Pipe()
-		connections = append(connections, server, client)
-
-		proxy := testServer.NewProxy(server)
+		proxy := testServer.NewProxy(nil) // Use nil connection for internal logic testing
 		_, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		testServer.RegisterProxy(proxy, cancel)
 		proxies = append(proxies, proxy)
 	}
-
-	// Clean up connections
-	defer func() {
-		for _, conn := range connections {
-			conn.Close()
-		}
-	}()
 
 	// Verify that all proxies are registered
 	activeCount := testServer.CountActiveProxies()
@@ -99,8 +88,6 @@ func TestGracefulShutdown(t *testing.T) {
 	}
 
 	// Verify that the correct shutdown message constant is used
-	// Note: We can't directly verify the AMQP message sent to clients in this test
-	// due to net.Pipe() limitations, but we can verify the constant values
 	expectedShutdownMsg := trabbits.ShutdownMsgServerShutdown
 	if expectedShutdownMsg != "Server shutting down" {
 		t.Errorf("Expected shutdown message constant to be 'Server shutting down', got %q", expectedShutdownMsg)
@@ -108,14 +95,11 @@ func TestGracefulShutdown(t *testing.T) {
 		t.Logf("✓ Shutdown message constant verified: %q", expectedShutdownMsg)
 	}
 
-	// Note: With net.Pipe() connections, sendConnectionError may fail and cause timeout
-	// This is expected behavior - the timeout message indicates graceful shutdown was attempted
-	if strings.Contains(logStr, "Timeout waiting for proxy disconnections") {
-		t.Log("✓ Graceful shutdown attempted (timeout expected with net.Pipe connections)")
-	} else if strings.Contains(logStr, "All proxy disconnections completed") {
+	// With nil connections, shutdown should complete immediately without timeout
+	if strings.Contains(logStr, "All proxy disconnections completed") {
 		t.Log("✓ All proxy disconnections completed successfully")
 	} else {
-		t.Error("Expected either completion or timeout log message not found")
+		t.Error("Expected 'All proxy disconnections completed' log message not found")
 	}
 }
 
@@ -178,12 +162,8 @@ func TestGracefulShutdown_ContextCancellation(t *testing.T) {
 
 	testServer := trabbits.NewTestServer(cfg)
 
-	// Create a mock connection
-	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
-
-	proxy := testServer.NewProxy(server)
+	// Create a proxy for internal logic testing
+	proxy := testServer.NewProxy(nil)
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testServer.RegisterProxy(proxy, cancel)

@@ -2,7 +2,6 @@ package trabbits_test
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
@@ -12,10 +11,7 @@ import (
 
 func TestProxyRegistration(t *testing.T) {
 
-	// Create a mock connection for testing
-	serverConn, client := net.Pipe()
-	defer serverConn.Close()
-	defer client.Close()
+	// Create a proxy for internal logic testing
 
 	// Set up test config
 	config := &config.Config{
@@ -31,7 +27,7 @@ func TestProxyRegistration(t *testing.T) {
 	server := trabbits.NewTestServer(config)
 
 	// Create proxy with server instance
-	proxy := server.NewProxy(serverConn)
+	proxy := server.NewProxy(nil)
 
 	// Register proxy with dummy cancel function for testing
 	_, cancel := context.WithCancel(context.Background())
@@ -67,14 +63,7 @@ func TestProxyRegistration(t *testing.T) {
 
 func TestDisconnectOutdatedProxies(t *testing.T) {
 
-	// Create mock connections
-	server1, client1 := net.Pipe()
-	defer server1.Close()
-	defer client1.Close()
-
-	server2, client2 := net.Pipe()
-	defer server2.Close()
-	defer client2.Close()
+	// Create proxies for internal logic testing
 
 	// Set up test configs with different hashes
 	oldConfig := &config.Config{
@@ -105,13 +94,13 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 	server := trabbits.NewTestServer(oldConfig)
 
 	// Create proxies and manually set different config hashes
-	proxy1 := server.NewProxy(server1)
+	proxy1 := server.NewProxy(nil)
 	proxy1.SetConfigHash(oldHash) // This proxy has old config
 	_, cancel1 := context.WithCancel(context.Background())
 	defer cancel1()
 	server.RegisterProxy(proxy1, cancel1)
 
-	proxy2 := server.NewProxy(server2)
+	proxy2 := server.NewProxy(nil)
 	proxy2.SetConfigHash(newHash) // This proxy has new config
 	_, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
@@ -123,16 +112,7 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		t.Errorf("expected 2 active proxies, got %d", initialCount)
 	}
 
-	// Set up connection monitoring for proxy1 (outdated config)
-	disconnectDetected := make(chan bool, 1)
-	go func() {
-		// Try to read from client1 connection - should fail when proxy sends disconnect
-		buf := make([]byte, 1)
-		_, err := client1.Read(buf)
-		if err != nil {
-			disconnectDetected <- true
-		}
-	}()
+	// No connection monitoring needed for nil connections - shutdown is immediate
 
 	// Use the server to disconnect outdated proxies
 	disconnectChan := server.TestDisconnectOutdatedProxies(newHash)
