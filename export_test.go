@@ -60,3 +60,21 @@ func (p *Proxy) SetConfigHash(hash string) {
 func (p *Proxy) SetShutdownMessage(message string) {
 	p.shutdownMessage = message
 }
+
+// Test-only method for gracefully stopping a specific proxy by client address
+func (s *Server) TestGracefulStopProxy(clientAddr string, shutdownMessage string) bool {
+	var found bool
+	s.activeProxies.Range(func(key, value interface{}) bool {
+		entry := value.(*proxyEntry)
+		if entry.proxy.ClientAddr() == clientAddr {
+			// Set custom shutdown message
+			entry.proxy.shutdownMessage = shutdownMessage
+			// Trigger graceful shutdown
+			entry.cancel()
+			found = true
+			return false // Stop iteration
+		}
+		return true
+	})
+	return found
+}
