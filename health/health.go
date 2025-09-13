@@ -101,36 +101,13 @@ type NodeHealthManager struct {
 	metrics  MetricsReporter
 }
 
-// NewNodeHealthManager creates a new health manager for a cluster upstream
-func NewNodeHealthManager(name string, nodes []string, config *Config, username, password string, metrics MetricsReporter) *NodeHealthManager {
-	if len(nodes) == 0 {
-		return nil
-	}
-
-	mgr := &NodeHealthManager{
-		name:     name,
-		nodes:    make(map[string]*NodeStatus),
-		config:   config,
-		logger:   slog.Default().With("component", "health", "upstream", name),
-		username: username,
-		password: password,
-		metrics:  metrics,
-	}
-
-	// Initialize node status for each cluster node
-	for _, addr := range nodes {
-		mgr.nodes[addr] = &NodeStatus{
-			Address: addr,
-			Status:  StatusUnknown,
-		}
-	}
-
-	return mgr
-}
-
 // NewNodeHealthManagerFromUpstream creates a new health manager from upstream config
 func NewNodeHealthManagerFromUpstream(upstream *config.Upstream, metrics MetricsReporter) *NodeHealthManager {
 	if upstream.Cluster == nil || upstream.HealthCheck == nil {
+		return nil
+	}
+
+	if len(upstream.Cluster.Nodes) == 0 {
 		return nil
 	}
 
@@ -156,14 +133,25 @@ func NewNodeHealthManagerFromUpstream(upstream *config.Upstream, metrics Metrics
 		healthConfig.RecoveryInterval = upstream.HealthCheck.RecoveryInterval.ToDuration()
 	}
 
-	return NewNodeHealthManager(
-		upstream.Name,
-		upstream.Cluster.Nodes,
-		healthConfig,
-		upstream.HealthCheck.Username,
-		upstream.HealthCheck.Password.String(),
-		metrics,
-	)
+	mgr := &NodeHealthManager{
+		name:     upstream.Name,
+		nodes:    make(map[string]*NodeStatus),
+		config:   healthConfig,
+		logger:   slog.Default().With("component", "health", "upstream", upstream.Name),
+		username: upstream.HealthCheck.Username,
+		password: upstream.HealthCheck.Password.String(),
+		metrics:  metrics,
+	}
+
+	// Initialize node status for each cluster node
+	for _, addr := range upstream.Cluster.Nodes {
+		mgr.nodes[addr] = &NodeStatus{
+			Address: addr,
+			Status:  StatusUnknown,
+		}
+	}
+
+	return mgr
 }
 
 // StartHealthCheck starts the background health checking goroutine
