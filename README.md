@@ -224,6 +224,34 @@ These timeout settings control internal connection behavior and typically do not
 
 **Note:** These are advanced settings that should only be adjusted if you experience specific timeout-related issues. The default values are suitable for most use cases.
 
+#### Graceful Shutdown Settings
+
+trabbits implements graceful shutdown when receiving termination or reload signals. On SIGTERM, the server first closes the listener to prevent new connections, then gracefully disconnects all existing connections using the AMQP Connection.Close protocol. On SIGHUP (configuration reload), connections using outdated configuration are gracefully disconnected with rate limiting.
+
+The default configuration can handle approximately 1000 connections within a 10-second timeout, which covers most typical deployments. For larger-scale environments with thousands of connections, you may need to adjust the timeout and rate limiting parameters based on your requirements.
+
+**Important:** If graceful shutdown cannot complete within the configured timeout (e.g., due to unresponsive clients or too many connections), remaining connections will be forcibly terminated.
+
+- `graceful_shutdown`: Configuration for graceful shutdown behavior
+  - `shutdown_timeout`: Maximum time to wait for graceful shutdown on SIGTERM (default: 10s). Accepts Go duration format.
+  - `reload_timeout`: Maximum time to wait for graceful disconnection during configuration reload on SIGHUP (default: 30s). Accepts Go duration format.
+  - `rate_limit`: Maximum number of connections to disconnect per second (default: 100). Controls disconnection rate to prevent connection storms.
+  - `burst_size`: Initial burst size for rate limiting (default: 10). Allows quick disconnection of small connection pools.
+
+Example configuration for large-scale deployments:
+
+```json
+{
+  "graceful_shutdown": {
+    "shutdown_timeout": "30s",
+    "reload_timeout": "60s",
+    "rate_limit": 300,
+    "burst_size": 50
+  },
+  "upstreams": [...]
+}
+```
+
 ## Configuration File Formats
 
 trabbits supports two configuration file formats:
