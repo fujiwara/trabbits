@@ -10,7 +10,6 @@ import (
 )
 
 func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
-	// Clear any remaining proxies from previous tests
 
 	// Create test config
 	config := &config.Config{
@@ -73,7 +72,6 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 }
 
 func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
-	// Clear any remaining proxies from previous tests
 
 	// Test with no proxies registered at all
 	config := &config.Config{
