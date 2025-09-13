@@ -21,11 +21,16 @@ var (
 
 // Server instance functions for testing
 func NewTestServer(config *config.Config) *Server {
+	config.SetDefaults()         // Set default values for testing
 	return NewServer(config, "") // Empty API socket for tests
 }
 
 func (s *Server) TestDisconnectOutdatedProxies(currentConfigHash string) <-chan int {
 	return s.disconnectOutdatedProxies(currentConfigHash)
+}
+
+func (s *Server) TestDisconnectAllProxies() <-chan int {
+	return s.disconnectAllProxies()
 }
 
 func (s *Server) TestBoot(ctx context.Context, listener net.Listener) error {
