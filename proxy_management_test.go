@@ -1,6 +1,7 @@
 package trabbits_test
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -32,8 +33,10 @@ func TestProxyRegistration(t *testing.T) {
 	// Create proxy with server instance
 	proxy := server.NewProxy(serverConn)
 
-	// Register proxy
-	server.RegisterProxy(proxy)
+	// Register proxy with dummy cancel function for testing
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server.RegisterProxy(proxy, cancel)
 
 	// Verify proxy is registered
 	registeredProxy := server.GetProxy(proxy.ID())
@@ -51,6 +54,14 @@ func TestProxyRegistration(t *testing.T) {
 	registeredProxy = server.GetProxy(proxy.ID())
 	if registeredProxy != nil {
 		t.Error("proxy should be unregistered")
+	}
+
+	// Verify that the default message constant is properly defined
+	expectedDefaultMsg := trabbits.ShutdownMsgDefault
+	if expectedDefaultMsg != "Connection closed" {
+		t.Errorf("Expected default message constant to be 'Connection closed', got %q", expectedDefaultMsg)
+	} else {
+		t.Logf("✓ Default message constant verified: %q", expectedDefaultMsg)
 	}
 }
 
@@ -96,11 +107,15 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 	// Create proxies and manually set different config hashes
 	proxy1 := server.NewProxy(server1)
 	proxy1.SetConfigHash(oldHash) // This proxy has old config
-	server.RegisterProxy(proxy1)
+	_, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	server.RegisterProxy(proxy1, cancel1)
 
 	proxy2 := server.NewProxy(server2)
 	proxy2.SetConfigHash(newHash) // This proxy has new config
-	server.RegisterProxy(proxy2)
+	_, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	server.RegisterProxy(proxy2, cancel2)
 
 	// Count active proxies before disconnection
 	initialCount := server.CountActiveProxies()
@@ -145,6 +160,14 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		}
 
 		// Test successful - the disconnect signal was sent and completed
+
+		// Verify that the correct config update message constant is used
+		expectedConfigUpdateMsg := trabbits.ShutdownMsgConfigUpdate
+		if expectedConfigUpdateMsg != "Configuration updated, please reconnect" {
+			t.Errorf("Expected config update message constant to be 'Configuration updated, please reconnect', got %q", expectedConfigUpdateMsg)
+		} else {
+			t.Logf("✓ Config update message constant verified: %q", expectedConfigUpdateMsg)
+		}
 
 	case <-time.After(5 * time.Second):
 		t.Error("✗ Timeout waiting for proxy disconnection to complete")
