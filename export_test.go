@@ -38,7 +38,6 @@ func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (fun
 
 // Test helper for reloadConfigFromFile
 func ReloadConfigFromFile(ctx context.Context, configPath string) (*config.Config, error) {
-	// Create a temporary server instance for config reloading
 	cfg, err := config.Load(ctx, configPath)
 	if err != nil {
 		return nil, err

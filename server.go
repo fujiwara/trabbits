@@ -355,7 +355,7 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 
 // initHealthManagers initializes health check managers for cluster upstreams
 func (srv *Server) initHealthManagers(ctx context.Context) error {
-	// Stop existing health managers in both server and global maps
+	// Stop existing health managers
 	srv.healthManagers.Range(func(key, value interface{}) bool {
 		if mgr, ok := value.(*health.Manager); ok {
 			mgr.Stop()

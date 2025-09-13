@@ -10,7 +10,6 @@ import (
 )
 
 func TestProxyRegistration(t *testing.T) {
-	// Clear any remaining proxies from previous tests - not needed with instance isolation
 
 	// Create a mock connection for testing
 	serverConn, client := net.Pipe()
@@ -56,7 +55,6 @@ func TestProxyRegistration(t *testing.T) {
 }
 
 func TestDisconnectOutdatedProxies(t *testing.T) {
-	// Clear any remaining proxies from previous tests - not needed with instance isolation
 
 	// Create mock connections
 	server1, client1 := net.Pipe()
