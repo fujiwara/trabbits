@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.0.6](https://github.com/fujiwara/trabbits/compare/v0.0.5...v0.0.6) - 2025-09-13
+- fix cli command dispatch. by @fujiwara in https://github.com/fujiwara/trabbits/pull/43
+- uniq queue name on test by @fujiwara in https://github.com/fujiwara/trabbits/pull/44
+- Implement upstream connection monitoring and client notification by @fujiwara in https://github.com/fujiwara/trabbits/pull/45
+- Add test match-routing command for pattern testing by @fujiwara in https://github.com/fujiwara/trabbits/pull/46
+- Add % wildcard support for substring pattern matching by @fujiwara in https://github.com/fujiwara/trabbits/pull/47
+- Implement graceful proxy disconnection on config updates by @fujiwara in https://github.com/fujiwara/trabbits/pull/48
+- Refactor to instance-based architecture and eliminate global state by @fujiwara in https://github.com/fujiwara/trabbits/pull/49
+- Refactor config and health packages for better separation of concerns by @fujiwara in https://github.com/fujiwara/trabbits/pull/50
+- Add test coverage reporting to CI by @fujiwara in https://github.com/fujiwara/trabbits/pull/51
+- Add configurable graceful shutdown for SIGTERM by @fujiwara in https://github.com/fujiwara/trabbits/pull/52
+- Remove net.Pipe timeout workarounds and use nil connections for internal logic tests by @fujiwara in https://github.com/fujiwara/trabbits/pull/53
+- Add panic recovery with Prometheus metrics for enhanced stability by @fujiwara in https://github.com/fujiwara/trabbits/pull/54
+
 ## [v0.0.5](https://github.com/fujiwara/trabbits/compare/v0.0.4...v0.0.5) - 2025-09-10
 - Add reload config API endpoint by @fujiwara in https://github.com/fujiwara/trabbits/pull/39
 - Add SIGHUP signal handling for configuration reload by @fujiwara in https://github.com/fujiwara/trabbits/pull/41
