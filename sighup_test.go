@@ -19,6 +19,14 @@ func TestSIGHUPSignalHandling(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	// Build trabbits binary first
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/trabbits-test", "./cmd/trabbits")
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build trabbits: %v\n%s", err, output)
+	}
+	defer os.Remove("/tmp/trabbits-test")
+	t.Logf("✓ Built trabbits binary")
+
 	// Create initial config file
 	initialConfig := `{
 		"upstreams": [
@@ -50,8 +58,8 @@ func TestSIGHUPSignalHandling(t *testing.T) {
 	apiSocket.Close()
 	os.Remove(apiSocketPath) // trabbits will create the socket
 
-	// Start trabbits process
-	cmd := exec.Command("go", "run", "./cmd/trabbits", "run",
+	// Start trabbits process using built binary
+	cmd := exec.Command("/tmp/trabbits-test", "run",
 		"--config", configFile.Name(),
 		"--api-socket", apiSocketPath,
 		"--port", "0", // Use random port
