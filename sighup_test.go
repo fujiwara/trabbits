@@ -1,7 +1,6 @@
 package trabbits_test
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"testing"
@@ -40,8 +39,7 @@ func TestSIGHUPHandler(t *testing.T) {
 	tmpfile.Close()
 
 	// Test the reload function directly
-	ctx := context.Background()
-	cfg, err := config.Load(ctx, tmpfile.Name())
+	cfg, err := config.Load(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load initial config: %v", err)
 	}
@@ -73,7 +71,7 @@ func TestSIGHUPHandler(t *testing.T) {
 	}
 
 	// Test that reloadConfigFromFile works correctly
-	reloadedCfg, err := trabbits.ReloadConfigFromFile(ctx, tmpfile.Name())
+	reloadedCfg, err := trabbits.ReloadConfigFromFile(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to reload config: %v", err)
 	}

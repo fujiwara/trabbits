@@ -5,7 +5,6 @@ package trabbits_test
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"os"
 	"strings"
@@ -90,7 +89,7 @@ func TestMatchRoutingCommand(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			err := trabbits.TestMatchRouting(context.Background(), cli)
+			err := trabbits.TestMatchRouting(t.Context(), cli)
 
 			// Restore stdout
 			w.Close()
