@@ -142,6 +142,8 @@ func (p *Proxy) ClientBanner() string {
 
 // MonitorUpstreamConnection monitors an upstream connection and notifies when it closes
 func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstream) {
+	defer recoverFromPanic(p.logger, "MonitorUpstreamConnection")
+
 	select {
 	case <-ctx.Done():
 		p.logger.Debug("Upstream monitoring stopped by context", "upstream", upstream.String())
