@@ -1,4 +1,4 @@
-package trabbits_test
+package config_test
 
 import (
 	"encoding/json"
@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
+	t.Parallel()
 	// Test JSON config with health check duration strings
 	configJSON := `{
 		"upstreams": [
@@ -42,7 +43,7 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 		]
 	}`
 
-	var cfg trabbits.Config
+	var cfg config.Config
 	err := json.Unmarshal([]byte(configJSON), &cfg)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal JSON config: %v", err)
@@ -123,8 +124,9 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 }
 
 func TestConfigFileLoading(t *testing.T) {
+	t.Parallel()
 	// Test loading the actual testdata config file
-	cfg, err := trabbits.LoadConfig(t.Context(), "testdata/config.json")
+	cfg, err := config.Load(t.Context(), "../testdata/config.json")
 	if err != nil {
 		t.Fatalf("Failed to load config file: %v", err)
 	}
@@ -160,6 +162,7 @@ func TestConfigFileLoading(t *testing.T) {
 }
 
 func TestDurationJSONMarshalUnmarshal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		duration string
@@ -175,7 +178,7 @@ func TestDurationJSONMarshalUnmarshal(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Test unmarshaling from JSON string
 			jsonStr := `"` + test.duration + `"`
-			var d trabbits.Duration
+			var d config.Duration
 			if err := json.Unmarshal([]byte(jsonStr), &d); err != nil {
 				t.Fatalf("Failed to unmarshal duration %s: %v", test.duration, err)
 			}
@@ -191,7 +194,7 @@ func TestDurationJSONMarshalUnmarshal(t *testing.T) {
 			}
 
 			// Unmarshal again to verify round-trip
-			var d2 trabbits.Duration
+			var d2 config.Duration
 			if err := json.Unmarshal(marshaled, &d2); err != nil {
 				t.Fatalf("Failed to unmarshal round-trip duration: %v", err)
 			}
@@ -204,6 +207,7 @@ func TestDurationJSONMarshalUnmarshal(t *testing.T) {
 }
 
 func TestDurationInvalidFormats(t *testing.T) {
+	t.Parallel()
 	invalidDurations := []string{
 		"invalid",
 		"30",  // missing unit
@@ -214,7 +218,7 @@ func TestDurationInvalidFormats(t *testing.T) {
 	for _, invalid := range invalidDurations {
 		t.Run("invalid_"+invalid, func(t *testing.T) {
 			jsonStr := `"` + invalid + `"`
-			var d trabbits.Duration
+			var d config.Duration
 			err := json.Unmarshal([]byte(jsonStr), &d)
 			if err == nil {
 				t.Errorf("Expected error for invalid duration %s, got nil", invalid)
@@ -224,23 +228,24 @@ func TestDurationInvalidFormats(t *testing.T) {
 }
 
 func TestConfigRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Create a config with health check settings
-	original := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	original := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name: "test-cluster",
-				Cluster: &trabbits.ClusterConfig{
+				Cluster: &config.Cluster{
 					Nodes: []string{
 						"localhost:5672",
 						"localhost:5673",
 					},
 				},
-				Timeout: trabbits.Duration(10 * time.Second),
-				HealthCheck: &trabbits.HealthCheckConfig{
-					Interval:           trabbits.Duration(30 * time.Second),
-					Timeout:            trabbits.Duration(5 * time.Second),
+				Timeout: config.Duration(10 * time.Second),
+				HealthCheck: &config.HealthCheck{
+					Interval:           config.Duration(30 * time.Second),
+					Timeout:            config.Duration(5 * time.Second),
 					UnhealthyThreshold: 3,
-					RecoveryInterval:   trabbits.Duration(60 * time.Second),
+					RecoveryInterval:   config.Duration(60 * time.Second),
 					Username:           "admin",
 					Password:           "admin",
 				},
@@ -267,7 +272,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	tmpfile.Close()
 
 	// Load config from file
-	loaded, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	loaded, err := config.Load(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}

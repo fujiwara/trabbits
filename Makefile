@@ -8,7 +8,7 @@ clean:
 	rm -rf trabbits dist/
 
 test:
-	RABBITMQ_HEALTH_PASS=healthpass go test ./... -count=1
+	RABBITMQ_HEALTH_PASS=healthpass go test ./... -count=1 --timeout=90s
 
 install:
 	go install github.com/fujiwara/trabbits/cmd/trabbits

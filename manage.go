@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func manageConfig(ctx context.Context, opt *CLI) error {
@@ -114,7 +115,7 @@ func newAPIClient(socketPath string) *apiClient {
 	}
 }
 
-func (c *apiClient) getConfig(ctx context.Context) (*Config, error) {
+func (c *apiClient) getConfig(ctx context.Context) (*config.Config, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint, nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -124,7 +125,7 @@ func (c *apiClient) getConfig(ctx context.Context) (*Config, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get config: %s", resp.Status)
 	}
-	var cfg Config
+	var cfg config.Config
 	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON: %w", err)
 	}
@@ -156,7 +157,7 @@ func (c *apiClient) putConfigFromFile(ctx context.Context, configPath string) er
 }
 
 // Keep the old method for backward compatibility, though it's not used anymore
-func (c *apiClient) putConfig(ctx context.Context, cfg *Config) error {
+func (c *apiClient) putConfig(ctx context.Context, cfg *config.Config) error {
 	slog.Info("putting config", "config", cfg)
 	b := new(bytes.Buffer)
 	b.WriteString(cfg.String())
@@ -209,7 +210,7 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 	return string(diffBytes), nil
 }
 
-func (c *apiClient) reloadConfig(ctx context.Context) (*Config, error) {
+func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 	slog.Info("reloading config from server")
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/reload", nil)
@@ -222,7 +223,7 @@ func (c *apiClient) reloadConfig(ctx context.Context) (*Config, error) {
 		return nil, fmt.Errorf("failed to reload config: %s", resp.Status)
 	}
 
-	var cfg Config
+	var cfg config.Config
 	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON: %w", err)
 	}

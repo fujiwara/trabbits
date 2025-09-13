@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
-	// Clear any remaining proxies from previous tests
+	t.Parallel()
 
 	// Test rate limiting with multiple proxies
-	oldConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	oldConfig := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -21,8 +22,8 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 		},
 	}
 
-	newConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	newConfig := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash
@@ -102,11 +103,11 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 }
 
 func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
-	// Clear any remaining proxies from previous tests
+	t.Parallel()
 
 	// Test timeout calculation for large numbers of proxies
-	oldConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	oldConfig := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -114,8 +115,8 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 		},
 	}
 
-	newConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	newConfig := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash

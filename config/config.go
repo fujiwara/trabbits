@@ -1,7 +1,7 @@
 // MIT License
 // Copyright (c) 2025 FUJIWARA Shunichiro
 
-package trabbits
+package config
 
 import (
 	"bytes"
@@ -23,9 +23,9 @@ import (
 
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
-	Upstreams              []UpstreamConfig `yaml:"upstreams" json:"upstreams"`
-	ReadTimeout            Duration         `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
-	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
+	Upstreams              []Upstream `yaml:"upstreams" json:"upstreams"`
+	ReadTimeout            Duration   `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
+	ConnectionCloseTimeout Duration   `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
 }
 
 // Hash calculates SHA256 hash of the config using gob encoding
@@ -47,7 +47,7 @@ func (c *Config) String() string {
 	return string(data)
 }
 
-func LoadConfig(ctx context.Context, f string) (*Config, error) {
+func Load(ctx context.Context, f string) (*Config, error) {
 	var c Config
 	slog.Info("Loading configuration", "file", f)
 
@@ -86,10 +86,10 @@ func LoadConfig(ctx context.Context, f string) (*Config, error) {
 func (c *Config) SetDefaults() {
 	// Set default timeout values if not specified
 	if c.ReadTimeout == 0 {
-		c.ReadTimeout = Duration(DefaultReadTimeout)
+		c.ReadTimeout = Duration(5 * time.Second) // DefaultReadTimeout
 	}
 	if c.ConnectionCloseTimeout == 0 {
-		c.ConnectionCloseTimeout = Duration(DefaultConnectionCloseTimeout)
+		c.ConnectionCloseTimeout = Duration(1 * time.Second) // DefaultConnectionCloseTimeout
 	}
 }
 
@@ -108,26 +108,26 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// UpstreamConfig represents the configuration of an upstream server.
-type UpstreamConfig struct {
-	Name        string             `yaml:"name" json:"name"`
-	Address     string             `yaml:"address,omitempty" json:"address,omitempty"`
-	Cluster     *ClusterConfig     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
-	Timeout     Duration           `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	HealthCheck *HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check,omitempty"`
+// Upstream represents the configuration of an upstream server.
+type Upstream struct {
+	Name        string       `yaml:"name" json:"name"`
+	Address     string       `yaml:"address,omitempty" json:"address,omitempty"`
+	Cluster     *Cluster     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Timeout     Duration     `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	HealthCheck *HealthCheck `yaml:"health_check,omitempty" json:"health_check,omitempty"`
 
-	Routing         RoutingConfig    `yaml:"routing,omitempty" json:"routing,omitempty"`
+	Routing         Routing          `yaml:"routing,omitempty" json:"routing,omitempty"`
 	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
 }
 
-func (u *UpstreamConfig) Addresses() []string {
+func (u *Upstream) Addresses() []string {
 	if u.Cluster != nil {
 		return u.Cluster.Nodes
 	}
 	return []string{u.Address}
 }
 
-func (u *UpstreamConfig) Validate() error {
+func (u *Upstream) Validate() error {
 	if u.Name == "" {
 		return fmt.Errorf("cluster name is required")
 	}
@@ -163,7 +163,7 @@ func (u *UpstreamConfig) Validate() error {
 	return nil
 }
 
-type ClusterConfig struct {
+type Cluster struct {
 	Nodes []string `yaml:"nodes" json:"nodes"`
 }
 
@@ -227,8 +227,8 @@ func (d Duration) ToDuration() time.Duration {
 	return time.Duration(d)
 }
 
-// HealthCheckConfig represents health check configuration for cluster upstreams
-type HealthCheckConfig struct {
+// HealthCheck represents health check configuration for cluster upstreams
+type HealthCheck struct {
 	Interval           Duration `yaml:"interval,omitempty" json:"interval,omitempty"`
 	Timeout            Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	UnhealthyThreshold int      `yaml:"unhealthy_threshold,omitempty" json:"unhealthy_threshold,omitempty"`
@@ -237,7 +237,7 @@ type HealthCheckConfig struct {
 	Password           Password `yaml:"password,omitempty" json:"password,omitempty"`
 }
 
-type RoutingConfig struct {
+type Routing struct {
 	KeyPatterns []string `yaml:"key_patterns,omitempty" json:"key_patterns,omitempty"`
 }
 
