@@ -54,10 +54,13 @@ jobs:
           go tool cover -func=coverage.out | tail -1 >> coverage_summary.md
           echo "\`\`\`" >> coverage_summary.md
           echo "" >> coverage_summary.md
-          echo "### Coverage by Package" >> coverage_summary.md
+          echo "<details>" >> coverage_summary.md
+          echo "<summary>Coverage by Package</summary>" >> coverage_summary.md
+          echo "" >> coverage_summary.md
           echo "\`\`\`" >> coverage_summary.md
           go tool cover -func=coverage.out | head -n -1 >> coverage_summary.md
           echo "\`\`\`" >> coverage_summary.md
+          echo "</details>" >> coverage_summary.md
 
       - name: Comment PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
