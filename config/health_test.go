@@ -12,6 +12,7 @@ import (
 
 // Test that health check configuration is properly parsed
 func TestHealthCheckConfig(t *testing.T) {
+	t.Parallel()
 	cfg := &config.HealthCheck{
 		Interval:           config.Duration(30 * time.Second),
 		Timeout:            config.Duration(5 * time.Second),
@@ -36,6 +37,7 @@ func TestHealthCheckConfig(t *testing.T) {
 
 // Test upstream config with health check
 func TestUpstreamConfigWithHealthCheck(t *testing.T) {
+	t.Parallel()
 	upstream := config.Upstream{
 		Name: "test-cluster",
 		Cluster: &config.Cluster{

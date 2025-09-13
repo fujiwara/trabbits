@@ -132,6 +132,7 @@ func TestConfigEnvironmentVariableNotSet(t *testing.T) {
 }
 
 func TestConfigWithoutEnvironmentVariables(t *testing.T) {
+	t.Parallel()
 	// Test that configs without environment variables still work
 	configJSON := `{
 		"upstreams": [
@@ -185,6 +186,7 @@ func TestConfigWithoutEnvironmentVariables(t *testing.T) {
 }
 
 func TestConfigPasswordMasking(t *testing.T) {
+	t.Parallel()
 	// Test that passwords are masked in String() output
 	configJSON := `{
 		"upstreams": [

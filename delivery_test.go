@@ -7,6 +7,7 @@ import (
 )
 
 func TestDelivery(t *testing.T) {
+	t.Parallel()
 	n := 2
 	for _tag := range 10 {
 		tag := uint64(_tag)

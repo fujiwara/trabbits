@@ -136,8 +136,10 @@ var testConfigSuites = []struct {
 }
 
 func TestConfigValidate(t *testing.T) {
+	t.Parallel()
 	for _, suite := range testConfigSuites {
 		t.Run(suite.name, func(t *testing.T) {
+			t.Parallel()
 			err := suite.config.Validate()
 			if err != nil {
 				t.Log(err)
@@ -153,6 +155,7 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestConfigHash(t *testing.T) {
+	t.Parallel()
 	config1 := &config.Config{
 		Upstreams: []config.Upstream{
 			{
@@ -200,6 +203,7 @@ func TestConfigHash(t *testing.T) {
 }
 
 func TestConfigHashWithPassword(t *testing.T) {
+	t.Parallel()
 	config1 := &config.Config{
 		Upstreams: []config.Upstream{
 			{

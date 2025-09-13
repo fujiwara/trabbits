@@ -10,6 +10,7 @@ import (
 )
 
 func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
+	t.Parallel()
 
 	// Test rate limiting with multiple proxies
 	oldConfig := &config.Config{
@@ -102,6 +103,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 }
 
 func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
+	t.Parallel()
 
 	// Test timeout calculation for large numbers of proxies
 	oldConfig := &config.Config{
