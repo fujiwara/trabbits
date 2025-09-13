@@ -19,7 +19,7 @@ func TestProxyRegistration(t *testing.T) {
 
 	// Set up test config
 	config := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -69,7 +69,7 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 
 	// Set up test configs with different hashes
 	oldConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -77,7 +77,7 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		},
 	}
 	newConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash

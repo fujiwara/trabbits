@@ -129,7 +129,7 @@ func NewNodeHealthManager(name string, nodes []string, config *Config, username,
 }
 
 // NewNodeHealthManagerFromUpstream creates a new health manager from upstream config
-func NewNodeHealthManagerFromUpstream(upstream *config.UpstreamConfig, metrics MetricsReporter) *NodeHealthManager {
+func NewNodeHealthManagerFromUpstream(upstream *config.Upstream, metrics MetricsReporter) *NodeHealthManager {
 	if upstream.Cluster == nil || upstream.HealthCheck == nil {
 		return nil
 	}

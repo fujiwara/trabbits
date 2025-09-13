@@ -14,7 +14,7 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 
 	// Create test config
 	config := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -77,7 +77,7 @@ func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
 
 	// Test with no proxies registered at all
 	config := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",

@@ -25,7 +25,7 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 
 	// Create test config
 	oldConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -34,7 +34,7 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	}
 
 	newConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash

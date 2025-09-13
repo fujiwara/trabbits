@@ -245,9 +245,9 @@ func TestUpstreamMonitoring(t *testing.T) {
 
 	// Create an upstream with monitoring
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	conf := config.UpstreamConfig{
+	conf := config.Upstream{
 		Name: "test-upstream",
-		Cluster: &config.ClusterConfig{
+		Cluster: &config.Cluster{
 			Nodes: []string{"localhost:5672"},
 		},
 	}
@@ -274,9 +274,9 @@ func TestUpstreamNotifyCloseSetup(t *testing.T) {
 	defer conn.Close()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	conf := config.UpstreamConfig{
+	conf := config.Upstream{
 		Name: "test-upstream",
-		Cluster: &config.ClusterConfig{
+		Cluster: &config.Cluster{
 			Nodes: []string{"localhost:5672"},
 		},
 	}

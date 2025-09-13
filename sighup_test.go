@@ -41,7 +41,7 @@ func TestSIGHUPHandler(t *testing.T) {
 
 	// Test the reload function directly
 	ctx := context.Background()
-	cfg, err := config.LoadConfig(ctx, tmpfile.Name())
+	cfg, err := config.Load(ctx, tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load initial config: %v", err)
 	}
