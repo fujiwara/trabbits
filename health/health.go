@@ -87,8 +87,8 @@ type MetricsReporter interface {
 	SetUnhealthyNodes(upstream string, count float64)
 }
 
-// NodeHealthManager manages health checking for cluster nodes
-type NodeHealthManager struct {
+// Manager manages health checking for cluster nodes
+type Manager struct {
 	name     string
 	nodes    map[string]*NodeStatus // address -> status
 	mu       sync.RWMutex
@@ -101,8 +101,8 @@ type NodeHealthManager struct {
 	metrics  MetricsReporter
 }
 
-// NewNodeHealthManagerFromUpstream creates a new health manager from upstream config
-func NewNodeHealthManagerFromUpstream(upstream *config.Upstream, metrics MetricsReporter) *NodeHealthManager {
+// NewManager creates a new health manager from upstream config
+func NewManager(upstream *config.Upstream, metrics MetricsReporter) *Manager {
 	if upstream.Cluster == nil || upstream.HealthCheck == nil {
 		return nil
 	}
@@ -133,7 +133,7 @@ func NewNodeHealthManagerFromUpstream(upstream *config.Upstream, metrics Metrics
 		healthConfig.RecoveryInterval = upstream.HealthCheck.RecoveryInterval.ToDuration()
 	}
 
-	mgr := &NodeHealthManager{
+	mgr := &Manager{
 		name:     upstream.Name,
 		nodes:    make(map[string]*NodeStatus),
 		config:   healthConfig,
@@ -156,7 +156,7 @@ func NewNodeHealthManagerFromUpstream(upstream *config.Upstream, metrics Metrics
 
 // StartHealthCheck starts the background health checking goroutine
 // It performs an initial health check before starting the background routine
-func (m *NodeHealthManager) StartHealthCheck(ctx context.Context) {
+func (m *Manager) StartHealthCheck(ctx context.Context) {
 	if m == nil {
 		return
 	}
@@ -194,7 +194,7 @@ func (m *NodeHealthManager) StartHealthCheck(ctx context.Context) {
 }
 
 // Stop stops the health checking goroutine
-func (m *NodeHealthManager) Stop() {
+func (m *Manager) Stop() {
 	if m == nil || m.cancel == nil {
 		return
 	}
@@ -203,7 +203,7 @@ func (m *NodeHealthManager) Stop() {
 }
 
 // GetHealthyNodes returns a list of addresses for healthy nodes
-func (m *NodeHealthManager) GetHealthyNodes() []string {
+func (m *Manager) GetHealthyNodes() []string {
 	if m == nil {
 		return nil
 	}
@@ -231,7 +231,7 @@ func (m *NodeHealthManager) GetHealthyNodes() []string {
 }
 
 // checkAllNodes performs health checks on all nodes
-func (m *NodeHealthManager) checkAllNodes() {
+func (m *Manager) checkAllNodes() {
 	m.mu.RLock()
 	nodes := make([]*NodeStatus, 0, len(m.nodes))
 	for _, node := range m.nodes {
@@ -264,7 +264,7 @@ func (m *NodeHealthManager) checkAllNodes() {
 }
 
 // checkAllNodesInitial performs initial health checks on all nodes (fail fast on startup)
-func (m *NodeHealthManager) checkAllNodesInitial() {
+func (m *Manager) checkAllNodesInitial() {
 	m.mu.RLock()
 	nodes := make([]*NodeStatus, 0, len(m.nodes))
 	for _, node := range m.nodes {
@@ -297,7 +297,7 @@ func (m *NodeHealthManager) checkAllNodesInitial() {
 }
 
 // checkNode performs a health check on a single node
-func (m *NodeHealthManager) checkNode(node *NodeStatus, failFast bool) {
+func (m *Manager) checkNode(node *NodeStatus, failFast bool) {
 	_, cancel := context.WithTimeout(context.Background(), m.config.Timeout)
 	defer cancel()
 
@@ -375,7 +375,7 @@ func (m *NodeHealthManager) checkNode(node *NodeStatus, failFast bool) {
 }
 
 // getHealthSummary returns the count of healthy and unhealthy nodes
-func (m *NodeHealthManager) getHealthSummary() (healthy, unhealthy int) {
+func (m *Manager) getHealthSummary() (healthy, unhealthy int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
