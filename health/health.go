@@ -7,12 +7,23 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/fujiwara/trabbits/config"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
+
+// recoverFromPanic recovers from panic and logs the details
+func recoverFromPanic(logger *slog.Logger, functionName string) {
+	if r := recover(); r != nil {
+		logger.Error("panic recovered",
+			"function", functionName,
+			"panic", r,
+			"stack", string(debug.Stack()))
+	}
+}
 
 type Status int
 
@@ -176,6 +187,7 @@ func (m *Manager) StartHealthCheck(ctx context.Context) {
 
 	m.wg.Add(1)
 	go func() {
+		defer recoverFromPanic(m.logger, "health.monitor")
 		defer m.wg.Done()
 
 		ticker := time.NewTicker(m.config.Interval)

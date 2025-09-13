@@ -18,6 +18,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/url"
+	"runtime/debug"
 	"os"
 	"os/signal"
 	"reflect"
@@ -197,6 +198,7 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
 			go func(workerID int) {
+				defer recoverFromPanic(slog.Default(), "DisconnectOutdatedProxies.worker")
 				defer wg.Done()
 
 				for cancel := range cancelChan {
@@ -439,15 +441,28 @@ func (srv *Server) initHealthManagers(ctx context.Context) error {
 	return nil
 }
 
+// recoverFromPanic recovers from panic and logs the details with metrics
+func recoverFromPanic(logger *slog.Logger, functionName string) {
+	if r := recover(); r != nil {
+		logger.Error("panic recovered",
+			"function", functionName,
+			"panic", r,
+			"stack", string(debug.Stack()))
+		GetMetrics().PanicRecoveries.WithLabelValues(functionName).Inc()
+	}
+}
+
 var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 // handleConnection handles a new client connection for this server
 func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
-	metrics.ClientConnections.Inc()
-	metrics.ClientTotalConnections.Inc()
+	defer recoverFromPanic(slog.Default(), "handleConnection")
+
+	GetMetrics().ClientConnections.Inc()
+	GetMetrics().ClientTotalConnections.Inc()
 	defer func() {
 		conn.Close()
-		metrics.ClientConnections.Dec()
+		GetMetrics().ClientConnections.Dec()
 	}()
 
 	slog.Info("new connection", "client_addr", conn.RemoteAddr().String())
@@ -455,12 +470,12 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		slog.Warn("Failed to read AMQP header:", "error", err)
-		metrics.ClientConnectionErrors.Inc()
+		GetMetrics().ClientConnectionErrors.Inc()
 		return
 	}
 	if !bytes.Equal(header, amqpHeader) {
 		slog.Warn("Invalid AMQP protocol header", "header", header)
-		metrics.ClientConnectionErrors.Inc()
+		GetMetrics().ClientConnectionErrors.Inc()
 		return
 	}
 
@@ -711,6 +726,8 @@ func (p *Proxy) handshake(ctx context.Context) error {
 }
 
 func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
+	defer recoverFromPanic(p.logger, "runHeartbeat")
+
 	if interval == 0 {
 		interval = uint16(HeartbeatInterval)
 	}
