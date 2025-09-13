@@ -13,6 +13,7 @@ test:
 test-coverage:
 	RABBITMQ_HEALTH_PASS=healthpass go test -coverprofile=coverage.out -coverpkg=./... ./... -count=1 --timeout=90s
 	go tool cover -html=coverage.out -o coverage.html
+	./scripts/coverage-summary.sh
 
 install:
 	go install github.com/fujiwara/trabbits/cmd/trabbits
