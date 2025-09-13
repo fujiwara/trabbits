@@ -175,7 +175,7 @@ func (s *Server) apiPutConfigHandler() http.HandlerFunc {
 		}
 
 		// Reinitialize health managers with new configuration
-		if err := s.initHealthManagers(r.Context(), cfg); err != nil {
+		if err := s.initHealthManagers(r.Context()); err != nil {
 			slog.Error("failed to reinit health managers", "error", err)
 			// Don't fail the config update, just log the error
 		}
@@ -257,7 +257,7 @@ func (s *Server) reloadConfigFromFile(ctx context.Context, configPath string) (*
 	}
 
 	// Reinitialize health managers with new configuration
-	if err := s.initHealthManagers(ctx, cfg); err != nil {
+	if err := s.initHealthManagers(ctx); err != nil {
 		slog.Error("failed to reinit health managers", "error", err)
 		// Don't fail the config reload, just log the error
 	}
