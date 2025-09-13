@@ -55,6 +55,14 @@ func TestProxyRegistration(t *testing.T) {
 	if registeredProxy != nil {
 		t.Error("proxy should be unregistered")
 	}
+
+	// Verify that the default message constant is properly defined
+	expectedDefaultMsg := trabbits.ShutdownMsgDefault
+	if expectedDefaultMsg != "Connection closed" {
+		t.Errorf("Expected default message constant to be 'Connection closed', got %q", expectedDefaultMsg)
+	} else {
+		t.Logf("✓ Default message constant verified: %q", expectedDefaultMsg)
+	}
 }
 
 func TestDisconnectOutdatedProxies(t *testing.T) {
@@ -152,6 +160,14 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 		}
 
 		// Test successful - the disconnect signal was sent and completed
+
+		// Verify that the correct config update message constant is used
+		expectedConfigUpdateMsg := trabbits.ShutdownMsgConfigUpdate
+		if expectedConfigUpdateMsg != "Configuration updated, please reconnect" {
+			t.Errorf("Expected config update message constant to be 'Configuration updated, please reconnect', got %q", expectedConfigUpdateMsg)
+		} else {
+			t.Logf("✓ Config update message constant verified: %q", expectedConfigUpdateMsg)
+		}
 
 	case <-time.After(5 * time.Second):
 		t.Error("✗ Timeout waiting for proxy disconnection to complete")

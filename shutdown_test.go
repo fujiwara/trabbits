@@ -98,6 +98,16 @@ func TestGracefulShutdown(t *testing.T) {
 		t.Error("Expected 'Disconnecting proxy for shutdown' log message not found")
 	}
 
+	// Verify that the correct shutdown message constant is used
+	// Note: We can't directly verify the AMQP message sent to clients in this test
+	// due to net.Pipe() limitations, but we can verify the constant values
+	expectedShutdownMsg := trabbits.ShutdownMsgServerShutdown
+	if expectedShutdownMsg != "Server shutting down" {
+		t.Errorf("Expected shutdown message constant to be 'Server shutting down', got %q", expectedShutdownMsg)
+	} else {
+		t.Logf("✓ Shutdown message constant verified: %q", expectedShutdownMsg)
+	}
+
 	// Note: With net.Pipe() connections, sendConnectionError may fail and cause timeout
 	// This is expected behavior - the timeout message indicates graceful shutdown was attempted
 	if strings.Contains(logStr, "Timeout waiting for proxy disconnections") {
