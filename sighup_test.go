@@ -98,8 +98,11 @@ func TestSIGHUPSignalHandling(t *testing.T) {
 		}
 	}()
 
-	// Wait for server to start
-	time.Sleep(5 * time.Second)
+	// Wait for server to start with polling
+	waitForAPI(t, apiSocketPath, 5*time.Second)
+
+	// Give server time to fully initialize signal handling
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify initial config via API
 	initialCfg := getConfigViaAPI(t, apiSocketPath)
@@ -146,11 +149,8 @@ func TestSIGHUPSignalHandling(t *testing.T) {
 	}
 	t.Logf("✓ SIGHUP signal sent to process (PID: %d)", cmd.Process.Pid)
 
-	// Wait longer for config reload and monitor logs
-	for i := 0; i < 10; i++ {
-		time.Sleep(1 * time.Second)
-		t.Logf("Waiting for config reload... (%d/10)", i+1)
-	}
+	// Wait for config reload with polling
+	waitForConfigReload(t, apiSocketPath, 5*time.Second)
 
 	// Verify config was reloaded via API
 	reloadedCfg := getConfigViaAPI(t, apiSocketPath)
@@ -193,17 +193,48 @@ type Routing struct {
 	KeyPatterns []string `json:"key_patterns"`
 }
 
-// getConfigViaAPI retrieves current config via Unix socket API
-func getConfigViaAPI(t *testing.T, socketPath string) *Config {
+// waitForAPI waits for API socket to be available
+func waitForAPI(t *testing.T, socketPath string, timeout time.Duration) {
 	t.Helper()
-
-	// Wait for API socket to be available
-	for i := 0; i < 50; i++ { // 5 seconds max
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
 		if _, err := os.Stat(socketPath); err == nil {
-			break
+			// Try to actually connect
+			client := &http.Client{
+				Transport: &http.Transport{
+					Dial: func(network, addr string) (net.Conn, error) {
+						return net.Dial("unix", socketPath)
+					},
+				},
+				Timeout: 100 * time.Millisecond,
+			}
+			if resp, err := client.Get("http://unix/config"); err == nil {
+				resp.Body.Close()
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("API socket not available after %v", timeout)
+}
+
+// waitForConfigReload waits for config to be reloaded with expected upstream count
+func waitForConfigReload(t *testing.T, socketPath string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cfg := getConfigViaAPISafe(t, socketPath)
+		if cfg != nil && len(cfg.Upstreams) == 2 {
+			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	t.Fatalf("Config not reloaded after %v", timeout)
+}
+
+// getConfigViaAPISafe retrieves current config via Unix socket API (returns nil on error)
+func getConfigViaAPISafe(t *testing.T, socketPath string) *Config {
+	t.Helper()
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -211,6 +242,38 @@ func getConfigViaAPI(t *testing.T, socketPath string) *Config {
 				return net.Dial("unix", socketPath)
 			},
 		},
+		Timeout: 500 * time.Millisecond,
+	}
+
+	resp, err := client.Get("http://unix/config")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var cfg Config
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return nil
+	}
+
+	return &cfg
+}
+
+// getConfigViaAPI retrieves current config via Unix socket API
+func getConfigViaAPI(t *testing.T, socketPath string) *Config {
+	t.Helper()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: func(network, addr string) (net.Conn, error) {
+				return net.Dial("unix", socketPath)
+			},
+		},
+		Timeout: 1 * time.Second,
 	}
 
 	resp, err := client.Get("http://unix/config")
