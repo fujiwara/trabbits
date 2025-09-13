@@ -69,7 +69,7 @@ func Run(ctx context.Context) error {
 
 func setupLogger(level slog.Level) {
 	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-	mh := NewMetricSlogHandler(h, metrics.LoggerStats)
+	mh := NewMetricSlogHandler(h, GetMetrics().LoggerStats)
 	slog.SetDefault(slog.New(mh))
 }
 
