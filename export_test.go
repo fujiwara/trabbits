@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/pattern"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -19,7 +20,7 @@ var (
 )
 
 // Server instance functions for testing
-func NewTestServer(config *Config) *Server {
+func NewTestServer(config *config.Config) *Server {
 	return NewServer(config, "") // Empty API socket for tests
 }
 
@@ -35,17 +36,6 @@ func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (fun
 	return s.startAPIServer(ctx, configPath)
 }
 
-// Test helper for reloadConfigFromFile
-func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
-	// Create a temporary server instance for config reloading
-	cfg, err := LoadConfig(ctx, configPath)
-	if err != nil {
-		return nil, err
-	}
-	server := NewServer(cfg, "")
-	return server.reloadConfigFromFile(ctx, configPath)
-}
-
 type Delivery = delivery
 
 func init() {
@@ -54,4 +44,9 @@ func init() {
 
 func GetMetricsRegistry() *prometheus.Registry {
 	return metricsReg
+}
+
+// Test-only method for setting proxy config hash
+func (p *Proxy) SetConfigHash(hash string) {
+	p.configHash = hash
 }

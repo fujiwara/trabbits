@@ -6,6 +6,7 @@ import (
 
 	"github.com/fujiwara/trabbits"
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/google/go-cmp/cmp"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
@@ -18,7 +19,7 @@ var testUpstreamQueueAttrSuites = []struct {
 	name string
 	// input
 	m    *amqp091.QueueDeclare
-	attr *trabbits.QueueAttributes
+	attr *config.QueueAttributes
 
 	// expected
 	queue      string
@@ -40,7 +41,7 @@ var testUpstreamQueueAttrSuites = []struct {
 	{
 		name:       "empty attr",
 		m:          &amqp091.QueueDeclare{Queue: "foo", Arguments: nil},
-		attr:       &trabbits.QueueAttributes{},
+		attr:       &config.QueueAttributes{},
 		queue:      "foo",
 		durable:    false,
 		autoDelete: false,
@@ -74,7 +75,7 @@ var testUpstreamQueueAttrSuites = []struct {
 				"x-keep":        "me",      // to be kept
 			},
 		},
-		attr: &trabbits.QueueAttributes{
+		attr: &config.QueueAttributes{
 			Durable:    ptr(true),
 			AutoDelete: ptr(false),
 			Exclusive:  ptr(true),
@@ -99,7 +100,7 @@ var testUpstreamQueueAttrSuites = []struct {
 func TestUpstreamQueueAttr(t *testing.T) {
 	for _, tc := range testUpstreamQueueAttrSuites {
 		t.Run(tc.name, func(t *testing.T) {
-			u := trabbits.NewUpstream(nil, slog.Default(), trabbits.UpstreamConfig{QueueAttributes: tc.attr}, "test:5672")
+			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr}, "test:5672")
 			queue, durable, autoDelete, exclusive, noWait, args := u.QueueDeclareArgs(tc.m)
 			if queue != tc.queue {
 				t.Errorf("queue name mismatch: %s != %s", queue, tc.queue)

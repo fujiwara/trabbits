@@ -97,8 +97,10 @@ var matchTests = []struct {
 }
 
 func TestMatch(t *testing.T) {
+	t.Parallel()
 	for _, test := range matchTests {
 		t.Run(fmt.Sprintf("%s_%s_%v", test.pattern, test.key, test.want), func(t *testing.T) {
+			t.Parallel()
 			result := Match(test.key, test.pattern)
 			if result != test.want {
 				t.Errorf("pattern %s and key %s: got %t, want %t", test.pattern, test.key, result, test.want)

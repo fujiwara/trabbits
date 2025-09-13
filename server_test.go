@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/google/go-cmp/cmp"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
@@ -26,7 +27,7 @@ var testAPISock string
 
 func runTestProxy(ctx context.Context) error {
 	slog.Info("starting test server")
-	cfg, err := trabbits.LoadConfig(ctx, "testdata/config.json")
+	cfg, err := config.Load(ctx, "testdata/config.json")
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
@@ -62,7 +63,7 @@ func runTestAPI(ctx context.Context) error {
 	os.Remove(testAPISock) // trabbits will re create it
 
 	// Create server instance for API server
-	cfg, err := trabbits.LoadConfig(ctx, "testdata/config.json")
+	cfg, err := config.Load(ctx, "testdata/config.json")
 	if err != nil {
 		return err
 	}

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
-	// Clear any remaining proxies from previous tests
 
 	// Capture log output to verify disconnection messages
 	var logOutput strings.Builder
@@ -23,8 +23,8 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	slog.SetDefault(logger)
 
 	// Create test config
-	oldConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	oldConfig := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -32,8 +32,8 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 		},
 	}
 
-	newConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	newConfig := &config.Config{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash

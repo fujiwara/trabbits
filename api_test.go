@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -41,10 +42,16 @@ func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc
 	os.Remove(socketPath) // trabbits will recreate it
 
 	// Create server instance for API server
-	cfg, err := trabbits.LoadConfig(ctx, configFile)
+	cfg, err := config.Load(ctx, configFile)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Disable health checks for test performance
+	for _, upstream := range cfg.Upstreams {
+		upstream.HealthCheck = nil
+	}
+
 	server := trabbits.NewServer(cfg, socketPath)
 
 	go func() {
@@ -54,11 +61,29 @@ func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc
 		}
 	}()
 
-	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for API to be available with polling
+	waitForTestAPI(t, socketPath, 1*time.Second)
 
 	client := newUnixSockHTTPClient(socketPath)
 	return cancel, socketPath, client
+}
+
+// waitForTestAPI waits for API socket to be available
+func waitForTestAPI(t *testing.T, socketPath string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(socketPath); err == nil {
+			// Try to actually connect
+			client := newUnixSockHTTPClient(socketPath)
+			if resp, err := client.Get("http://unix/config"); err == nil {
+				resp.Body.Close()
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("API socket not available after %v", timeout)
 }
 
 func TestAPIPutInvalidConfig(t *testing.T) {
@@ -89,7 +114,7 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 
 	// Test 1: Basic PUT/GET cycle
 	t.Run("BasicPutGetConfig", func(t *testing.T) {
-		var testConfig trabbits.Config
+		var testConfig config.Config
 		// GET current config
 		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
 		resp, err := client.Do(req)
@@ -131,7 +156,7 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to send request: %v", err)
 		}
-		var updatedConfig trabbits.Config
+		var updatedConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&updatedConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
@@ -161,10 +186,10 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 					]
 				},
 				"health_check": {
-					"interval": "30s",
-					"timeout": "5s",
-					"unhealthy_threshold": 3,
-					"recovery_interval": "60s",
+					"interval": "100ms",
+					"timeout": "50ms",
+					"unhealthy_threshold": 1,
+					"recovery_interval": "100ms",
 					"username": "${TEST_API_USERNAME}",
 					"password": "${TEST_API_PASSWORD}"
 				},
@@ -189,7 +214,7 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
 		}
 
-		var respondConfig trabbits.Config
+		var respondConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
@@ -229,10 +254,10 @@ local env = std.native('env');
         ],
       },
       health_check: {
-        interval: '45s',
-        timeout: '10s',
-        unhealthy_threshold: 2,
-        recovery_interval: '90s',
+        interval: '100ms',
+        timeout: '50ms',
+        unhealthy_threshold: 1,
+        recovery_interval: '100ms',
         username: env('TEST_JSONNET_USERNAME', 'default'),
         password: env('TEST_JSONNET_PASSWORD', 'default'),
       },
@@ -274,7 +299,7 @@ local env = std.native('env');
 			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
 		}
 
-		var respondConfig trabbits.Config
+		var respondConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
@@ -318,10 +343,10 @@ local env = std.native('env');
 					]
 				},
 				"health_check": {
-					"interval": "45s",
-					"timeout": "10s",
-					"unhealthy_threshold": 2,
-					"recovery_interval": "90s",
+					"interval": "100ms",
+					"timeout": "50ms",
+					"unhealthy_threshold": 1,
+					"recovery_interval": "100ms",
 					"username": "${TEST_DIFF_USERNAME}",
 					"password": "${TEST_DIFF_PASSWORD}"
 				},
@@ -384,10 +409,10 @@ local env = std.native('env');
         ],
       },
       health_check: {
-        interval: '60s',
-        timeout: '15s',
-        unhealthy_threshold: 4,
-        recovery_interval: '120s',
+        interval: '100ms',
+        timeout: '50ms',
+        unhealthy_threshold: 1,
+        recovery_interval: '100ms',
         username: env('TEST_JSONNET_DIFF_USERNAME', 'default'),
         password: env('TEST_JSONNET_DIFF_PASSWORD', 'default'),
       },
@@ -471,7 +496,7 @@ local env = std.native('env');
 			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
 		}
 
-		var reloadedConfig trabbits.Config
+		var reloadedConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&reloadedConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}

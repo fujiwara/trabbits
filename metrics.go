@@ -152,3 +152,13 @@ func runMetricsServer(ctx context.Context, opt *CLI) (func(), error) {
 	}
 	return func() { srv.Shutdown(ctx) }, nil
 }
+
+// SetHealthyNodes sets the number of healthy nodes for a given upstream
+func (m *Metrics) SetHealthyNodes(upstream string, count float64) {
+	m.UpstreamHealthyNodes.WithLabelValues(upstream).Set(count)
+}
+
+// SetUnhealthyNodes sets the number of unhealthy nodes for a given upstream
+func (m *Metrics) SetUnhealthyNodes(upstream string, count float64) {
+	m.UpstreamUnhealthyNodes.WithLabelValues(upstream).Set(count)
+}
