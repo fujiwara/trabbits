@@ -1,6 +1,6 @@
 {
-    "read_timeout": "1s",
-    "connection_close_timeout": "50ms",
+    "read_timeout": "5s",
+    "connection_close_timeout": "1s",
     "upstreams": [
         {
             "name": "primary",

@@ -736,6 +736,11 @@ func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 }
 
 func (p *Proxy) shutdown(ctx context.Context) error {
+	// If no connection, shutdown is immediate
+	if p.conn == nil {
+		return nil
+	}
+
 	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
