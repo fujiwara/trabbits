@@ -1,6 +1,7 @@
 package trabbits_test
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -48,7 +49,9 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 
 		proxy := testServer.NewProxy(server)
 		proxy.SetConfigHash(oldHash)
-		testServer.RegisterProxy(proxy)
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		testServer.RegisterProxy(proxy, cancel)
 		proxies = append(proxies, proxy)
 	}
 
@@ -141,7 +144,9 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 
 		proxy := testServer.NewProxy(server)
 		proxy.SetConfigHash(oldHash)
-		testServer.RegisterProxy(proxy)
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		testServer.RegisterProxy(proxy, cancel)
 		proxies = append(proxies, proxy)
 	}
 

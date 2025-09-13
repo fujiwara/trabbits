@@ -1,6 +1,7 @@
 package trabbits_test
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -33,7 +34,9 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 
 	proxy := testServer.NewProxy(server)
 	proxy.SetConfigHash(configHash) // Same hash as current config
-	testServer.RegisterProxy(proxy)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	testServer.RegisterProxy(proxy, cancel)
 
 	// Disconnect outdated proxies - should find 0 because proxy has current hash
 	start := time.Now()

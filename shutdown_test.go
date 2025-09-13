@@ -50,7 +50,9 @@ func TestGracefulShutdown(t *testing.T) {
 		connections = append(connections, server, client)
 
 		proxy := testServer.NewProxy(server)
-		testServer.RegisterProxy(proxy)
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		testServer.RegisterProxy(proxy, cancel)
 		proxies = append(proxies, proxy)
 	}
 
@@ -100,7 +102,7 @@ func TestGracefulShutdown(t *testing.T) {
 	// This is expected behavior - the timeout message indicates graceful shutdown was attempted
 	if strings.Contains(logStr, "Timeout waiting for proxy disconnections") {
 		t.Log("✓ Graceful shutdown attempted (timeout expected with net.Pipe connections)")
-	} else if strings.Contains(logStr, "All proxy disconnections completed for shutdown") {
+	} else if strings.Contains(logStr, "All proxy disconnections completed") {
 		t.Log("✓ All proxy disconnections completed successfully")
 	} else {
 		t.Error("Expected either completion or timeout log message not found")
@@ -172,10 +174,12 @@ func TestGracefulShutdown_ContextCancellation(t *testing.T) {
 	defer client.Close()
 
 	proxy := testServer.NewProxy(server)
-	testServer.RegisterProxy(proxy)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	testServer.RegisterProxy(proxy, cancel)
 
 	// Create a context that we can cancel
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, testCancel := context.WithCancel(context.Background())
 
 	// Create a mock listener
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -193,7 +197,7 @@ func TestGracefulShutdown_ContextCancellation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Cancel the context to trigger shutdown
-	cancel()
+	testCancel()
 
 	// Wait for server to complete
 	select {
