@@ -21,7 +21,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Test files are located alongside source files as `*_test.go`
 - Test data is in `testdata/` directory
 - Use table-driven tests where appropriate
-- Use `t.Context()` in test functions instead of manually creating contexts
+- Use `t.Context()` in test functions instead of manually creating contexts with `context.Background()`
 - Use `mustTestConn(t)` for connecting to test proxy server
 - Test files should use `package trabbits_test` (not `package trabbits`) for consistency with other tests
 - Export functions needed for testing via `export_test.go`

@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/fujiwara/trabbits/config"
 )
@@ -243,4 +244,80 @@ func TestConfigHashWithPassword(t *testing.T) {
 
 	t.Logf("config with password1 hash: %s", hash1)
 	t.Logf("config with password2 hash: %s", hash2)
+}
+
+func TestGracefulShutdownDefaults(t *testing.T) {
+	cfg := &config.Config{
+		Upstreams: []config.Upstream{
+			{
+				Name:    "test-upstream",
+				Address: "localhost:5672",
+			},
+		},
+	}
+
+	cfg.SetDefaults()
+
+	// Check default values
+	if cfg.GracefulShutdown.ShutdownTimeout != config.Duration(config.DefaultGracefulShutdownTimeout) {
+		t.Errorf("Expected ShutdownTimeout %v, got %v", config.DefaultGracefulShutdownTimeout, cfg.GracefulShutdown.ShutdownTimeout)
+	}
+
+	if cfg.GracefulShutdown.ReloadTimeout != config.Duration(config.DefaultGracefulReloadTimeout) {
+		t.Errorf("Expected ReloadTimeout %v, got %v", config.DefaultGracefulReloadTimeout, cfg.GracefulShutdown.ReloadTimeout)
+	}
+
+	if cfg.GracefulShutdown.RateLimit != config.DefaultDisconnectRateLimit {
+		t.Errorf("Expected RateLimit %d, got %d", config.DefaultDisconnectRateLimit, cfg.GracefulShutdown.RateLimit)
+	}
+
+	if cfg.GracefulShutdown.BurstSize != config.DefaultDisconnectBurstSize {
+		t.Errorf("Expected BurstSize %d, got %d", config.DefaultDisconnectBurstSize, cfg.GracefulShutdown.BurstSize)
+	}
+
+	// Test time.Duration conversion
+	shutdownDuration := time.Duration(cfg.GracefulShutdown.ShutdownTimeout)
+	if shutdownDuration != config.DefaultGracefulShutdownTimeout {
+		t.Errorf("Expected shutdown duration %v, got %v", config.DefaultGracefulShutdownTimeout, shutdownDuration)
+	}
+
+	t.Logf("✓ ShutdownTimeout: %v", shutdownDuration)
+	t.Logf("✓ ReloadTimeout: %v", time.Duration(cfg.GracefulShutdown.ReloadTimeout))
+	t.Logf("✓ RateLimit: %d", cfg.GracefulShutdown.RateLimit)
+	t.Logf("✓ BurstSize: %d", cfg.GracefulShutdown.BurstSize)
+}
+
+func TestGracefulShutdownCustomConfig(t *testing.T) {
+	// Test loading custom graceful shutdown configuration
+	cfg, err := config.Load(t.Context(), "../testdata/config_with_graceful_shutdown.json")
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Check custom values
+	expectedShutdownTimeout := 30 * time.Second
+	expectedReloadTimeout := 60 * time.Second
+	expectedRateLimit := 200
+	expectedBurstSize := 20
+
+	if time.Duration(cfg.GracefulShutdown.ShutdownTimeout) != expectedShutdownTimeout {
+		t.Errorf("Expected ShutdownTimeout %v, got %v", expectedShutdownTimeout, time.Duration(cfg.GracefulShutdown.ShutdownTimeout))
+	}
+
+	if time.Duration(cfg.GracefulShutdown.ReloadTimeout) != expectedReloadTimeout {
+		t.Errorf("Expected ReloadTimeout %v, got %v", expectedReloadTimeout, time.Duration(cfg.GracefulShutdown.ReloadTimeout))
+	}
+
+	if cfg.GracefulShutdown.RateLimit != expectedRateLimit {
+		t.Errorf("Expected RateLimit %d, got %d", expectedRateLimit, cfg.GracefulShutdown.RateLimit)
+	}
+
+	if cfg.GracefulShutdown.BurstSize != expectedBurstSize {
+		t.Errorf("Expected BurstSize %d, got %d", expectedBurstSize, cfg.GracefulShutdown.BurstSize)
+	}
+
+	t.Logf("✓ Custom ShutdownTimeout: %v", time.Duration(cfg.GracefulShutdown.ShutdownTimeout))
+	t.Logf("✓ Custom ReloadTimeout: %v", time.Duration(cfg.GracefulShutdown.ReloadTimeout))
+	t.Logf("✓ Custom RateLimit: %d", cfg.GracefulShutdown.RateLimit)
+	t.Logf("✓ Custom BurstSize: %d", cfg.GracefulShutdown.BurstSize)
 }

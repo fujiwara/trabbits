@@ -21,11 +21,28 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 )
 
+// Default values for graceful shutdown
+const (
+	DefaultGracefulShutdownTimeout = 10 * time.Second
+	DefaultGracefulReloadTimeout   = 30 * time.Second
+	DefaultDisconnectRateLimit     = 100 // connections per second
+	DefaultDisconnectBurstSize     = 10
+)
+
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
-	Upstreams              []Upstream `yaml:"upstreams" json:"upstreams"`
-	ReadTimeout            Duration   `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
-	ConnectionCloseTimeout Duration   `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
+	Upstreams              []Upstream       `yaml:"upstreams" json:"upstreams"`
+	ReadTimeout            Duration         `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
+	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
+	GracefulShutdown       GracefulShutdown `yaml:"graceful_shutdown,omitempty" json:"graceful_shutdown,omitempty"`
+}
+
+// GracefulShutdown configures graceful shutdown behavior
+type GracefulShutdown struct {
+	ShutdownTimeout Duration `yaml:"shutdown_timeout,omitempty" json:"shutdown_timeout,omitempty"` // Max time to wait for shutdown (SIGTERM)
+	ReloadTimeout   Duration `yaml:"reload_timeout,omitempty" json:"reload_timeout,omitempty"`     // Max time to wait for config reload (SIGHUP)
+	RateLimit       int      `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`             // Disconnections per second
+	BurstSize       int      `yaml:"burst_size,omitempty" json:"burst_size,omitempty"`             // Initial burst allowance
 }
 
 // Hash calculates SHA256 hash of the config using gob encoding
@@ -90,6 +107,20 @@ func (c *Config) SetDefaults() {
 	}
 	if c.ConnectionCloseTimeout == 0 {
 		c.ConnectionCloseTimeout = Duration(1 * time.Second) // DefaultConnectionCloseTimeout
+	}
+
+	// Set default graceful shutdown values if not specified
+	if c.GracefulShutdown.ShutdownTimeout == 0 {
+		c.GracefulShutdown.ShutdownTimeout = Duration(DefaultGracefulShutdownTimeout)
+	}
+	if c.GracefulShutdown.ReloadTimeout == 0 {
+		c.GracefulShutdown.ReloadTimeout = Duration(DefaultGracefulReloadTimeout)
+	}
+	if c.GracefulShutdown.RateLimit == 0 {
+		c.GracefulShutdown.RateLimit = DefaultDisconnectRateLimit
+	}
+	if c.GracefulShutdown.BurstSize == 0 {
+		c.GracefulShutdown.BurstSize = DefaultDisconnectBurstSize
 	}
 }
 
