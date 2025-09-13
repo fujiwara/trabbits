@@ -36,7 +36,6 @@ func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (fun
 	return s.startAPIServer(ctx, configPath)
 }
 
-
 type Delivery = delivery
 
 func init() {
