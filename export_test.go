@@ -36,15 +36,6 @@ func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (fun
 	return s.startAPIServer(ctx, configPath)
 }
 
-// Test helper for reloadConfigFromFile
-func ReloadConfigFromFile(ctx context.Context, configPath string) (*config.Config, error) {
-	cfg, err := config.Load(ctx, configPath)
-	if err != nil {
-		return nil, err
-	}
-	server := NewServer(cfg, "")
-	return server.reloadConfigFromFile(ctx, configPath)
-}
 
 type Delivery = delivery
 
