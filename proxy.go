@@ -95,10 +95,6 @@ func (p *Proxy) ID() string {
 	return p.id
 }
 
-func (p *Proxy) SetConfigHash(hash string) {
-	p.configHash = hash
-}
-
 func (p *Proxy) ClientAddr() string {
 	if p.conn == nil {
 		return ""
