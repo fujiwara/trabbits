@@ -1,25 +1,25 @@
-package trabbits_test
+package config_test
 
 import (
 	"testing"
 
-	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 var testConfigSuites = []struct {
 	name   string
-	config *trabbits.Config
+	config *config.Config
 	valid  bool
 }{
 	{
 		"empty",
-		&trabbits.Config{},
+		&config.Config{},
 		false,
 	},
 	{
 		"one upstream",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
 					Name:    "primary",
 					Address: "localhost:5672",
@@ -30,8 +30,8 @@ var testConfigSuites = []struct {
 	},
 	{
 		"two upstream",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
 					Name:    "primary",
 					Address: "localhost:5672",
@@ -46,8 +46,8 @@ var testConfigSuites = []struct {
 	},
 	{
 		"three upstreams",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
 					Name:    "primary",
 					Address: "localhost:5672",
@@ -66,11 +66,11 @@ var testConfigSuites = []struct {
 	},
 	{
 		"one cluster upstream",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
 					Name: "test-cluster",
-					Cluster: &trabbits.ClusterConfig{
+					Cluster: &config.ClusterConfig{
 						Nodes: []string{
 							"localhost:5672",
 						},
@@ -82,11 +82,11 @@ var testConfigSuites = []struct {
 	},
 	{
 		"two cluster upstreams",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
 					Name: "test-cluster-1",
-					Cluster: &trabbits.ClusterConfig{
+					Cluster: &config.ClusterConfig{
 						Nodes: []string{
 							"localhost:5672",
 							"localhost:5673",
@@ -95,7 +95,7 @@ var testConfigSuites = []struct {
 				},
 				{
 					Name: "test-cluster-2",
-					Cluster: &trabbits.ClusterConfig{
+					Cluster: &config.ClusterConfig{
 						Nodes: []string{
 							"localhost:5674",
 						},
@@ -107,8 +107,8 @@ var testConfigSuites = []struct {
 	},
 	{
 		"invalid empty port",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
 					Name:    "primary",
 					Address: "localhost",
@@ -119,10 +119,10 @@ var testConfigSuites = []struct {
 	},
 	{
 		"invalid no cluster name",
-		&trabbits.Config{
-			Upstreams: []trabbits.UpstreamConfig{
+		&config.Config{
+			Upstreams: []config.UpstreamConfig{
 				{
-					Cluster: &trabbits.ClusterConfig{
+					Cluster: &config.ClusterConfig{
 						Nodes: []string{
 							"localhost:5672",
 							"localhost:5673",
@@ -153,8 +153,8 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestConfigHash(t *testing.T) {
-	config1 := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config1 := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "primary",
 				Address: "localhost:5672",
@@ -162,8 +162,8 @@ func TestConfigHash(t *testing.T) {
 		},
 	}
 
-	config2 := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config2 := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "primary",
 				Address: "localhost:5672",
@@ -171,8 +171,8 @@ func TestConfigHash(t *testing.T) {
 		},
 	}
 
-	config3 := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config3 := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "primary",
 				Address: "localhost:5673", // different port
@@ -200,14 +200,14 @@ func TestConfigHash(t *testing.T) {
 }
 
 func TestConfigHashWithPassword(t *testing.T) {
-	config1 := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config1 := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name: "test-cluster",
-				Cluster: &trabbits.ClusterConfig{
+				Cluster: &config.ClusterConfig{
 					Nodes: []string{"localhost:5672"},
 				},
-				HealthCheck: &trabbits.HealthCheckConfig{
+				HealthCheck: &config.HealthCheckConfig{
 					Username: "admin",
 					Password: "secret1",
 				},
@@ -215,14 +215,14 @@ func TestConfigHashWithPassword(t *testing.T) {
 		},
 	}
 
-	config2 := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config2 := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name: "test-cluster",
-				Cluster: &trabbits.ClusterConfig{
+				Cluster: &config.ClusterConfig{
 					Nodes: []string{"localhost:5672"},
 				},
-				HealthCheck: &trabbits.HealthCheckConfig{
+				HealthCheck: &config.HealthCheckConfig{
 					Username: "admin",
 					Password: "secret2", // different password
 				},

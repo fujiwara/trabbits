@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/pattern"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -19,7 +20,7 @@ var (
 )
 
 // Server instance functions for testing
-func NewTestServer(config *Config) *Server {
+func NewTestServer(config *config.Config) *Server {
 	return NewServer(config, "") // Empty API socket for tests
 }
 
@@ -36,9 +37,9 @@ func (s *Server) TestStartAPIServer(ctx context.Context, configPath string) (fun
 }
 
 // Test helper for reloadConfigFromFile
-func ReloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+func ReloadConfigFromFile(ctx context.Context, configPath string) (*config.Config, error) {
 	// Create a temporary server instance for config reloading
-	cfg, err := LoadConfig(ctx, configPath)
+	cfg, err := config.LoadConfig(ctx, configPath)
 	if err != nil {
 		return nil, err
 	}

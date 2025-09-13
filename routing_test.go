@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/rabbitmq/amqp091-go"
 )
 
@@ -53,7 +54,7 @@ func TestProxyPublishGetRouting(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	cfg, err := trabbits.LoadConfig(t.Context(), "testdata/config.json")
+	cfg, err := config.LoadConfig(t.Context(), "testdata/config.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/fujiwara/trabbits/config"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -21,13 +22,13 @@ type Upstream struct {
 	mu            sync.Mutex
 	logger        *slog.Logger
 	keyPatterns   []string
-	queueAttr     *QueueAttributes
+	queueAttr     *config.QueueAttributes
 	shutdownFuncs sync.Map
 	destruct      []func(*rabbitmq.Channel)
 	closeChan     chan *rabbitmq.Error
 }
 
-func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf UpstreamConfig, address string) *Upstream {
+func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.UpstreamConfig, address string) *Upstream {
 	u := &Upstream{
 		name:        conf.Name,
 		address:     address,

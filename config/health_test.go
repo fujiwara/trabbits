@@ -1,22 +1,22 @@
 // MIT License
 // Copyright (c) 2025 FUJIWARA Shunichiro
 
-package trabbits_test
+package config_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 // Test that health check configuration is properly parsed
 func TestHealthCheckConfig(t *testing.T) {
-	cfg := &trabbits.HealthCheckConfig{
-		Interval:           trabbits.Duration(30 * time.Second),
-		Timeout:            trabbits.Duration(5 * time.Second),
+	cfg := &config.HealthCheckConfig{
+		Interval:           config.Duration(30 * time.Second),
+		Timeout:            config.Duration(5 * time.Second),
 		UnhealthyThreshold: 3,
-		RecoveryInterval:   trabbits.Duration(60 * time.Second),
+		RecoveryInterval:   config.Duration(60 * time.Second),
 		Username:           "admin",
 		Password:           "admin",
 	}
@@ -36,16 +36,16 @@ func TestHealthCheckConfig(t *testing.T) {
 
 // Test upstream config with health check
 func TestUpstreamConfigWithHealthCheck(t *testing.T) {
-	upstream := trabbits.UpstreamConfig{
+	upstream := config.UpstreamConfig{
 		Name: "test-cluster",
-		Cluster: &trabbits.ClusterConfig{
+		Cluster: &config.ClusterConfig{
 			Nodes: []string{
 				"localhost:5672",
 				"localhost:5673",
 			},
 		},
-		HealthCheck: &trabbits.HealthCheckConfig{
-			Interval: trabbits.Duration(10 * time.Second),
+		HealthCheck: &config.HealthCheckConfig{
+			Interval: config.Duration(10 * time.Second),
 			Username: "admin",
 			Password: "admin",
 		},

@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 
 	// Create test config
-	config := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -75,8 +76,8 @@ func TestDisconnectOutdatedProxies_NoProxies(t *testing.T) {
 	// Clear any remaining proxies from previous tests
 
 	// Test with no proxies registered at all
-	config := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
