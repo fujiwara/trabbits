@@ -263,7 +263,7 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 
 	// Initialize health check managers for cluster upstreams
-	if err := server.initHealthManagers(ctx, cfg); err != nil {
+	if err := server.initHealthManagers(ctx); err != nil {
 		return fmt.Errorf("failed to init health managers: %w", err)
 	}
 
@@ -354,7 +354,7 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 }
 
 // initHealthManagers initializes health check managers for cluster upstreams
-func (srv *Server) initHealthManagers(ctx context.Context, cfg *config.Config) error {
+func (srv *Server) initHealthManagers(ctx context.Context) error {
 	// Stop existing health managers in both server and global maps
 	srv.healthManagers.Range(func(key, value interface{}) bool {
 		if mgr, ok := value.(*health.NodeHealthManager); ok {
@@ -365,6 +365,7 @@ func (srv *Server) initHealthManagers(ctx context.Context, cfg *config.Config) e
 	})
 
 	// Create new health managers for cluster upstreams
+	cfg := srv.GetConfig()
 	for _, upstream := range cfg.Upstreams {
 		if upstream.Cluster != nil && upstream.HealthCheck != nil {
 			mgr := health.NewNodeHealthManagerFromUpstream(&upstream, metrics)
