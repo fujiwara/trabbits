@@ -41,28 +41,28 @@ type Proxy struct {
 
 func NewProxy(conn net.Conn) *Proxy {
 	id := generateID()
-	s := &Proxy{
+	p := &Proxy{
 		conn:               conn,
 		id:                 id,
 		r:                  amqp091.NewReader(conn),
 		w:                  amqp091.NewWriter(conn),
 		upstreamDisconnect: make(chan string, 10), // buffered to avoid blocking
 	}
-	s.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", s.ClientAddr())
-	return s
+	p.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", p.ClientAddr())
+	return p
 }
 
-func (s *Proxy) Upstreams() []*Upstream {
-	return s.upstreams
+func (p *Proxy) Upstreams() []*Upstream {
+	return p.upstreams
 }
 
-func (s *Proxy) Upstream(i int) *Upstream {
-	return s.upstreams[i]
+func (p *Proxy) Upstream(i int) *Upstream {
+	return p.upstreams[i]
 }
 
-func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
+func (p *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	var chs []*rabbitmq.Channel
-	for _, us := range s.upstreams {
+	for _, us := range p.upstreams {
 		ch, err := us.GetChannel(id)
 		if err != nil {
 			return nil, err
@@ -72,9 +72,9 @@ func (s *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	return chs, nil
 }
 
-func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
+func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, error) {
 	var routed *Upstream
-	for _, us := range s.upstreams {
+	for _, us := range p.upstreams {
 		for _, keyPattern := range us.keyPatterns {
 			if pattern.Match(routingKey, keyPattern) {
 				routed = us
@@ -86,39 +86,39 @@ func (s *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 	if routed != nil {
 		return routed.GetChannel(id)
 	}
-	us := s.upstreams[0] // default upstream
+	us := p.upstreams[0] // default upstream
 	us.logger.Debug("not matched any patterns, using default upstream", "routing_key", routingKey)
 	return us.GetChannel(id)
 }
 
-func (s *Proxy) ID() string {
-	return s.id
+func (p *Proxy) ID() string {
+	return p.id
 }
 
-func (s *Proxy) SetConfigHash(hash string) {
-	s.configHash = hash
+func (p *Proxy) SetConfigHash(hash string) {
+	p.configHash = hash
 }
 
-func (s *Proxy) ClientAddr() string {
-	if s.conn == nil {
+func (p *Proxy) ClientAddr() string {
+	if p.conn == nil {
 		return ""
 	}
-	if tcpConn, ok := s.conn.(*net.TCPConn); ok {
+	if tcpConn, ok := p.conn.(*net.TCPConn); ok {
 		return tcpConn.RemoteAddr().String()
 	}
 	return ""
 }
 
-func (s *Proxy) Close() {
-	for _, us := range s.Upstreams() {
+func (p *Proxy) Close() {
+	for _, us := range p.Upstreams() {
 		if err := us.Close(); err != nil {
 			us.logger.Warn("failed to close upstream", "error", err)
 		}
 	}
 }
 
-func (s *Proxy) NewChannel(id uint16) error {
-	for _, us := range s.Upstreams() {
+func (p *Proxy) NewChannel(id uint16) error {
+	for _, us := range p.Upstreams() {
 		if _, err := us.NewChannel(id); err != nil {
 			return fmt.Errorf("failed to create channel: %w", err)
 		}
@@ -126,8 +126,8 @@ func (s *Proxy) NewChannel(id uint16) error {
 	return nil
 }
 
-func (s *Proxy) CloseChannel(id uint16) error {
-	for _, us := range s.Upstreams() {
+func (p *Proxy) CloseChannel(id uint16) error {
+	for _, us := range p.Upstreams() {
 		if err := us.CloseChannel(id); err != nil {
 			return err
 		}
@@ -135,36 +135,36 @@ func (s *Proxy) CloseChannel(id uint16) error {
 	return nil
 }
 
-func (s *Proxy) ClientBanner() string {
-	if s.clientProps == nil {
+func (p *Proxy) ClientBanner() string {
+	if p.clientProps == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/%s", s.clientProps["platform"], s.clientProps["product"], s.clientProps["version"])
+	return fmt.Sprintf("%s/%s/%s", p.clientProps["platform"], p.clientProps["product"], p.clientProps["version"])
 }
 
 // MonitorUpstreamConnection monitors an upstream connection and notifies when it closes
-func (s *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstream) {
+func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstream) {
 	select {
 	case <-ctx.Done():
-		s.logger.Debug("Upstream monitoring stopped by context", "upstream", upstream.String())
+		p.logger.Debug("Upstream monitoring stopped by context", "upstream", upstream.String())
 		return
 	case err := <-upstream.NotifyClose():
 		if err != nil {
-			s.logger.Warn("Upstream connection closed with error",
+			p.logger.Warn("Upstream connection closed with error",
 				"upstream", upstream.String(),
 				"address", upstream.address,
 				"error", err)
 		} else {
-			s.logger.Warn("Upstream connection closed gracefully",
+			p.logger.Warn("Upstream connection closed gracefully",
 				"upstream", upstream.String(),
 				"address", upstream.address)
 		}
 		// Notify proxy about the disconnection
 		select {
-		case s.upstreamDisconnect <- upstream.String():
+		case p.upstreamDisconnect <- upstream.String():
 		default:
 			// Channel is full, log and continue
-			s.logger.Error("Failed to notify upstream disconnection - channel full",
+			p.logger.Error("Failed to notify upstream disconnection - channel full",
 				"upstream", upstream.String())
 		}
 	}

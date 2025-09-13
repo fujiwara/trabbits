@@ -464,21 +464,21 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
+func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
 	u := &url.URL{
 		Scheme: "amqp",
-		User:   url.UserPassword(s.user, s.password),
+		User:   url.UserPassword(p.user, p.password),
 		Host:   addr,
-		Path:   s.VirtualHost,
+		Path:   p.VirtualHost,
 	}
-	s.logger.Info("connect to upstream", "url", safeURLString(*u))
+	p.logger.Info("connect to upstream", "url", safeURLString(*u))
 	// Copy all client properties and override specific ones
 	upstreamProps := rabbitmq.Table{}
 	for k, v := range props {
 		upstreamProps[k] = v
 	}
 	// overwrite product property to include trabbits and client address
-	upstreamProps["product"] = fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], s.ClientAddr(), Version)
+	upstreamProps["product"] = fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], p.ClientAddr(), Version)
 
 	cfg := rabbitmq.Config{
 		Properties: upstreamProps,
@@ -492,7 +492,7 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	return conn, nil
 }
 
-func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, string, error) {
+func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, string, error) {
 	var nodesToTry []string
 
 	// Health-based node selection is not available at proxy level
@@ -508,12 +508,12 @@ func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 
 	// Try to connect to each node
 	for _, addr := range nodesToTry {
-		conn, err := s.connectToUpstreamServer(addr, props, timeout)
+		conn, err := p.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
-			s.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
+			p.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
 			return conn, addr, nil
 		} else {
-			s.logger.Warn("Failed to connect to upstream node",
+			p.logger.Warn("Failed to connect to upstream node",
 				"upstream", upstreamName,
 				"address", addr,
 				"error", err)
@@ -559,26 +559,26 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	return result
 }
 
-func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config.Upstream, props amqp091.Table) error {
+func (p *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config.Upstream, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
 		timeout := c.Timeout.ToDuration()
 		if timeout == 0 {
 			timeout = UpstreamDefaultTimeout
 		}
-		conn, addr, err := s.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
+		conn, addr, err := p.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
 		if err != nil {
 			return err
 		}
-		us := NewUpstream(conn, s.logger, c, addr)
-		s.upstreams = append(s.upstreams, us)
+		us := NewUpstream(conn, p.logger, c, addr)
+		p.upstreams = append(p.upstreams, us)
 
 		// Start monitoring the upstream connection
-		go s.MonitorUpstreamConnection(ctx, us)
+		go p.MonitorUpstreamConnection(ctx, us)
 	}
 	return nil
 }
 
-func (s *Proxy) handshake(ctx context.Context) error {
+func (p *Proxy) handshake(ctx context.Context) error {
 	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
 		VersionMajor: 0,
@@ -586,33 +586,33 @@ func (s *Proxy) handshake(ctx context.Context) error {
 		Mechanisms:   "PLAIN",
 		Locales:      "en_US",
 	}
-	if err := s.send(0, start); err != nil {
+	if err := p.send(0, start); err != nil {
 		return fmt.Errorf("failed to write Connection.Start: %w", err)
 	}
 
 	// Connection.Start-Ok 受信（認証情報含む）
 	startOk := amqp091.ConnectionStartOk{}
-	_, err := s.recv(0, &startOk)
+	_, err := p.recv(0, &startOk)
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
-	s.clientProps = startOk.ClientProperties
-	s.logger = s.logger.With("client", s.ClientBanner())
+	p.clientProps = startOk.ClientProperties
+	p.logger = p.logger.With("client", p.ClientBanner())
 	auth := startOk.Mechanism
 	authRes := startOk.Response
 	switch auth {
 	case "PLAIN":
-		s.user, s.password, err = amqp091.ParsePLAINAuthResponse(authRes)
+		p.user, p.password, err = amqp091.ParsePLAINAuthResponse(authRes)
 		if err != nil {
 			return fmt.Errorf("failed to parse PLAIN auth response: %w", err)
 		}
-		s.logger.Info("PLAIN auth", "user", s.user)
+		p.logger.Info("PLAIN auth", "user", p.user)
 	case "AMQPLAIN":
-		s.user, s.password, err = amqp091.ParseAMQPLAINAuthResponse(authRes)
+		p.user, p.password, err = amqp091.ParseAMQPLAINAuthResponse(authRes)
 		if err != nil {
 			return fmt.Errorf("failed to parse AMQPLAIN auth response: %w", err)
 		}
-		s.logger.Info("AMQPLAIN auth", "user", s.user)
+		p.logger.Info("AMQPLAIN auth", "user", p.user)
 	default:
 		return fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
@@ -623,40 +623,40 @@ func (s *Proxy) handshake(ctx context.Context) error {
 		FrameMax:   uint32(FrameMax),
 		Heartbeat:  uint16(HeartbeatInterval),
 	}
-	if err := s.send(0, tune); err != nil {
+	if err := p.send(0, tune); err != nil {
 		return fmt.Errorf("failed to write Connection.Tune: %w", err)
 	}
 
 	// Connection.Tune-Ok 受信
 	tuneOk := amqp091.ConnectionTuneOk{}
-	_, err = s.recv(0, &tuneOk)
+	_, err = p.recv(0, &tuneOk)
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
 
 	// Connection.Open 受信
 	open := amqp091.ConnectionOpen{}
-	_, err = s.recv(0, &open)
+	_, err = p.recv(0, &open)
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
-	s.VirtualHost = open.VirtualHost
-	s.logger.Info("Connection.Open", "vhost", s.VirtualHost)
+	p.VirtualHost = open.VirtualHost
+	p.logger.Info("Connection.Open", "vhost", p.VirtualHost)
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
-	if err := s.send(0, openOk); err != nil {
+	if err := p.send(0, openOk); err != nil {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
+func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 	if interval == 0 {
 		interval = uint16(HeartbeatInterval)
 	}
-	s.logger.Debug("start heartbeat", "interval", interval)
+	p.logger.Debug("start heartbeat", "interval", interval)
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 	for {
@@ -664,63 +664,63 @@ func (s *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.mu.Lock()
-			s.logger.Debug("send heartbeat", "proxy", s.id)
-			if err := s.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
-				s.mu.Unlock()
-				s.logger.Warn("failed to send heartbeat", "error", err)
-				s.shutdown(ctx)
+			p.mu.Lock()
+			p.logger.Debug("send heartbeat", "proxy", p.id)
+			if err := p.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
+				p.mu.Unlock()
+				p.logger.Warn("failed to send heartbeat", "error", err)
+				p.shutdown(ctx)
 				return
 			}
-			s.mu.Unlock()
+			p.mu.Unlock()
 		}
 	}
 }
 
-func (s *Proxy) shutdown(ctx context.Context) error {
+func (p *Proxy) shutdown(ctx context.Context) error {
 	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
 		ReplyText: "Goodbye",
 	}
-	if err := s.send(0, close); err != nil {
+	if err := p.send(0, close); err != nil {
 		return fmt.Errorf("failed to write Connection.Close: %w", err)
 	}
 	// Connection.Close-Ok 受信
 	msg := amqp091.ConnectionCloseOk{}
-	_, err := s.recv(0, &msg)
+	_, err := p.recv(0, &msg)
 	if err != nil {
-		s.logger.Warn("failed to read Connection.Close-Ok", "error", err)
+		p.logger.Warn("failed to read Connection.Close-Ok", "error", err)
 	}
 	return nil
 }
 
 // sendConnectionError sends a Connection.Close frame with error to the client
-func (s *Proxy) sendConnectionError(err AMQPError) error {
+func (p *Proxy) sendConnectionError(err AMQPError) error {
 	close := &amqp091.ConnectionClose{
 		ReplyCode: err.Code(),
 		ReplyText: err.Error(),
 	}
-	if sendErr := s.send(0, close); sendErr != nil {
-		s.logger.Error("Failed to send Connection.Close to client", "error", sendErr)
+	if sendErr := p.send(0, close); sendErr != nil {
+		p.logger.Error("Failed to send Connection.Close to client", "error", sendErr)
 		return sendErr
 	}
 	// Try to read Connection.Close-Ok, but don't wait too long
-	s.conn.SetReadDeadline(time.Now().Add(s.connectionCloseTimeout))
+	p.conn.SetReadDeadline(time.Now().Add(p.connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
-	if _, recvErr := s.recv(0, &msg); recvErr != nil {
-		s.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
+	if _, recvErr := p.recv(0, &msg); recvErr != nil {
+		p.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
 	}
 	return nil
 }
 
-func (s *Proxy) readClientFrame() (amqp091.Frame, error) {
-	s.conn.SetReadDeadline(time.Now().Add(s.readTimeout))
-	return s.r.ReadFrame()
+func (p *Proxy) readClientFrame() (amqp091.Frame, error) {
+	p.conn.SetReadDeadline(time.Now().Add(p.readTimeout))
+	return p.r.ReadFrame()
 }
 
-func (s *Proxy) process(ctx context.Context) error {
-	frame, err := s.readClientFrame()
+func (p *Proxy) process(ctx context.Context) error {
+	frame, err := p.readClientFrame()
 	if err != nil {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			return nil
@@ -730,31 +730,31 @@ func (s *Proxy) process(ctx context.Context) error {
 	metrics.ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		s.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method).String())
+		p.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method).String())
 	} else {
-		s.logger.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame).String())
+		p.logger.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame).String())
 	}
 	if frame.Channel() == 0 {
-		err = s.dispatch0(ctx, frame)
+		err = p.dispatch0(ctx, frame)
 	} else {
-		err = s.dispatchN(ctx, frame)
+		err = p.dispatchN(ctx, frame)
 	}
 	if err != nil {
 		if e, ok := err.(AMQPError); ok {
-			s.logger.Warn("AMQPError", "error", e)
-			return s.send(frame.Channel(), e.AMQPMessage())
+			p.logger.Warn("AMQPError", "error", e)
+			return p.send(frame.Channel(), e.AMQPMessage())
 		}
 		return err
 	}
 	return nil
 }
 
-func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
+func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
 		if m, ok := f.Method.(amqp091.MessageWithContent); ok {
 			// read header and body frames until frame-end
-			_, err := s.recv(int(f.Channel()), m)
+			_, err := p.recv(int(f.Channel()), m)
 			if err != nil {
 				return NewError(amqp091.FrameError, fmt.Sprintf("failed to read frames: %s", err))
 			}
@@ -764,41 +764,41 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
-			return s.replyChannelOpen(ctx, f, m)
+			return p.replyChannelOpen(ctx, f, m)
 		case *amqp091.ChannelClose:
-			return s.replyChannelClose(ctx, f, m)
+			return p.replyChannelClose(ctx, f, m)
 		case *amqp091.QueueDeclare:
-			return s.replyQueueDeclare(ctx, f, m)
+			return p.replyQueueDeclare(ctx, f, m)
 		case *amqp091.QueueDelete:
-			return s.replyQueueDelete(ctx, f, m)
+			return p.replyQueueDelete(ctx, f, m)
 		case *amqp091.QueueBind:
-			return s.replyQueueBind(ctx, f, m)
+			return p.replyQueueBind(ctx, f, m)
 		case *amqp091.QueueUnbind:
-			return s.replyQueueUnbind(ctx, f, m)
+			return p.replyQueueUnbind(ctx, f, m)
 		case *amqp091.QueuePurge:
-			return s.replyQueuePurge(ctx, f, m)
+			return p.replyQueuePurge(ctx, f, m)
 		case *amqp091.ExchangeDeclare:
-			return s.replyExchangeDeclare(ctx, f, m)
+			return p.replyExchangeDeclare(ctx, f, m)
 		case *amqp091.BasicPublish:
-			return s.replyBasicPublish(ctx, f, m)
+			return p.replyBasicPublish(ctx, f, m)
 		case *amqp091.BasicConsume:
-			return s.replyBasicConsume(ctx, f, m)
+			return p.replyBasicConsume(ctx, f, m)
 		case *amqp091.BasicGet:
-			return s.replyBasicGet(ctx, f, m)
+			return p.replyBasicGet(ctx, f, m)
 		case *amqp091.BasicAck:
-			return s.replyBasicAck(ctx, f, m)
+			return p.replyBasicAck(ctx, f, m)
 		case *amqp091.BasicNack:
-			return s.replyBasicNack(ctx, f, m)
+			return p.replyBasicNack(ctx, f, m)
 		case *amqp091.BasicCancel:
-			return s.replyBasicCancel(ctx, f, m)
+			return p.replyBasicCancel(ctx, f, m)
 		case *amqp091.BasicQos:
-			return s.replyBasicQos(ctx, f, m)
+			return p.replyBasicQos(ctx, f, m)
 		default:
 			metrics.ErroredMessages.WithLabelValues(methodName).Inc()
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
-		s.logger.Debug("heartbeat")
+		p.logger.Debug("heartbeat")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -806,17 +806,17 @@ func (s *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 	return nil
 }
 
-func (s *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
+func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 	switch f := frame.(type) {
 	case *amqp091.MethodFrame:
 		switch m := f.Method.(type) {
 		case *amqp091.ConnectionClose:
-			return s.replyConnectionClose(ctx, f, m)
+			return p.replyConnectionClose(ctx, f, m)
 		default:
 			return fmt.Errorf("unsupported method: %T", m)
 		}
 	case *amqp091.HeartbeatFrame:
-		s.logger.Debug("heartbeat")
+		p.logger.Debug("heartbeat")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -824,14 +824,14 @@ func (s *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 	return nil
 }
 
-func (s *Proxy) send(channel uint16, m amqp091.Message) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.logger.Debug("send", "channel", channel, "message", m)
+func (p *Proxy) send(channel uint16, m amqp091.Message) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logger.Debug("send", "channel", channel, "message", m)
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
-		if err := s.w.WriteFrameNoFlush(&amqp091.MethodFrame{
+		if err := p.w.WriteFrameNoFlush(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    msg,
 		}); err != nil {
@@ -839,7 +839,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 		}
 		metrics.ClientSentFrames.Inc()
 
-		if err := s.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
+		if err := p.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
 			ClassId:    class,
 			Size:       uint64(len(body)),
@@ -857,7 +857,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 			if end > len(body) {
 				end = len(body)
 			}
-			if err := s.w.WriteFrame(&amqp091.BodyFrame{
+			if err := p.w.WriteFrame(&amqp091.BodyFrame{
 				ChannelId: uint16(channel),
 				Body:      body[offset:end],
 			}); err != nil {
@@ -867,7 +867,7 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 			metrics.ClientSentFrames.Inc()
 		}
 	} else {
-		if err := s.w.WriteFrame(&amqp091.MethodFrame{
+		if err := p.w.WriteFrame(&amqp091.MethodFrame{
 			ChannelId: uint16(channel),
 			Method:    m,
 		}); err != nil {
@@ -878,16 +878,16 @@ func (s *Proxy) send(channel uint16, m amqp091.Message) error {
 	return nil
 }
 
-func (s *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
+func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var remaining int
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		s.logger.Debug("recv", "channel", channel, "message", m, "type", reflect.TypeOf(m).String())
+		p.logger.Debug("recv", "channel", channel, "message", m, "type", reflect.TypeOf(m).String())
 	}()
 
 	for {
-		frame, err := s.readClientFrame()
+		frame, err := p.readClientFrame()
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
