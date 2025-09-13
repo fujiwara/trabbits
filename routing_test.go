@@ -54,7 +54,7 @@ func TestProxyPublishGetRouting(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Wait for the message to be delivered
 
-	cfg, err := config.LoadConfig(t.Context(), "testdata/config.json")
+	cfg, err := config.Load(t.Context(), "testdata/config.json")
 	if err != nil {
 		t.Fatal(err)
 	}

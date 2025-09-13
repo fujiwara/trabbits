@@ -42,7 +42,7 @@ func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc
 	os.Remove(socketPath) // trabbits will recreate it
 
 	// Create server instance for API server
-	cfg, err := config.LoadConfig(ctx, configFile)
+	cfg, err := config.Load(ctx, configFile)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}

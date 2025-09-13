@@ -246,7 +246,7 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 }
 
 func run(ctx context.Context, opt *CLI) error {
-	cfg, err := config.LoadConfig(ctx, opt.Config)
+	cfg, err := config.Load(ctx, opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -558,7 +558,7 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	return result
 }
 
-func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config.UpstreamConfig, props amqp091.Table) error {
+func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config.Upstream, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
 		timeout := c.Timeout.ToDuration()
 		if timeout == 0 {

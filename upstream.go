@@ -28,7 +28,7 @@ type Upstream struct {
 	closeChan     chan *rabbitmq.Error
 }
 
-func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.UpstreamConfig, address string) *Upstream {
+func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.Upstream, address string) *Upstream {
 	u := &Upstream{
 		name:        conf.Name,
 		address:     address,

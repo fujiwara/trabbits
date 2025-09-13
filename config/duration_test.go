@@ -124,7 +124,7 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 
 func TestConfigFileLoading(t *testing.T) {
 	// Test loading the actual testdata config file
-	cfg, err := config.LoadConfig(t.Context(), "../testdata/config.json")
+	cfg, err := config.Load(t.Context(), "../testdata/config.json")
 	if err != nil {
 		t.Fatalf("Failed to load config file: %v", err)
 	}
@@ -226,17 +226,17 @@ func TestDurationInvalidFormats(t *testing.T) {
 func TestConfigRoundTrip(t *testing.T) {
 	// Create a config with health check settings
 	original := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name: "test-cluster",
-				Cluster: &config.ClusterConfig{
+				Cluster: &config.Cluster{
 					Nodes: []string{
 						"localhost:5672",
 						"localhost:5673",
 					},
 				},
 				Timeout: config.Duration(10 * time.Second),
-				HealthCheck: &config.HealthCheckConfig{
+				HealthCheck: &config.HealthCheck{
 					Interval:           config.Duration(30 * time.Second),
 					Timeout:            config.Duration(5 * time.Second),
 					UnhealthyThreshold: 3,
@@ -267,7 +267,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	tmpfile.Close()
 
 	// Load config from file
-	loaded, err := config.LoadConfig(t.Context(), tmpfile.Name())
+	loaded, err := config.Load(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}

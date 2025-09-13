@@ -14,7 +14,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 
 	// Test rate limiting with multiple proxies
 	oldConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -23,7 +23,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	}
 
 	newConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash
@@ -107,7 +107,7 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 
 	// Test timeout calculation for large numbers of proxies
 	oldConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -116,7 +116,7 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	}
 
 	newConfig := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash

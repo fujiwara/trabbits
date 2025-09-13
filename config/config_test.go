@@ -19,7 +19,7 @@ var testConfigSuites = []struct {
 	{
 		"one upstream",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
 					Name:    "primary",
 					Address: "localhost:5672",
@@ -31,7 +31,7 @@ var testConfigSuites = []struct {
 	{
 		"two upstream",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
 					Name:    "primary",
 					Address: "localhost:5672",
@@ -47,7 +47,7 @@ var testConfigSuites = []struct {
 	{
 		"three upstreams",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
 					Name:    "primary",
 					Address: "localhost:5672",
@@ -67,10 +67,10 @@ var testConfigSuites = []struct {
 	{
 		"one cluster upstream",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
 					Name: "test-cluster",
-					Cluster: &config.ClusterConfig{
+					Cluster: &config.Cluster{
 						Nodes: []string{
 							"localhost:5672",
 						},
@@ -83,10 +83,10 @@ var testConfigSuites = []struct {
 	{
 		"two cluster upstreams",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
 					Name: "test-cluster-1",
-					Cluster: &config.ClusterConfig{
+					Cluster: &config.Cluster{
 						Nodes: []string{
 							"localhost:5672",
 							"localhost:5673",
@@ -95,7 +95,7 @@ var testConfigSuites = []struct {
 				},
 				{
 					Name: "test-cluster-2",
-					Cluster: &config.ClusterConfig{
+					Cluster: &config.Cluster{
 						Nodes: []string{
 							"localhost:5674",
 						},
@@ -108,7 +108,7 @@ var testConfigSuites = []struct {
 	{
 		"invalid empty port",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
 					Name:    "primary",
 					Address: "localhost",
@@ -120,9 +120,9 @@ var testConfigSuites = []struct {
 	{
 		"invalid no cluster name",
 		&config.Config{
-			Upstreams: []config.UpstreamConfig{
+			Upstreams: []config.Upstream{
 				{
-					Cluster: &config.ClusterConfig{
+					Cluster: &config.Cluster{
 						Nodes: []string{
 							"localhost:5672",
 							"localhost:5673",
@@ -154,7 +154,7 @@ func TestConfigValidate(t *testing.T) {
 
 func TestConfigHash(t *testing.T) {
 	config1 := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "primary",
 				Address: "localhost:5672",
@@ -163,7 +163,7 @@ func TestConfigHash(t *testing.T) {
 	}
 
 	config2 := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "primary",
 				Address: "localhost:5672",
@@ -172,7 +172,7 @@ func TestConfigHash(t *testing.T) {
 	}
 
 	config3 := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name:    "primary",
 				Address: "localhost:5673", // different port
@@ -201,13 +201,13 @@ func TestConfigHash(t *testing.T) {
 
 func TestConfigHashWithPassword(t *testing.T) {
 	config1 := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name: "test-cluster",
-				Cluster: &config.ClusterConfig{
+				Cluster: &config.Cluster{
 					Nodes: []string{"localhost:5672"},
 				},
-				HealthCheck: &config.HealthCheckConfig{
+				HealthCheck: &config.HealthCheck{
 					Username: "admin",
 					Password: "secret1",
 				},
@@ -216,13 +216,13 @@ func TestConfigHashWithPassword(t *testing.T) {
 	}
 
 	config2 := &config.Config{
-		Upstreams: []config.UpstreamConfig{
+		Upstreams: []config.Upstream{
 			{
 				Name: "test-cluster",
-				Cluster: &config.ClusterConfig{
+				Cluster: &config.Cluster{
 					Nodes: []string{"localhost:5672"},
 				},
-				HealthCheck: &config.HealthCheckConfig{
+				HealthCheck: &config.HealthCheck{
 					Username: "admin",
 					Password: "secret2", // different password
 				},

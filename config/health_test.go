@@ -12,7 +12,7 @@ import (
 
 // Test that health check configuration is properly parsed
 func TestHealthCheckConfig(t *testing.T) {
-	cfg := &config.HealthCheckConfig{
+	cfg := &config.HealthCheck{
 		Interval:           config.Duration(30 * time.Second),
 		Timeout:            config.Duration(5 * time.Second),
 		UnhealthyThreshold: 3,
@@ -36,15 +36,15 @@ func TestHealthCheckConfig(t *testing.T) {
 
 // Test upstream config with health check
 func TestUpstreamConfigWithHealthCheck(t *testing.T) {
-	upstream := config.UpstreamConfig{
+	upstream := config.Upstream{
 		Name: "test-cluster",
-		Cluster: &config.ClusterConfig{
+		Cluster: &config.Cluster{
 			Nodes: []string{
 				"localhost:5672",
 				"localhost:5673",
 			},
 		},
-		HealthCheck: &config.HealthCheckConfig{
+		HealthCheck: &config.HealthCheck{
 			Interval: config.Duration(10 * time.Second),
 			Username: "admin",
 			Password: "admin",

@@ -14,6 +14,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - **Error handling**: Always log errors before returning, use structured logging with context
 - **Goroutine management**: Use proper synchronization with `sync.WaitGroup` and timeout patterns to prevent hanging
 - **Resource cleanup**: Implement proper cleanup in defer functions, especially for connections and channels
+- **Git operations**: Use `git add <file>` for individual files, never use `git add -A` or `git add .`
 
 ### Testing
 - Run tests with: `go test ./...`
