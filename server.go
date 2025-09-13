@@ -464,58 +464,58 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	s := srv.NewProxy(conn)
+	p := srv.NewProxy(conn)
 	defer func() {
-		srv.UnregisterProxy(s)
-		s.Close()
+		srv.UnregisterProxy(p)
+		p.Close()
 	}()
 
-	if err := s.handshake(ctx); err != nil {
-		s.logger.Warn("Failed to handshake", "error", err)
+	if err := p.handshake(ctx); err != nil {
+		p.logger.Warn("Failed to handshake", "error", err)
 		metrics.ClientConnectionErrors.Inc()
 		return
 	}
-	s.logger.Info("handshake completed")
+	p.logger.Info("handshake completed")
 
 	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	srv.RegisterProxy(s, cancel)
-	s.logger.Info("proxy created", "config_hash", s.configHash[:8])
+	srv.RegisterProxy(p, cancel)
+	p.logger.Info("proxy created", "config_hash", p.configHash[:8])
 
-	if err := s.ConnectToUpstreams(subCtx, srv.GetConfig().Upstreams, s.clientProps); err != nil {
-		s.logger.Warn("Failed to connect to upstreams", "error", err)
+	if err := p.ConnectToUpstreams(subCtx, srv.GetConfig().Upstreams, p.clientProps); err != nil {
+		p.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
-	s.logger.Info("connected to upstreams")
+	p.logger.Info("connected to upstreams")
 
-	go s.runHeartbeat(subCtx, uint16(HeartbeatInterval))
+	go p.runHeartbeat(subCtx, uint16(HeartbeatInterval))
 
 	// wait for client frames
 	for {
 		select {
 		case <-ctx.Done(): // parent (server) context is done
-			s.shutdown(subCtx) // graceful shutdown
+			p.shutdown(subCtx) // graceful shutdown
 			return             // subCtx will be canceled by defer ^
 		case <-subCtx.Done():
-			s.shutdown(subCtx) // graceful shutdown when context is cancelled
+			p.shutdown(subCtx) // graceful shutdown when context is cancelled
 			return
-		case upstreamName := <-s.upstreamDisconnect:
+		case upstreamName := <-p.upstreamDisconnect:
 			// An upstream connection was lost
-			s.logger.Error("Upstream connection lost, closing client connection",
+			p.logger.Error("Upstream connection lost, closing client connection",
 				"upstream", upstreamName)
 			// Send Connection.Close to client with connection-forced error
-			s.sendConnectionError(NewError(amqp091.ConnectionForced,
+			p.sendConnectionError(NewError(amqp091.ConnectionForced,
 				fmt.Sprintf("Upstream connection lost: %s", upstreamName)))
 			return
 		default:
 		}
-		if err := s.process(subCtx); err != nil {
+		if err := p.process(subCtx); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || isBrokenPipe(err) {
-				s.logger.Info("closed connection")
+				p.logger.Info("closed connection")
 			} else {
-				s.logger.Warn("failed to process", "error", err)
+				p.logger.Warn("failed to process", "error", err)
 			}
 			break
 		}
