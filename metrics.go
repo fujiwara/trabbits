@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -13,11 +14,19 @@ import (
 
 var metrics *Metrics
 var metricsReg *prometheus.Registry
+var metricsOnce sync.Once
 
-func init() {
-	metrics = NewMetrics()
-	metricsReg = prometheus.NewRegistry()
-	metrics.MustRegister(metricsReg)
+func initMetrics() {
+	metricsOnce.Do(func() {
+		metrics = NewMetrics()
+		metricsReg = prometheus.NewRegistry()
+		metrics.MustRegister(metricsReg)
+	})
+}
+
+func GetMetrics() *Metrics {
+	initMetrics()
+	return metrics
 }
 
 type Metrics struct {
@@ -39,6 +48,8 @@ type Metrics struct {
 	ErroredMessages   *prometheus.CounterVec
 
 	LoggerStats *prometheus.CounterVec
+
+	PanicRecoveries *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -100,6 +111,11 @@ func NewMetrics() *Metrics {
 			Name: "trabbits_logger_stats_total",
 			Help: "Number of logger stats by level.",
 		}, []string{"level"}),
+
+		PanicRecoveries: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "trabbits_panic_recoveries_total",
+			Help: "Number of panic recoveries by function.",
+		}, []string{"function"}),
 	}
 }
 
@@ -123,6 +139,8 @@ func (m *Metrics) MustRegister(reg prometheus.Registerer) {
 		m.ErroredMessages,
 
 		m.LoggerStats,
+
+		m.PanicRecoveries,
 	)
 }
 

@@ -17,6 +17,7 @@ var (
 	MetricsStore       = metrics
 	NewAPIClient       = newAPIClient
 	TestMatchRouting   = testMatchRouting
+	RecoverFromPanic   = recoverFromPanic
 )
 
 // Server instance functions for testing

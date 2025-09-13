@@ -155,6 +155,7 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		d := d
 		wg.Add(1)
 		go func() {
+			defer recoverFromPanic(p.logger, "consume.goroutine")
 			defer wg.Done()
 			p.consume(ctx, id, q, tag, d)
 		}()
