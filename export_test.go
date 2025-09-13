@@ -55,3 +55,8 @@ func GetMetricsRegistry() *prometheus.Registry {
 func (p *Proxy) SetConfigHash(hash string) {
 	p.configHash = hash
 }
+
+// Test-only method for setting proxy shutdown message
+func (p *Proxy) SetShutdownMessage(message string) {
+	p.shutdownMessage = message
+}

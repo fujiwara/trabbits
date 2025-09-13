@@ -43,6 +43,11 @@ var (
 	UpstreamDefaultTimeout        = 5 * time.Second
 	DefaultReadTimeout            = 5 * time.Second
 	DefaultConnectionCloseTimeout = 1 * time.Second
+
+	// Shutdown messages
+	ShutdownMsgServerShutdown = "Server shutting down"
+	ShutdownMsgConfigUpdate   = "Configuration updated, please reconnect"
+	ShutdownMsgDefault        = "Connection closed"
 )
 
 var Debug bool
@@ -136,7 +141,7 @@ func (s *Server) UnregisterProxy(proxy *Proxy) {
 
 // disconnectProxies gracefully disconnects proxies based on a filter function
 // Returns a channel that will receive the number of disconnected proxies when complete
-func (srv *Server) disconnectProxies(reason string, maxTimeout time.Duration, rateLimit int, burstSize int, filter func(*Proxy) bool) <-chan int {
+func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxTimeout time.Duration, rateLimit int, burstSize int, filter func(*Proxy) bool) <-chan int {
 	resultChan := make(chan int, 1)
 
 	go func() {
@@ -148,6 +153,8 @@ func (srv *Server) disconnectProxies(reason string, maxTimeout time.Duration, ra
 		srv.activeProxies.Range(func(key, value interface{}) bool {
 			entry := value.(*proxyEntry)
 			if filter(entry.proxy) {
+				// Set the shutdown message for this proxy
+				entry.proxy.shutdownMessage = shutdownMessage
 				targetProxies = append(targetProxies, entry.proxy)
 				targetCancels = append(targetCancels, entry.cancel)
 			}
@@ -248,6 +255,7 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 	cfg := srv.GetConfig()
 	return srv.disconnectProxies(
 		fmt.Sprintf("Disconnecting outdated proxies, current_hash=%s", currentConfigHash[:8]),
+		ShutdownMsgConfigUpdate,
 		time.Duration(cfg.GracefulShutdown.ReloadTimeout),
 		cfg.GracefulShutdown.RateLimit,
 		cfg.GracefulShutdown.BurstSize,
@@ -269,6 +277,7 @@ func (srv *Server) disconnectAllProxies() <-chan int {
 	cfg := srv.GetConfig()
 	return srv.disconnectProxies(
 		"Disconnecting all active proxies for shutdown",
+		ShutdownMsgServerShutdown,
 		time.Duration(cfg.GracefulShutdown.ShutdownTimeout),
 		cfg.GracefulShutdown.RateLimit,
 		cfg.GracefulShutdown.BurstSize,
@@ -730,7 +739,7 @@ func (p *Proxy) shutdown(ctx context.Context) error {
 	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
-		ReplyText: "Goodbye",
+		ReplyText: p.shutdownMessage,
 	}
 	if err := p.send(0, close); err != nil {
 		return fmt.Errorf("failed to write Connection.Close: %w", err)
