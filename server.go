@@ -53,7 +53,7 @@ type Server struct {
 	config         *config.Config
 	configHash     string
 	activeProxies  sync.Map // proxy id -> *Proxy
-	healthManagers sync.Map // upstream name -> *health.NodeHealthManager
+	healthManagers sync.Map // upstream name -> *health.Manager
 	logger         *slog.Logger
 	apiSocket      string // API socket path
 }
@@ -112,9 +112,9 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 }
 
 // GetHealthManager returns the health manager for the given upstream name
-func (s *Server) GetHealthManager(upstreamName string) *health.NodeHealthManager {
+func (s *Server) GetHealthManager(upstreamName string) *health.Manager {
 	if mgr, ok := s.healthManagers.Load(upstreamName); ok {
-		return mgr.(*health.NodeHealthManager)
+		return mgr.(*health.Manager)
 	}
 	return nil
 }
@@ -357,7 +357,7 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 func (srv *Server) initHealthManagers(ctx context.Context) error {
 	// Stop existing health managers in both server and global maps
 	srv.healthManagers.Range(func(key, value interface{}) bool {
-		if mgr, ok := value.(*health.NodeHealthManager); ok {
+		if mgr, ok := value.(*health.Manager); ok {
 			mgr.Stop()
 		}
 		srv.healthManagers.Delete(key)
@@ -368,7 +368,7 @@ func (srv *Server) initHealthManagers(ctx context.Context) error {
 	cfg := srv.GetConfig()
 	for _, upstream := range cfg.Upstreams {
 		if upstream.Cluster != nil && upstream.HealthCheck != nil {
-			mgr := health.NewNodeHealthManagerFromUpstream(&upstream, metrics)
+			mgr := health.NewManager(&upstream, metrics)
 			if mgr != nil {
 				mgr.StartHealthCheck(ctx)
 				srv.healthManagers.Store(upstream.Name, mgr)
