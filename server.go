@@ -48,11 +48,16 @@ var (
 var Debug bool
 
 // Server represents a trabbits server instance
+type proxyEntry struct {
+	proxy  *Proxy
+	cancel context.CancelFunc
+}
+
 type Server struct {
 	configMu       sync.RWMutex
 	config         *config.Config
 	configHash     string
-	activeProxies  sync.Map // proxy id -> *Proxy
+	activeProxies  sync.Map // proxy id -> *proxyEntry
 	healthManagers sync.Map // upstream name -> *health.Manager
 	logger         *slog.Logger
 	apiSocket      string // API socket path
@@ -119,9 +124,9 @@ func (s *Server) GetHealthManager(upstreamName string) *health.Manager {
 	return nil
 }
 
-// RegisterProxy adds a proxy to the server's active proxy list
-func (s *Server) RegisterProxy(proxy *Proxy) {
-	s.activeProxies.Store(proxy.id, proxy)
+// RegisterProxy adds a proxy and its cancel function to the server's active proxy list
+func (s *Server) RegisterProxy(proxy *Proxy, cancel context.CancelFunc) {
+	s.activeProxies.Store(proxy.id, &proxyEntry{proxy: proxy, cancel: cancel})
 }
 
 // UnregisterProxy removes a proxy from the server's active proxy list
@@ -131,18 +136,20 @@ func (s *Server) UnregisterProxy(proxy *Proxy) {
 
 // disconnectProxies gracefully disconnects proxies based on a filter function
 // Returns a channel that will receive the number of disconnected proxies when complete
-func (srv *Server) disconnectProxies(reason string, errorMessage string, maxTimeout time.Duration, rateLimit int, burstSize int, filter func(*Proxy) bool) <-chan int {
+func (srv *Server) disconnectProxies(reason string, maxTimeout time.Duration, rateLimit int, burstSize int, filter func(*Proxy) bool) <-chan int {
 	resultChan := make(chan int, 1)
 
 	go func() {
 		defer close(resultChan)
 
 		var targetProxies []*Proxy
+		var targetCancels []context.CancelFunc
 
 		srv.activeProxies.Range(func(key, value interface{}) bool {
-			proxy := value.(*Proxy)
-			if filter(proxy) {
-				targetProxies = append(targetProxies, proxy)
+			entry := value.(*proxyEntry)
+			if filter(entry.proxy) {
+				targetProxies = append(targetProxies, entry.proxy)
+				targetCancels = append(targetCancels, entry.cancel)
 			}
 			return true
 		})
@@ -168,13 +175,13 @@ func (srv *Server) disconnectProxies(reason string, errorMessage string, maxTime
 		const numWorkers = 10
 
 		// Channel to distribute work to workers
-		proxyChan := make(chan *Proxy, len(targetProxies))
+		cancelChan := make(chan context.CancelFunc, len(targetCancels))
 
-		// Send all proxies to the channel
-		for _, proxy := range targetProxies {
-			proxyChan <- proxy
+		// Send all cancel functions to the channel
+		for _, cancel := range targetCancels {
+			cancelChan <- cancel
 		}
-		close(proxyChan)
+		close(cancelChan)
 
 		// Use sync.WaitGroup to wait for all worker goroutines to complete
 		var wg sync.WaitGroup
@@ -185,17 +192,16 @@ func (srv *Server) disconnectProxies(reason string, errorMessage string, maxTime
 			go func(workerID int) {
 				defer wg.Done()
 
-				for proxy := range proxyChan {
+				for cancel := range cancelChan {
 					// Wait for rate limiter
 					if err := limiter.Wait(context.Background()); err != nil {
-						proxy.logger.Warn("Rate limiter context cancelled", "error", err)
+						slog.Warn("Rate limiter context cancelled", "error", err)
 						continue
 					}
 
-					err := proxy.sendConnectionError(NewError(amqp091.ConnectionForced, errorMessage))
-					if err != nil {
-						proxy.logger.Warn("Failed to send graceful disconnection", "error", err)
-					}
+					// Cancel the proxy's context - this will trigger graceful shutdown
+					// within the proxy's own goroutine, avoiding concurrent writes
+					cancel()
 				}
 			}(i)
 		}
@@ -242,7 +248,6 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 	cfg := srv.GetConfig()
 	return srv.disconnectProxies(
 		fmt.Sprintf("Disconnecting outdated proxies, current_hash=%s", currentConfigHash[:8]),
-		"Configuration updated, please reconnect",
 		time.Duration(cfg.GracefulShutdown.ReloadTimeout),
 		cfg.GracefulShutdown.RateLimit,
 		cfg.GracefulShutdown.BurstSize,
@@ -264,7 +269,6 @@ func (srv *Server) disconnectAllProxies() <-chan int {
 	cfg := srv.GetConfig()
 	return srv.disconnectProxies(
 		"Disconnecting all active proxies for shutdown",
-		"Server shutting down",
 		time.Duration(cfg.GracefulShutdown.ShutdownTimeout),
 		cfg.GracefulShutdown.RateLimit,
 		cfg.GracefulShutdown.BurstSize,
@@ -457,9 +461,6 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		s.Close()
 	}()
 
-	srv.RegisterProxy(s)
-	s.logger.Info("proxy created", "config_hash", s.configHash[:8])
-
 	if err := s.handshake(ctx); err != nil {
 		s.logger.Warn("Failed to handshake", "error", err)
 		metrics.ClientConnectionErrors.Inc()
@@ -470,6 +471,9 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	srv.RegisterProxy(s, cancel)
+	s.logger.Info("proxy created", "config_hash", s.configHash[:8])
 
 	if err := s.ConnectToUpstreams(subCtx, srv.GetConfig().Upstreams, s.clientProps); err != nil {
 		s.logger.Warn("Failed to connect to upstreams", "error", err)
@@ -486,6 +490,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			s.shutdown(subCtx) // graceful shutdown
 			return             // subCtx will be canceled by defer ^
 		case <-subCtx.Done():
+			s.shutdown(subCtx) // graceful shutdown when context is cancelled
 			return
 		case upstreamName := <-s.upstreamDisconnect:
 			// An upstream connection was lost
@@ -984,7 +989,8 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 // GetProxy retrieves a proxy by ID from this server instance
 func (s *Server) GetProxy(id string) *Proxy {
 	if value, ok := s.activeProxies.Load(id); ok {
-		return value.(*Proxy)
+		entry := value.(*proxyEntry)
+		return entry.proxy
 	}
 	return nil
 }
