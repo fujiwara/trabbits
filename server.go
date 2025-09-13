@@ -487,7 +487,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	if err := p.handshake(ctx); err != nil {
 		p.logger.Warn("Failed to handshake", "error", err)
-		metrics.ClientConnectionErrors.Inc()
+		GetMetrics().ClientConnectionErrors.Inc()
 		return
 	}
 	p.logger.Info("handshake completed")
@@ -559,7 +559,7 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	}
 	conn, err := rabbitmq.DialConfig(u.String(), cfg)
 	if err != nil {
-		metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
+		GetMetrics().UpstreamConnectionErrors.WithLabelValues(addr).Inc()
 		return nil, fmt.Errorf("failed to open upstream %s %w", u, err)
 	}
 	return conn, nil
@@ -610,7 +610,7 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	var nodeInfos []nodeInfo
 	for _, addr := range nodes {
 		metric := &dto.Metric{}
-		gauge := metrics.UpstreamConnections.WithLabelValues(addr)
+		gauge := GetMetrics().UpstreamConnections.WithLabelValues(addr)
 		gauge.Write(metric)
 		connections := int64(metric.GetGauge().GetValue())
 		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
@@ -807,7 +807,7 @@ func (p *Proxy) process(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
-	metrics.ClientReceivedFrames.Inc()
+	GetMetrics().ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
 		p.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method).String())
@@ -841,7 +841,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			f.Method = m // replace method with message
 		}
 		methodName := strings.TrimLeft(reflect.TypeOf(f.Method).String(), "*amqp091.")
-		metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
+		GetMetrics().ProcessedMessages.WithLabelValues(methodName).Inc()
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
 			return p.replyChannelOpen(ctx, f, m)
@@ -874,7 +874,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		case *amqp091.BasicQos:
 			return p.replyBasicQos(ctx, f, m)
 		default:
-			metrics.ErroredMessages.WithLabelValues(methodName).Inc()
+			GetMetrics().ErroredMessages.WithLabelValues(methodName).Inc()
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
@@ -917,7 +917,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
-		metrics.ClientSentFrames.Inc()
+		GetMetrics().ClientSentFrames.Inc()
 
 		if err := p.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
@@ -927,7 +927,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write HeaderFrame: %w", err)
 		}
-		metrics.ClientSentFrames.Inc()
+		GetMetrics().ClientSentFrames.Inc()
 
 		// split body frame is it is too large (>= FrameMax)
 		// The overhead of BodyFrame is 8 bytes
@@ -944,7 +944,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 				return fmt.Errorf("failed to write BodyFrame: %w", err)
 			}
 			offset = end
-			metrics.ClientSentFrames.Inc()
+			GetMetrics().ClientSentFrames.Inc()
 		}
 	} else {
 		if err := p.w.WriteFrame(&amqp091.MethodFrame{
@@ -953,7 +953,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
-		metrics.ClientSentFrames.Inc()
+		GetMetrics().ClientSentFrames.Inc()
 	}
 	return nil
 }
@@ -971,7 +971,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
-		metrics.ClientReceivedFrames.Inc()
+		GetMetrics().ClientReceivedFrames.Inc()
 
 		if frame.Channel() != uint16(channel) {
 			return nil, fmt.Errorf("expected frame on channel %d, got channel %d", channel, frame.Channel())
