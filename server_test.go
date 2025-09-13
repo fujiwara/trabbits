@@ -25,12 +25,23 @@ var testProxyPort = 5672
 var testViaTrabbits = true
 var testAPISock string
 
-func runTestProxy(ctx context.Context) error {
-	slog.Info("starting test server")
+func newTestServer(ctx context.Context) (*trabbits.Server, net.Listener, error) {
 	cfg, err := config.Load(ctx, "testdata/config.json")
 	if err != nil {
-		panic("failed to load config: " + err.Error())
+		return nil, nil, err
 	}
+
+	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
+	if err != nil {
+		return nil, nil, err
+	}
+
+	testServer := trabbits.NewTestServer(cfg)
+	return testServer, listener, nil
+}
+
+func runTestServer(ctx context.Context) error {
+	slog.Info("starting test server")
 
 	if b, _ := strconv.ParseBool(os.Getenv("TEST_RABBITMQ")); b {
 		slog.Info("skipping test server, use real RabbitMQ directly")
@@ -38,18 +49,17 @@ func runTestProxy(ctx context.Context) error {
 		return nil
 	}
 
-	listener, err := net.Listen("tcp", "localhost:0") // Listen on a ephemeral port
+	testServer, listener, err := newTestServer(ctx)
 	if err != nil {
-		slog.Error("Failed to start test server", "error", err)
+		slog.Error("Failed to create test server", "error", err)
 		return err
 	}
+
 	testProxyPort = listener.Addr().(*net.TCPAddr).Port
 	if os.Getenv("TEST_PROXY_PORT") != "" {
 		testProxyPort, _ = strconv.Atoi(os.Getenv("TEST_PROXY_PORT"))
 	}
 
-	// Create server instance and use it
-	testServer := trabbits.NewTestServer(cfg)
 	go testServer.TestBoot(ctx, listener)
 	return nil
 }
@@ -93,7 +103,7 @@ func TestMain(m *testing.M) {
 		panic("timeout")
 	})
 
-	runTestProxy(serverCtx)
+	runTestServer(serverCtx)
 	runTestAPI(serverCtx)
 	time.Sleep(100 * time.Millisecond) // Wait for the server to start
 	defer cancel()
@@ -107,6 +117,67 @@ func TestProxyConnect(t *testing.T) {
 	defer conn.Close()
 	ch := mustTestChannel(t, conn)
 	defer ch.Close()
+}
+
+func TestProxyShutdown(t *testing.T) {
+	// Test shutdown function with real AMQP client connection
+	// This test uses newTestServer to get access to the server instance
+
+	// Create test server and listener
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	testServer, listener, err := newTestServer(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create test server: %v", err)
+	}
+	defer listener.Close()
+
+	// Start the test server
+	go testServer.TestBoot(ctx, listener)
+	time.Sleep(50 * time.Millisecond) // Wait for server to start
+
+	// Connect to the test server
+	port := listener.Addr().(*net.TCPAddr).Port
+	url := fmt.Sprintf("amqp://admin:admin@localhost:%d/", port)
+	conn, err := rabbitmq.Dial(url)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	// Set up connection close notification
+	closeChan := conn.NotifyClose(make(chan *rabbitmq.Error, 1))
+
+	// Get the client address for this connection (as seen by server)
+	clientAddr := conn.LocalAddr().String()
+	t.Logf("Client local address (server's remote): %s", clientAddr)
+
+	// Wait for proxy registration
+	time.Sleep(10 * time.Millisecond)
+
+	// Trigger graceful shutdown of this specific connection
+	found := testServer.TestGracefulStopProxy(clientAddr, "Test graceful shutdown")
+	if !found {
+		t.Fatal("Could not find proxy for test connection")
+	}
+
+	// Wait for the client to receive Connection.Close
+	select {
+	case closeErr := <-closeChan:
+		if closeErr == nil {
+			t.Error("Expected connection close error, got nil")
+		} else {
+			t.Logf("✓ Received Connection.Close: code=%d, reason=%q", closeErr.Code, closeErr.Reason)
+			if closeErr.Reason == "Test graceful shutdown" {
+				t.Logf("✓ Shutdown message correctly transmitted")
+			} else {
+				t.Logf("Note: Expected 'Test graceful shutdown', got %q", closeErr.Reason)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Timeout waiting for Connection.Close from server")
+	}
 }
 
 func TestProxyChannel(t *testing.T) {
