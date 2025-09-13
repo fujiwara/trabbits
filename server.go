@@ -129,52 +129,49 @@ func (s *Server) UnregisterProxy(proxy *Proxy) {
 	s.activeProxies.Delete(proxy.id)
 }
 
-// disconnectOutdatedProxies gracefully disconnects proxies with old config hash for this server
+// disconnectProxies gracefully disconnects proxies based on a filter function
 // Returns a channel that will receive the number of disconnected proxies when complete
-func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan int {
+func (srv *Server) disconnectProxies(reason string, errorMessage string, maxTimeout time.Duration, rateLimit int, burstSize int, filter func(*Proxy) bool) <-chan int {
 	resultChan := make(chan int, 1)
 
 	go func() {
 		defer close(resultChan)
 
-		var outdatedProxies []*Proxy
+		var targetProxies []*Proxy
 
 		srv.activeProxies.Range(func(key, value interface{}) bool {
 			proxy := value.(*Proxy)
-			if proxy.configHash != currentConfigHash {
-				outdatedProxies = append(outdatedProxies, proxy)
+			if filter(proxy) {
+				targetProxies = append(targetProxies, proxy)
 			}
 			return true
 		})
 
-		disconnectedCount := len(outdatedProxies)
+		disconnectedCount := len(targetProxies)
 		if disconnectedCount == 0 {
-			// No outdated proxies found, return immediately
+			// No target proxies found, return immediately
 			resultChan <- 0
 			return
 		}
-		slog.Info("Disconnecting outdated proxies",
-			"count", disconnectedCount,
-			"current_hash", currentConfigHash[:8])
+		slog.Info(reason, "count", disconnectedCount)
 
-		// Rate limiter: 100 disconnections per second
+		// Rate limiter: use configured values
 		// In test environment, use higher rate for faster tests
-		rateLimit := rate.Limit(100)
-		burstSize := 10
+		rateLimitValue := rate.Limit(rateLimit)
 		if disconnectedCount <= 10 { // Small number for tests
-			rateLimit = rate.Limit(1000) // 1000/sec for small tests
+			rateLimitValue = rate.Limit(1000) // 1000/sec for small tests
 			burstSize = 100
 		}
-		limiter := rate.NewLimiter(rateLimit, burstSize)
+		limiter := rate.NewLimiter(rateLimitValue, burstSize)
 
 		// Number of worker goroutines for parallel processing
 		const numWorkers = 10
 
 		// Channel to distribute work to workers
-		proxyChan := make(chan *Proxy, len(outdatedProxies))
+		proxyChan := make(chan *Proxy, len(targetProxies))
 
 		// Send all proxies to the channel
-		for _, proxy := range outdatedProxies {
+		for _, proxy := range targetProxies {
 			proxyChan <- proxy
 		}
 		close(proxyChan)
@@ -195,13 +192,7 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 						continue
 					}
 
-					proxy.logger.Info("Disconnecting proxy due to config update",
-						"old_hash", proxy.configHash[:8],
-						"new_hash", currentConfigHash[:8],
-						"worker", workerID)
-
-					err := proxy.sendConnectionError(NewError(amqp091.ConnectionForced,
-						"Configuration updated, please reconnect"))
+					err := proxy.sendConnectionError(NewError(amqp091.ConnectionForced, errorMessage))
 					if err != nil {
 						proxy.logger.Warn("Failed to send graceful disconnection", "error", err)
 					}
@@ -211,14 +202,14 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 
 		// Wait for all workers to complete with appropriate timeout
 		// Calculate timeout based on proxy count and rate limit
-		actualRate := float64(rateLimit)
+		actualRate := float64(rateLimitValue)
 		expectedDuration := float64(disconnectedCount)/actualRate + 1 // Plus 1 second buffer
 		timeoutDuration := time.Duration(expectedDuration) * time.Second
 		if timeoutDuration < 2*time.Second {
 			timeoutDuration = 2 * time.Second // Minimum 2 seconds
 		}
-		if timeoutDuration > 30*time.Second {
-			timeoutDuration = 30 * time.Second // Cap at 30 seconds
+		if timeoutDuration > maxTimeout {
+			timeoutDuration = maxTimeout
 		}
 
 		done := make(chan struct{})
@@ -235,7 +226,7 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 			// Timeout - some disconnections might be hanging
 			slog.Warn("Timeout waiting for proxy disconnections to complete",
 				"timeout", timeoutDuration,
-				"expected_duration", fmt.Sprintf("%.1fs", float64(disconnectedCount)/100))
+				"expected_duration", fmt.Sprintf("%.1fs", float64(disconnectedCount)/actualRate))
 		}
 
 		// Send the count of disconnected proxies
@@ -243,6 +234,45 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 	}()
 
 	return resultChan
+}
+
+// disconnectOutdatedProxies gracefully disconnects proxies with old config hash for this server
+// Returns a channel that will receive the number of disconnected proxies when complete
+func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan int {
+	cfg := srv.GetConfig()
+	return srv.disconnectProxies(
+		fmt.Sprintf("Disconnecting outdated proxies, current_hash=%s", currentConfigHash[:8]),
+		"Configuration updated, please reconnect",
+		time.Duration(cfg.GracefulShutdown.ReloadTimeout),
+		cfg.GracefulShutdown.RateLimit,
+		cfg.GracefulShutdown.BurstSize,
+		func(proxy *Proxy) bool {
+			if proxy.configHash != currentConfigHash {
+				proxy.logger.Info("Disconnecting proxy due to config update",
+					"old_hash", proxy.configHash[:8],
+					"new_hash", currentConfigHash[:8])
+				return true
+			}
+			return false
+		},
+	)
+}
+
+// disconnectAllProxies gracefully disconnects all active proxies for shutdown
+// Returns a channel that will receive the number of disconnected proxies when complete
+func (srv *Server) disconnectAllProxies() <-chan int {
+	cfg := srv.GetConfig()
+	return srv.disconnectProxies(
+		"Disconnecting all active proxies for shutdown",
+		"Server shutting down",
+		time.Duration(cfg.GracefulShutdown.ShutdownTimeout),
+		cfg.GracefulShutdown.RateLimit,
+		cfg.GracefulShutdown.BurstSize,
+		func(proxy *Proxy) bool {
+			proxy.logger.Info("Disconnecting proxy for shutdown")
+			return true // Disconnect all proxies
+		},
+	)
 }
 
 func run(ctx context.Context, opt *CLI) error {
@@ -332,8 +362,22 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 	slog.Info("trabbits started", "port", port)
 	go func() {
 		<-ctx.Done()
+		// First close listener to prevent new connections
 		if err := listener.Close(); err != nil {
 			slog.Error("Failed to close listener", "error", err)
+		}
+		slog.Info("Listener closed, no new connections will be accepted")
+
+		// Then gracefully disconnect all active connections
+		disconnectChan := srv.disconnectAllProxies()
+		cfg := srv.GetConfig()
+		select {
+		case count := <-disconnectChan:
+			if count > 0 {
+				slog.Info("Gracefully disconnected all active connections", "count", count)
+			}
+		case <-time.After(time.Duration(cfg.GracefulShutdown.ShutdownTimeout)):
+			slog.Warn("Timeout waiting for graceful disconnection of active connections")
 		}
 	}()
 
