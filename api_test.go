@@ -46,12 +46,12 @@ func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
-	
+
 	// Disable health checks for test performance
 	for _, upstream := range cfg.Upstreams {
 		upstream.HealthCheck = nil
 	}
-	
+
 	server := trabbits.NewServer(cfg, socketPath)
 
 	go func() {

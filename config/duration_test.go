@@ -10,6 +10,7 @@ import (
 )
 
 func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
+	t.Parallel()
 	// Test JSON config with health check duration strings
 	configJSON := `{
 		"upstreams": [
@@ -123,6 +124,7 @@ func TestConfigJSONParsingWithHealthCheck(t *testing.T) {
 }
 
 func TestConfigFileLoading(t *testing.T) {
+	t.Parallel()
 	// Test loading the actual testdata config file
 	cfg, err := config.Load(t.Context(), "../testdata/config.json")
 	if err != nil {
@@ -160,6 +162,7 @@ func TestConfigFileLoading(t *testing.T) {
 }
 
 func TestDurationJSONMarshalUnmarshal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		duration string
@@ -204,6 +207,7 @@ func TestDurationJSONMarshalUnmarshal(t *testing.T) {
 }
 
 func TestDurationInvalidFormats(t *testing.T) {
+	t.Parallel()
 	invalidDurations := []string{
 		"invalid",
 		"30",  // missing unit
@@ -224,6 +228,7 @@ func TestDurationInvalidFormats(t *testing.T) {
 }
 
 func TestConfigRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Create a config with health check settings
 	original := &config.Config{
 		Upstreams: []config.Upstream{
