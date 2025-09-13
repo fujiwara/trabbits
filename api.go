@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aereal/jsondiff"
+	"github.com/fujiwara/trabbits/config"
 )
 
 const (
@@ -166,7 +167,7 @@ func (s *Server) apiPutConfigHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 
-		cfg, err := LoadConfig(r.Context(), configFile)
+		cfg, err := config.LoadConfig(r.Context(), configFile)
 		if err != nil {
 			slog.Error("failed to load configuration", "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest) // payload is invalid
@@ -204,7 +205,7 @@ func (s *Server) apiDiffConfigHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/plain")
 
 		// Load new config from request
-		newCfg, err := LoadConfig(r.Context(), configFile)
+		newCfg, err := config.LoadConfig(r.Context(), configFile)
 		if err != nil {
 			slog.Error("failed to load new configuration", "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -245,11 +246,11 @@ func (s *Server) apiReloadConfigHandler(configPath string) http.HandlerFunc {
 }
 
 // reloadConfigFromFile reloads configuration from the specified file
-func (s *Server) reloadConfigFromFile(ctx context.Context, configPath string) (*Config, error) {
+func (s *Server) reloadConfigFromFile(ctx context.Context, configPath string) (*config.Config, error) {
 	slog.Info("Reloading configuration from file", "file", configPath)
 
 	// Reload config from the original config file
-	cfg, err := LoadConfig(ctx, configPath)
+	cfg, err := config.LoadConfig(ctx, configPath)
 	if err != nil {
 		slog.Error("failed to reload configuration", "error", err)
 		return nil, fmt.Errorf("failed to reload configuration: %w", err)

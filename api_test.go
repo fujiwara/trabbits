@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -41,7 +42,7 @@ func startIsolatedAPIServer(t *testing.T, configFile string) (context.CancelFunc
 	os.Remove(socketPath) // trabbits will recreate it
 
 	// Create server instance for API server
-	cfg, err := trabbits.LoadConfig(ctx, configFile)
+	cfg, err := config.LoadConfig(ctx, configFile)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 
 	// Test 1: Basic PUT/GET cycle
 	t.Run("BasicPutGetConfig", func(t *testing.T) {
-		var testConfig trabbits.Config
+		var testConfig config.Config
 		// GET current config
 		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
 		resp, err := client.Do(req)
@@ -131,7 +132,7 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to send request: %v", err)
 		}
-		var updatedConfig trabbits.Config
+		var updatedConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&updatedConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
@@ -189,7 +190,7 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
 		}
 
-		var respondConfig trabbits.Config
+		var respondConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
@@ -274,7 +275,7 @@ local env = std.native('env');
 			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
 		}
 
-		var respondConfig trabbits.Config
+		var respondConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&respondConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
@@ -471,7 +472,7 @@ local env = std.native('env');
 			t.Errorf("handler returned wrong status code: got %v want %v", code, http.StatusOK)
 		}
 
-		var reloadedConfig trabbits.Config
+		var reloadedConfig config.Config
 		if err := json.NewDecoder(resp.Body).Decode(&reloadedConfig); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}

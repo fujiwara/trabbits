@@ -1,4 +1,4 @@
-package trabbits_test
+package config_test
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func TestConfigEnvironmentVariableExpansion(t *testing.T) {
@@ -50,7 +50,7 @@ func TestConfigEnvironmentVariableExpansion(t *testing.T) {
 	tmpfile.Close()
 
 	// Load config and verify environment variable expansion
-	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	cfg, err := config.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestConfigEnvironmentVariableNotSet(t *testing.T) {
 	tmpfile.Close()
 
 	// Loading should fail because validation fails for missing username
-	_, err = trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	_, err = config.LoadConfig(t.Context(), tmpfile.Name())
 	if err == nil {
 		t.Error("Expected config loading to fail for missing environment variable, got nil")
 	}
@@ -165,7 +165,7 @@ func TestConfigWithoutEnvironmentVariables(t *testing.T) {
 	}
 	tmpfile.Close()
 
-	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	cfg, err := config.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestConfigPasswordMasking(t *testing.T) {
 	}
 	tmpfile.Close()
 
-	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	cfg, err := config.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
@@ -285,7 +285,7 @@ local env = std.native('env');
 	tmpfile.Close()
 
 	// Load config and verify environment variable expansion
-	cfg, err := trabbits.LoadConfig(t.Context(), tmpfile.Name())
+	cfg, err := config.LoadConfig(t.Context(), tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}

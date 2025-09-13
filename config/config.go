@@ -1,7 +1,7 @@
 // MIT License
 // Copyright (c) 2025 FUJIWARA Shunichiro
 
-package trabbits
+package config
 
 import (
 	"bytes"
@@ -86,10 +86,10 @@ func LoadConfig(ctx context.Context, f string) (*Config, error) {
 func (c *Config) SetDefaults() {
 	// Set default timeout values if not specified
 	if c.ReadTimeout == 0 {
-		c.ReadTimeout = Duration(DefaultReadTimeout)
+		c.ReadTimeout = Duration(5 * time.Second) // DefaultReadTimeout
 	}
 	if c.ConnectionCloseTimeout == 0 {
-		c.ConnectionCloseTimeout = Duration(DefaultConnectionCloseTimeout)
+		c.ConnectionCloseTimeout = Duration(1 * time.Second) // DefaultConnectionCloseTimeout
 	}
 }
 

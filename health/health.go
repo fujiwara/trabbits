@@ -1,7 +1,7 @@
 // MIT License
 // Copyright (c) 2025 FUJIWARA Shunichiro
 
-package trabbits
+package health
 
 import (
 	"context"
@@ -10,18 +10,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fujiwara/trabbits/config"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
-type HealthStatus int
+type Status int
 
 const (
-	StatusUnknown HealthStatus = iota
+	StatusUnknown Status = iota
 	StatusHealthy
 	StatusUnhealthy
 )
 
-func (s HealthStatus) String() string {
+func (s Status) String() string {
 	switch s {
 	case StatusHealthy:
 		return "healthy"
@@ -35,14 +36,14 @@ func (s HealthStatus) String() string {
 // NodeStatus represents the health status of a single cluster node
 type NodeStatus struct {
 	Address          string
-	Status           HealthStatus
+	Status           Status
 	LastCheck        time.Time
 	LastSuccess      time.Time
 	ConsecutiveFails int
 	mu               sync.RWMutex
 }
 
-func (n *NodeStatus) GetStatus() HealthStatus {
+func (n *NodeStatus) GetStatus() Status {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.Status
@@ -72,71 +73,52 @@ func (n *NodeStatus) IncrementFails() {
 	n.LastCheck = time.Now()
 }
 
-// InternalHealthCheckConfig uses native time.Duration for internal use
-type InternalHealthCheckConfig struct {
+// Config represents health check configuration
+type Config struct {
 	Interval           time.Duration
 	Timeout            time.Duration
 	UnhealthyThreshold int
 	RecoveryInterval   time.Duration
 }
 
+// MetricsReporter interface for reporting health metrics
+type MetricsReporter interface {
+	SetHealthyNodes(upstream string, count float64)
+	SetUnhealthyNodes(upstream string, count float64)
+}
+
 // NodeHealthManager manages health checking for cluster nodes
 type NodeHealthManager struct {
-	name           string
-	nodes          map[string]*NodeStatus // address -> status
-	mu             sync.RWMutex
-	config         *InternalHealthCheckConfig
-	upstreamConfig *UpstreamConfig
-	logger         *slog.Logger
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	username       string
-	password       string
+	name     string
+	nodes    map[string]*NodeStatus // address -> status
+	mu       sync.RWMutex
+	config   *Config
+	logger   *slog.Logger
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	username string
+	password string
+	metrics  MetricsReporter
 }
 
 // NewNodeHealthManager creates a new health manager for a cluster upstream
-func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
-	if upstream.Cluster == nil {
+func NewNodeHealthManager(name string, nodes []string, config *Config, username, password string, metrics MetricsReporter) *NodeHealthManager {
+	if len(nodes) == 0 {
 		return nil
 	}
 
 	mgr := &NodeHealthManager{
-		name:           upstream.Name,
-		nodes:          make(map[string]*NodeStatus),
-		upstreamConfig: &upstream,
-		logger:         slog.Default().With("component", "health", "upstream", upstream.Name),
-	}
-
-	// Initialize health check config with defaults
-	mgr.config = &InternalHealthCheckConfig{
-		Interval:           30 * time.Second,
-		Timeout:            5 * time.Second,
-		UnhealthyThreshold: 3,
-		RecoveryInterval:   60 * time.Second,
-	}
-
-	// Override with user config if provided
-	if upstream.HealthCheck != nil {
-		if upstream.HealthCheck.Interval > 0 {
-			mgr.config.Interval = upstream.HealthCheck.Interval.ToDuration()
-		}
-		if upstream.HealthCheck.Timeout > 0 {
-			mgr.config.Timeout = upstream.HealthCheck.Timeout.ToDuration()
-		}
-		if upstream.HealthCheck.UnhealthyThreshold > 0 {
-			mgr.config.UnhealthyThreshold = upstream.HealthCheck.UnhealthyThreshold
-		}
-		if upstream.HealthCheck.RecoveryInterval > 0 {
-			mgr.config.RecoveryInterval = upstream.HealthCheck.RecoveryInterval.ToDuration()
-		}
-
-		// Set authentication credentials (required)
-		mgr.username = upstream.HealthCheck.Username
-		mgr.password = upstream.HealthCheck.Password.String()
+		name:     name,
+		nodes:    make(map[string]*NodeStatus),
+		config:   config,
+		logger:   slog.Default().With("component", "health", "upstream", name),
+		username: username,
+		password: password,
+		metrics:  metrics,
 	}
 
 	// Initialize node status for each cluster node
-	for _, addr := range upstream.Cluster.Nodes {
+	for _, addr := range nodes {
 		mgr.nodes[addr] = &NodeStatus{
 			Address: addr,
 			Status:  StatusUnknown,
@@ -144,6 +126,44 @@ func NewNodeHealthManager(upstream UpstreamConfig) *NodeHealthManager {
 	}
 
 	return mgr
+}
+
+// NewNodeHealthManagerFromUpstream creates a new health manager from upstream config
+func NewNodeHealthManagerFromUpstream(upstream *config.UpstreamConfig, metrics MetricsReporter) *NodeHealthManager {
+	if upstream.Cluster == nil || upstream.HealthCheck == nil {
+		return nil
+	}
+
+	// Initialize health check config with defaults
+	healthConfig := &Config{
+		Interval:           30 * time.Second,
+		Timeout:            5 * time.Second,
+		UnhealthyThreshold: 3,
+		RecoveryInterval:   60 * time.Second,
+	}
+
+	// Override with user config if provided
+	if upstream.HealthCheck.Interval > 0 {
+		healthConfig.Interval = upstream.HealthCheck.Interval.ToDuration()
+	}
+	if upstream.HealthCheck.Timeout > 0 {
+		healthConfig.Timeout = upstream.HealthCheck.Timeout.ToDuration()
+	}
+	if upstream.HealthCheck.UnhealthyThreshold > 0 {
+		healthConfig.UnhealthyThreshold = upstream.HealthCheck.UnhealthyThreshold
+	}
+	if upstream.HealthCheck.RecoveryInterval > 0 {
+		healthConfig.RecoveryInterval = upstream.HealthCheck.RecoveryInterval.ToDuration()
+	}
+
+	return NewNodeHealthManager(
+		upstream.Name,
+		upstream.Cluster.Nodes,
+		healthConfig,
+		upstream.HealthCheck.Username,
+		upstream.HealthCheck.Password.String(),
+		metrics,
+	)
 }
 
 // StartHealthCheck starts the background health checking goroutine
@@ -249,8 +269,10 @@ func (m *NodeHealthManager) checkAllNodes() {
 		"total", len(nodes))
 
 	// Update metrics
-	metrics.UpstreamHealthyNodes.WithLabelValues(m.name).Set(float64(healthy))
-	metrics.UpstreamUnhealthyNodes.WithLabelValues(m.name).Set(float64(unhealthy))
+	if m.metrics != nil {
+		m.metrics.SetHealthyNodes(m.name, float64(healthy))
+		m.metrics.SetUnhealthyNodes(m.name, float64(unhealthy))
+	}
 }
 
 // checkAllNodesInitial performs initial health checks on all nodes (fail fast on startup)
@@ -280,8 +302,10 @@ func (m *NodeHealthManager) checkAllNodesInitial() {
 		"total", len(nodes))
 
 	// Update metrics
-	metrics.UpstreamHealthyNodes.WithLabelValues(m.name).Set(float64(healthy))
-	metrics.UpstreamUnhealthyNodes.WithLabelValues(m.name).Set(float64(unhealthy))
+	if m.metrics != nil {
+		m.metrics.SetHealthyNodes(m.name, float64(healthy))
+		m.metrics.SetUnhealthyNodes(m.name, float64(unhealthy))
+	}
 }
 
 // checkNode performs a health check on a single node

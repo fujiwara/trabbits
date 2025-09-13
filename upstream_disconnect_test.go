@@ -16,6 +16,7 @@ import (
 
 	"github.com/fujiwara/trabbits"
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/fujiwara/trabbits/config"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -244,9 +245,9 @@ func TestUpstreamMonitoring(t *testing.T) {
 
 	// Create an upstream with monitoring
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	conf := trabbits.UpstreamConfig{
+	conf := config.UpstreamConfig{
 		Name: "test-upstream",
-		Cluster: &trabbits.ClusterConfig{
+		Cluster: &config.ClusterConfig{
 			Nodes: []string{"localhost:5672"},
 		},
 	}
@@ -273,9 +274,9 @@ func TestUpstreamNotifyCloseSetup(t *testing.T) {
 	defer conn.Close()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	conf := trabbits.UpstreamConfig{
+	conf := config.UpstreamConfig{
 		Name: "test-upstream",
-		Cluster: &trabbits.ClusterConfig{
+		Cluster: &config.ClusterConfig{
 			Nodes: []string{"localhost:5672"},
 		},
 	}

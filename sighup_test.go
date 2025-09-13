@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 // TestSIGHUPHandler tests that the SIGHUP signal properly triggers configuration reload
@@ -40,7 +41,7 @@ func TestSIGHUPHandler(t *testing.T) {
 
 	// Test the reload function directly
 	ctx := context.Background()
-	cfg, err := trabbits.LoadConfig(ctx, tmpfile.Name())
+	cfg, err := config.LoadConfig(ctx, tmpfile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load initial config: %v", err)
 	}

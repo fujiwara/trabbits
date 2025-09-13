@@ -29,6 +29,8 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits/amqp091"
+	"github.com/fujiwara/trabbits/config"
+	"github.com/fujiwara/trabbits/health"
 	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 	"golang.org/x/time/rate"
@@ -48,16 +50,16 @@ var Debug bool
 // Server represents a trabbits server instance
 type Server struct {
 	configMu       sync.RWMutex
-	config         *Config
+	config         *config.Config
 	configHash     string
 	activeProxies  sync.Map // proxy id -> *Proxy
-	healthManagers sync.Map // upstream name -> *NodeHealthManager
+	healthManagers sync.Map // upstream name -> *health.NodeHealthManager
 	logger         *slog.Logger
 	apiSocket      string // API socket path
 }
 
 // NewServer creates a new Server instance
-func NewServer(config *Config, apiSocket string) *Server {
+func NewServer(config *config.Config, apiSocket string) *Server {
 	return &Server{
 		config:     config,
 		configHash: config.Hash(),
@@ -67,7 +69,7 @@ func NewServer(config *Config, apiSocket string) *Server {
 }
 
 // GetConfig returns the current config (thread-safe)
-func (s *Server) GetConfig() *Config {
+func (s *Server) GetConfig() *config.Config {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	return s.config
@@ -81,7 +83,7 @@ func (s *Server) GetConfigHash() string {
 }
 
 // UpdateConfig updates the config and hash atomically
-func (s *Server) UpdateConfig(config *Config) {
+func (s *Server) UpdateConfig(config *config.Config) {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	s.config = config
@@ -110,17 +112,10 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 }
 
 // GetHealthManager returns the health manager for the given upstream name
-func (s *Server) GetHealthManager(upstreamName string) *NodeHealthManager {
+func (s *Server) GetHealthManager(upstreamName string) *health.NodeHealthManager {
 	if mgr, ok := s.healthManagers.Load(upstreamName); ok {
-		return mgr.(*NodeHealthManager)
+		return mgr.(*health.NodeHealthManager)
 	}
-	return nil
-}
-
-// getHealthManagerGlobal returns the health manager for the given upstream name
-// This is a compatibility function for code that doesn't have server instance access
-func getHealthManagerGlobal(upstreamName string) *NodeHealthManager {
-	// No global access available - requires server instance
 	return nil
 }
 
@@ -251,7 +246,7 @@ func (srv *Server) disconnectOutdatedProxies(currentConfigHash string) <-chan in
 }
 
 func run(ctx context.Context, opt *CLI) error {
-	cfg, err := LoadConfig(ctx, opt.Config)
+	cfg, err := config.LoadConfig(ctx, opt.Config)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -359,10 +354,10 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 }
 
 // initHealthManagers initializes health check managers for cluster upstreams
-func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
+func (srv *Server) initHealthManagers(ctx context.Context, cfg *config.Config) error {
 	// Stop existing health managers in both server and global maps
 	srv.healthManagers.Range(func(key, value interface{}) bool {
-		if mgr, ok := value.(*NodeHealthManager); ok {
+		if mgr, ok := value.(*health.NodeHealthManager); ok {
 			mgr.Stop()
 		}
 		srv.healthManagers.Delete(key)
@@ -372,7 +367,7 @@ func (srv *Server) initHealthManagers(ctx context.Context, cfg *Config) error {
 	// Create new health managers for cluster upstreams
 	for _, upstream := range cfg.Upstreams {
 		if upstream.Cluster != nil && upstream.HealthCheck != nil {
-			mgr := NewNodeHealthManager(upstream)
+			mgr := health.NewNodeHealthManagerFromUpstream(&upstream, metrics)
 			if mgr != nil {
 				mgr.StartHealthCheck(ctx)
 				srv.healthManagers.Store(upstream.Name, mgr)
@@ -499,14 +494,8 @@ func (s *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 func (s *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, string, error) {
 	var nodesToTry []string
 
-	// Use health manager if available for cluster upstreams
-	if healthMgr := getHealthManagerGlobal(upstreamName); healthMgr != nil {
-		nodesToTry = healthMgr.GetHealthyNodes()
-		s.logger.Debug("Using health-based node selection",
-			"upstream", upstreamName,
-			"healthy_nodes", len(nodesToTry),
-			"total_nodes", len(addrs))
-	}
+	// Health-based node selection is not available at proxy level
+	// This would require server instance access which violates design principles
 
 	// Fall back to all nodes if no health manager or no healthy nodes
 	if len(nodesToTry) == 0 {
@@ -569,7 +558,7 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	return result
 }
 
-func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []UpstreamConfig, props amqp091.Table) error {
+func (s *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config.UpstreamConfig, props amqp091.Table) error {
 	for _, c := range upstreamConfigs {
 		timeout := c.Timeout.ToDuration()
 		if timeout == 0 {

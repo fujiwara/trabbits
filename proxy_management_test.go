@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 )
 
 func TestProxyRegistration(t *testing.T) {
@@ -17,8 +18,8 @@ func TestProxyRegistration(t *testing.T) {
 	defer client.Close()
 
 	// Set up test config
-	config := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	config := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
@@ -67,16 +68,16 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 	defer client2.Close()
 
 	// Set up test configs with different hashes
-	oldConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	oldConfig := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5672",
 			},
 		},
 	}
-	newConfig := &trabbits.Config{
-		Upstreams: []trabbits.UpstreamConfig{
+	newConfig := &config.Config{
+		Upstreams: []config.UpstreamConfig{
 			{
 				Name:    "test-upstream",
 				Address: "localhost:5673", // Different port = different hash
