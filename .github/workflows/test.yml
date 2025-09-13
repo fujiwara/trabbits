@@ -1,5 +1,8 @@
 name: test
 on: [push, pull_request]
+permissions:
+  contents: read
+  pull-requests: write
 jobs:
   test:
     strategy:
@@ -31,13 +34,44 @@ jobs:
 
       - name: test
         run: |
-          make test
+          make test-coverage
 
       - name: test rabbitmq directly
         run: |
           make test
         env:
           TEST_RABBITMQ: t
+
+      - name: Display coverage
+        run: |
+          go tool cover -func=coverage.out
+
+      - name: Generate coverage summary
+        run: ./scripts/coverage-summary.sh coverage.out coverage_summary.md
+
+      - name: Comment PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        if: github.event_name == 'pull_request' && matrix.go == '1.25'
+        with:
+          script: |
+            const fs = require('fs');
+            const coverage = fs.readFileSync('coverage_summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: coverage
+            });
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: matrix.go == '1.25'
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+            coverage_summary.md
 
       - name: test upstreams down and bench upstream up
         run: |
