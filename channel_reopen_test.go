@@ -2,6 +2,8 @@ package trabbits_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,19 +101,38 @@ func TestMultipleChannelOpenCloseSequence(t *testing.T) {
 	defer conn.Close()
 
 	const iterations = 1000
+	queueName := "test_channel_sequence"
 
-	// Test sequence: open, close, open, queue operation, close
+	// First, declare the queue once
+	setupCh, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("Failed to open setup channel: %v", err)
+	}
+	_, err = setupCh.QueueDeclare(
+		queueName,
+		false, // durable
+		true,  // auto-delete
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+	if err != nil {
+		t.Fatalf("Failed to declare queue: %v", err)
+	}
+	setupCh.Close()
+
+	// Test sequence: open, publish, close - repeat 1000 times
 	for i := 0; i < iterations; i++ {
 		if i%100 == 0 {
-			t.Logf("Progress: %d/%d iterations completed", i, iterations)
+			t.Logf("Publishing progress: %d/%d messages", i, iterations)
 		}
 
 		done := make(chan struct{})
 		var ch *rabbitmq.Channel
-		var err error
+		var openErr error
 
 		go func() {
-			ch, err = conn.Channel()
+			ch, openErr = conn.Channel()
 			close(done)
 		}()
 
@@ -119,26 +140,13 @@ func TestMultipleChannelOpenCloseSequence(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatalf("Iteration %d: Timeout opening channel (bug reproduced)", i+1)
 		case <-done:
-			if err != nil {
-				t.Fatalf("Iteration %d: Failed to open channel: %v", i+1, err)
+			if openErr != nil {
+				t.Fatalf("Iteration %d: Failed to open channel: %v", i+1, openErr)
 			}
 		}
 
-		// Perform a queue operation
-		queueName := "test_channel_sequence"
-		_, err = ch.QueueDeclare(
-			queueName,
-			false, // durable
-			true,  // auto-delete
-			false, // exclusive
-			false, // no-wait
-			nil,   // arguments
-		)
-		if err != nil {
-			t.Fatalf("Iteration %d: Failed to declare queue: %v", i+1, err)
-		}
-
-		// Publish a message
+		// Publish a message with iteration number
+		messageBody := fmt.Sprintf("test message %d", i+1)
 		err = ch.PublishWithContext(
 			ctx,
 			"",        // exchange
@@ -146,7 +154,7 @@ func TestMultipleChannelOpenCloseSequence(t *testing.T) {
 			false,     // mandatory
 			false,     // immediate
 			rabbitmq.Publishing{
-				Body: []byte("test message"),
+				Body: []byte(messageBody),
 			},
 		)
 		if err != nil {
@@ -159,5 +167,70 @@ func TestMultipleChannelOpenCloseSequence(t *testing.T) {
 		}
 	}
 
-	t.Log("All iterations completed successfully")
+	t.Log("All publish iterations completed successfully")
+
+	// Now consume all messages to verify they were all published
+	t.Log("Starting to consume messages...")
+
+	consumerCh, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("Failed to open consumer channel: %v", err)
+	}
+	defer consumerCh.Close()
+
+	// Set QoS to ensure we can consume all messages
+	err = consumerCh.Qos(
+		100,   // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	if err != nil {
+		t.Fatalf("Failed to set QoS: %v", err)
+	}
+
+	msgs, err := consumerCh.ConsumeWithContext(
+		ctx,
+		queueName,
+		"test-consumer",
+		false, // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,   // args
+	)
+	if err != nil {
+		t.Fatalf("Failed to start consuming: %v", err)
+	}
+
+	// Consume all messages
+	consumed := 0
+	timeout := time.After(10 * time.Second)
+
+	for consumed < iterations {
+		select {
+		case msg := <-msgs:
+			consumed++
+			if consumed%100 == 0 {
+				t.Logf("Consuming progress: %d/%d messages", consumed, iterations)
+			}
+
+			// Verify message body contains expected pattern
+			if !strings.HasPrefix(string(msg.Body), "test message") {
+				t.Errorf("Unexpected message body: %s", msg.Body)
+			}
+
+			// Acknowledge the message
+			if err := msg.Ack(false); err != nil {
+				t.Errorf("Failed to ack message %d: %v", consumed, err)
+			}
+
+		case <-timeout:
+			t.Fatalf("Timeout: Only consumed %d out of %d messages", consumed, iterations)
+
+		case <-ctx.Done():
+			t.Fatalf("Context timeout: Only consumed %d out of %d messages", consumed, iterations)
+		}
+	}
+
+	t.Logf("Successfully consumed all %d messages!", consumed)
 }
