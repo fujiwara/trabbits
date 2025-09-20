@@ -31,6 +31,7 @@ type tuiModel struct {
 	successMsg   string
 	successTime  time.Time
 	detailScroll int
+	listScroll   int
 }
 
 type viewMode int
@@ -179,11 +180,35 @@ func (m *tuiModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.selectedIdx > 0 {
 			m.selectedIdx--
+			m.adjustScrollForSelection()
 		}
 	case "down", "j":
 		if m.selectedIdx < len(m.clients)-1 {
 			m.selectedIdx++
+			m.adjustScrollForSelection()
 		}
+	case "pgup":
+		pageSize := m.getVisibleRows()
+		if m.selectedIdx > pageSize {
+			m.selectedIdx -= pageSize
+		} else {
+			m.selectedIdx = 0
+		}
+		m.adjustScrollForSelection()
+	case "pgdn":
+		pageSize := m.getVisibleRows()
+		if m.selectedIdx+pageSize < len(m.clients) {
+			m.selectedIdx += pageSize
+		} else {
+			m.selectedIdx = len(m.clients) - 1
+		}
+		m.adjustScrollForSelection()
+	case "home":
+		m.selectedIdx = 0
+		m.listScroll = 0
+	case "end":
+		m.selectedIdx = len(m.clients) - 1
+		m.adjustScrollForSelection()
 	case "enter":
 		if len(m.clients) > 0 {
 			m.selectedID = m.clients[m.selectedIdx].ID
@@ -317,7 +342,17 @@ func (m *tuiModel) renderTable() string {
 	rows = append(rows, header)
 	rows = append(rows, strings.Repeat("─", len(header)))
 
-	for i, client := range m.clients {
+	// Calculate visible range
+	visibleRows := m.getVisibleRows()
+	startIdx := m.listScroll
+	endIdx := startIdx + visibleRows
+	if endIdx > len(m.clients) {
+		endIdx = len(m.clients)
+	}
+
+	// Show only visible clients
+	for i := startIdx; i < endIdx; i++ {
+		client := m.clients[i]
 		row := m.formatClientRow(client, i == m.selectedIdx)
 		if i == m.selectedIdx {
 			row = selectedRowStyle.Render(row)
@@ -326,7 +361,23 @@ func (m *tuiModel) renderTable() string {
 	}
 
 	content := strings.Join(rows, "\n")
-	return tableStyle.Render(content)
+
+	// Add scroll indicator if there are more clients
+	var scrollInfo string
+	if len(m.clients) > visibleRows {
+		totalPages := (len(m.clients) + visibleRows - 1) / visibleRows
+		currentPage := (m.listScroll / visibleRows) + 1
+		scrollInfo = fmt.Sprintf(" [%d-%d of %d clients, page %d/%d]",
+			startIdx+1, endIdx, len(m.clients), currentPage, totalPages)
+	}
+
+	result := tableStyle.Render(content)
+	if scrollInfo != "" {
+		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		result += "\n" + scrollStyle.Render(scrollInfo)
+	}
+
+	return result
 }
 
 func (m *tuiModel) formatClientRow(client ClientInfo, selected bool) string {
@@ -525,8 +576,46 @@ func (m *tuiModel) renderConfirmView() string {
 }
 
 func (m *tuiModel) renderHelp() string {
-	help := "↑↓/kj navigate • Enter info • Shift+K shutdown • r refresh • q quit"
+	help := "↑↓/kj navigate • PgUp/PgDn page • Enter info • Shift+K shutdown • r refresh • q quit"
 	return helpStyle.Render(help)
+}
+
+func (m *tuiModel) getVisibleRows() int {
+	// Calculate visible rows: total height - header - help - error/success area - margins
+	headerLines := 3 // header + spacing
+	helpLines := 2   // help + spacing
+	marginLines := 4 // various margins and spacing
+	visibleHeight := m.height - headerLines - helpLines - marginLines
+	if visibleHeight < 5 {
+		visibleHeight = 5
+	}
+	return visibleHeight
+}
+
+func (m *tuiModel) adjustScrollForSelection() {
+	visibleRows := m.getVisibleRows()
+
+	// If selected item is above visible area, scroll up
+	if m.selectedIdx < m.listScroll {
+		m.listScroll = m.selectedIdx
+	}
+
+	// If selected item is below visible area, scroll down
+	if m.selectedIdx >= m.listScroll+visibleRows {
+		m.listScroll = m.selectedIdx - visibleRows + 1
+	}
+
+	// Ensure scroll is within bounds
+	if m.listScroll < 0 {
+		m.listScroll = 0
+	}
+	maxScroll := len(m.clients) - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.listScroll > maxScroll {
+		m.listScroll = maxScroll
+	}
 }
 
 func (m *tuiModel) fetchClients() tea.Cmd {
