@@ -19,6 +19,10 @@ import (
 const (
 	APIContentType        = "application/json"
 	APIContentTypeJsonnet = "application/jsonnet"
+
+	// Client status constants
+	ClientStatusActive       = "active"
+	ClientStatusShuttingDown = "shutting_down"
 )
 
 // ClientInfo represents information about a connected client
@@ -29,7 +33,7 @@ type ClientInfo struct {
 	VirtualHost    string    `json:"virtual_host"`
 	ClientBanner   string    `json:"client_banner"`
 	ConnectedAt    time.Time `json:"connected_at"`
-	Status         string    `json:"status"` // "active" or "shutting_down"
+	Status         string    `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
 	ShutdownReason string    `json:"shutdown_reason,omitempty"`
 }
 

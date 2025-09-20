@@ -1046,10 +1046,10 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 		proxy := entry.proxy
 
 		// Determine status based on shutdown message
-		status := "active"
+		status := ClientStatusActive
 		shutdownReason := ""
 		if proxy.shutdownMessage != ShutdownMsgDefault {
-			status = "shutting_down"
+			status = ClientStatusShuttingDown
 			shutdownReason = proxy.shutdownMessage
 		}
 

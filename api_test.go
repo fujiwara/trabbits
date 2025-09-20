@@ -674,8 +674,8 @@ func TestAPIGetClients(t *testing.T) {
 
 		// Check first client (active)
 		client1 := clients[0]
-		if client1.Status != "active" {
-			t.Errorf("Expected status 'active', got '%s'", client1.Status)
+		if client1.Status != trabbits.ClientStatusActive {
+			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusActive, client1.Status)
 		}
 		if client1.User != "user1" {
 			t.Errorf("Expected user 'user1', got '%s'", client1.User)
@@ -692,8 +692,8 @@ func TestAPIGetClients(t *testing.T) {
 
 		// Check second client (shutting down)
 		client2 := clients[1]
-		if client2.Status != "shutting_down" {
-			t.Errorf("Expected status 'shutting_down', got '%s'", client2.Status)
+		if client2.Status != trabbits.ClientStatusShuttingDown {
+			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusShuttingDown, client2.Status)
 		}
 		if client2.User != "user2" {
 			t.Errorf("Expected user 'user2', got '%s'", client2.User)
@@ -791,8 +791,8 @@ func TestAPIGetClientsIntegration(t *testing.T) {
 			if clientInfo.ID == "" {
 				t.Error("Client ID should not be empty")
 			}
-			if clientInfo.Status != "active" {
-				t.Errorf("Expected status 'active', got '%s'", clientInfo.Status)
+			if clientInfo.Status != trabbits.ClientStatusActive {
+				t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusActive, clientInfo.Status)
 			}
 			if clientInfo.ConnectedAt.IsZero() {
 				t.Error("ConnectedAt should not be zero value")
