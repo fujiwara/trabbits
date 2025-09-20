@@ -17,6 +17,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/fujiwara/trabbits/config"
+	"github.com/fujiwara/trabbits/tui"
 	"github.com/fujiwara/trabbits/types"
 )
 
@@ -275,7 +276,7 @@ func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 
 func manageClients(ctx context.Context, opt *CLI) error {
 	client := newAPIClient(opt.APISocket)
-	clients, err := client.getClients(ctx)
+	clients, err := client.GetClients(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get clients: %w", err)
 	}
@@ -290,7 +291,7 @@ func manageClients(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-func (c *apiClient) getClients(ctx context.Context) ([]types.ClientInfo, error) {
+func (c *apiClient) GetClients(ctx context.Context) ([]types.ClientInfo, error) {
 	fullURL, err := c.buildURL("clients")
 	if err != nil {
 		return nil, err
@@ -381,7 +382,7 @@ func manageProxyInfo(ctx context.Context, opt *CLI) error {
 	return client.getProxyInfo(ctx, proxyID)
 }
 
-func (c *apiClient) getClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
+func (c *apiClient) GetClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
 	fullURL, err := c.buildURL(path.Join("clients", clientID))
 	if err != nil {
 		return nil, err
@@ -409,7 +410,7 @@ func (c *apiClient) getClientDetail(ctx context.Context, clientID string) (*type
 	return &clientInfo, nil
 }
 
-func (c *apiClient) shutdownClient(ctx context.Context, clientID, reason string) error {
+func (c *apiClient) ShutdownClient(ctx context.Context, clientID, reason string) error {
 	if clientID == "" {
 		return fmt.Errorf("client ID cannot be empty")
 	}
@@ -489,4 +490,10 @@ func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
 
 	fmt.Print(string(clientJSON))
 	return nil
+}
+
+// runTUI starts the TUI using the new tui package
+func runTUI(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	return tui.Run(ctx, client)
 }
