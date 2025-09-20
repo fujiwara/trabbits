@@ -110,13 +110,13 @@ func newAPIClient(socketPath string) *apiClient {
 		Timeout:   30 * time.Second,
 	}
 	return &apiClient{
-		endpoint: "http://localhost/config",
+		endpoint: "http://localhost/",
 		client:   client,
 	}
 }
 
 func (c *apiClient) getConfig(ctx context.Context) (*config.Config, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"config", nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -142,7 +142,7 @@ func (c *apiClient) putConfigFromFile(ctx context.Context, configPath string) er
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint, bytes.NewReader(data))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+"config", bytes.NewReader(data))
 	req.Header.Set("Content-Type", APIContentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -161,7 +161,7 @@ func (c *apiClient) putConfig(ctx context.Context, cfg *config.Config) error {
 	slog.Info("putting config", "config", cfg)
 	b := new(bytes.Buffer)
 	b.WriteString(cfg.String())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint, b)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+"config", b)
 	req.Header.Set("Content-Type", APIContentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -190,7 +190,7 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 		contentType = APIContentTypeJsonnet
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/diff", bytes.NewReader(data))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"config/diff", bytes.NewReader(data))
 	req.Header.Set("Content-Type", contentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -213,7 +213,7 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 	slog.Info("reloading config from server")
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/reload", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"config/reload", nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -228,4 +228,114 @@ func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 		return nil, fmt.Errorf("failed to decode JSON: %w", err)
 	}
 	return &cfg, nil
+}
+
+func manageClients(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	clients, err := client.getClients(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get clients: %w", err)
+	}
+
+	// Pretty print the clients information
+	clientsJSON, err := json.MarshalIndent(clients, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal clients: %w", err)
+	}
+
+	fmt.Print(string(clientsJSON))
+	return nil
+}
+
+func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"clients", nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get clients: %s", resp.Status)
+	}
+
+	var clients []ClientInfo
+	if err := json.NewDecoder(resp.Body).Decode(&clients); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON: %w", err)
+	}
+	return clients, nil
+}
+
+func manageProxyShutdown(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	proxyID := opt.Manage.Clients.Shutdown.ProxyID
+	reason := opt.Manage.Clients.Shutdown.Reason
+
+	return client.shutdownProxy(ctx, proxyID, reason)
+}
+
+func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) error {
+	endpoint := fmt.Sprintf("%sclients/%s", c.endpoint, proxyID)
+	if reason != "" {
+		endpoint += "?reason=" + reason
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("proxy not found: %s", proxyID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to shutdown proxy: %s", resp.Status)
+	}
+
+	fmt.Printf("Proxy %s shutdown initiated successfully\n", proxyID)
+	if reason != "" {
+		fmt.Printf("Reason: %s\n", reason)
+	}
+	return nil
+}
+
+func manageProxyInfo(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	proxyID := opt.Manage.Clients.Info.ProxyID
+
+	return client.getProxyInfo(ctx, proxyID)
+}
+
+func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
+	endpoint := fmt.Sprintf("%sclients/%s", c.endpoint, proxyID)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("proxy not found: %s", proxyID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get proxy info: %s", resp.Status)
+	}
+
+	// Parse and pretty-print JSON response for automation
+	var clientInfo map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&clientInfo); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Output indented JSON for better readability
+	clientJSON, err := json.MarshalIndent(clientInfo, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal client info: %w", err)
+	}
+
+	fmt.Print(string(clientJSON))
+	return nil
 }

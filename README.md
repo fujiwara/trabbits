@@ -409,7 +409,7 @@ trabbits provides an HTTP API server that allows you to manage the configuration
 
 You can update the configuration of trabbits via the API server. You can get the current configuration and update with a new configuration via HTTP request to `/config` endpoint.
 
-trabbits cli also supports the configuration management. You can use `trabbits manage config` command to manage 
+trabbits cli also supports the configuration management. You can use `trabbits manage config` command to manage
 the configuration. The cli access to the API server on the localhost.
 
 ```
@@ -420,6 +420,19 @@ Manage the configuration.
 Arguments:
   <command>    Command to run (get, diff, put, reload).
   <file>       Configuration file (required for diff/put commands).
+```
+
+You can also manage connected clients using the `trabbits manage clients` command:
+
+```
+Usage: trabbits manage clients <command>
+
+Manage connected clients.
+
+Commands:
+  list                     Get connected clients information
+  info <proxy-id>          Get detailed information for a specific proxy
+  shutdown <proxy-id>      Shutdown a specific proxy
 ```
 
 #### Configuration Versioning and Graceful Disconnection
@@ -496,6 +509,153 @@ $ trabbits manage config reload
 ```
 
 This command reloads the configuration from the file specified by `--config` option (default: `config.json`).
+
+### Clients API
+
+trabbits provides an API to get information about connected clients. You can get the list of all connected clients by sending a GET request to the `/clients` endpoint.
+
+#### Get connected clients information
+
+You can get information about all connected clients by sending a GET request to the `/clients` endpoint.
+
+```console
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/clients
+```
+
+The response includes the following information for each client:
+
+```json
+[
+  {
+    "id": "proxy-12345678",
+    "client_address": "127.0.0.1:54321",
+    "user": "guest",
+    "virtual_host": "/",
+    "client_banner": "Platform/Product/Version",
+    "connected_at": "2025-01-01T12:00:00Z",
+    "status": "active",
+    "shutdown_reason": ""
+  },
+  {
+    "id": "proxy-87654321",
+    "client_address": "127.0.0.1:54322",
+    "user": "guest",
+    "virtual_host": "/",
+    "client_banner": "Platform/Product/Version",
+    "connected_at": "2025-01-01T12:01:00Z",
+    "status": "shutting_down",
+    "shutdown_reason": "Configuration updated, please reconnect"
+  }
+]
+```
+
+Fields description:
+
+- `id`: Unique proxy identifier
+- `client_address`: Client's IP address and port
+- `user`: Authenticated username
+- `virtual_host`: Virtual host the client is connected to
+- `client_banner`: Client platform/product/version information
+- `connected_at`: Timestamp when the client connected
+- `status`: Connection status - either `active` or `shutting_down`
+- `shutdown_reason`: Reason for shutdown (only present when status is `shutting_down`)
+
+You can also use the `trabbits` CLI to get clients information:
+
+```console
+$ trabbits manage clients list
+```
+
+#### Get detailed client information
+
+You can get comprehensive information about a specific client by sending a GET request to the `/clients/{proxy_id}` endpoint.
+
+```console
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/clients/proxy-12345678
+```
+
+This returns complete client information including:
+
+```json
+{
+  "id": "proxy-12345678",
+  "client_address": "127.0.0.1:54321",
+  "user": "admin",
+  "virtual_host": "/",
+  "client_banner": "golang/golang/AMQP 0.9.1 Client/1.10.0",
+  "client_properties": {
+    "product": "my-app",
+    "version": "1.0.0",
+    "capabilities": {
+      "publisher_confirms": true,
+      "consumer_cancel_notify": true
+    }
+  },
+  "connected_at": "2023-11-20T10:30:00Z",
+  "status": "active",
+  "stats": {
+    "started_at": "2023-11-20T10:30:00Z",
+    "methods": {
+      "Basic.Publish": 150,
+      "Basic.Consume": 5,
+      "Queue.Declare": 3
+    },
+    "total_methods": 158,
+    "received_frames": 320,
+    "sent_frames": 285,
+    "total_frames": 605,
+    "duration": "45m30s"
+  }
+}
+```
+
+Using the CLI:
+
+```console
+$ trabbits manage clients info proxy-12345678
+```
+
+The response includes:
+- Complete client properties and capabilities
+- Detailed statistics with method-level breakdown
+- Frame counters (received/sent frames)
+- Connection duration and timestamps
+
+#### Shutdown a specific proxy
+
+You can gracefully shutdown a specific proxy by sending a DELETE request to the `/clients/{proxy_id}` endpoint.
+
+```console
+$ curl -X DELETE --unix-socket /tmp/trabbits.sock http://localhost/clients/proxy-12345678
+```
+
+You can also provide a custom shutdown reason using the `reason` query parameter:
+
+```console
+$ curl -X DELETE --unix-socket /tmp/trabbits.sock "http://localhost/clients/proxy-12345678?reason=Maintenance"
+```
+
+The response includes the shutdown status:
+
+```json
+{
+  "status": "shutdown_initiated",
+  "proxy_id": "proxy-12345678",
+  "reason": "Maintenance"
+}
+```
+
+Using the CLI:
+
+```console
+# Shutdown a proxy with default reason
+$ trabbits manage clients shutdown proxy-12345678
+
+# Shutdown a proxy with custom reason
+$ trabbits manage clients shutdown proxy-12345678 --reason "Scheduled maintenance"
+```
+
+The proxy will be gracefully disconnected, allowing it to properly close ongoing operations before termination.
 
 #### Reload configuration with SIGHUP
 

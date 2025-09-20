@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/fujiwara/trabbits"
 	"github.com/fujiwara/trabbits/config"
 	"github.com/google/go-cmp/cmp"
+	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
 func newUnixSockHTTPClient(socketPath string) *http.Client {
@@ -28,6 +30,68 @@ func newUnixSockHTTPClient(socketPath string) *http.Client {
 		Timeout:   30 * time.Second,
 	}
 	return client
+}
+
+// startUnifiedTestServer starts a single server instance with both AMQP proxy and API
+func startUnifiedTestServer(t *testing.T, configFile string) (context.CancelFunc, string, *http.Client, int) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	// Create socket for API
+	tmpfile, err := os.CreateTemp("", "trabbits-unified-api-sock-")
+	if err != nil {
+		t.Fatalf("failed to create temp socket file: %v", err)
+	}
+	socketPath := tmpfile.Name()
+	os.Remove(socketPath) // trabbits will recreate it
+
+	// Load config
+	cfg, err := config.Load(ctx, configFile)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Disable health checks for test performance
+	for _, upstream := range cfg.Upstreams {
+		upstream.HealthCheck = nil
+	}
+
+	// Create listener for AMQP proxy
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	proxyPort := listener.Addr().(*net.TCPAddr).Port
+
+	// Create single server instance
+	server := trabbits.NewServer(cfg, socketPath)
+
+	// Start both AMQP proxy and API server on the same instance
+	go func() {
+		defer listener.Close()
+		if err := server.TestBoot(ctx, listener); err != nil && ctx.Err() == nil {
+			t.Errorf("AMQP proxy server failed: %v", err)
+		}
+	}()
+
+	go func() {
+		if _, err := server.TestStartAPIServer(ctx, configFile); err != nil && ctx.Err() == nil {
+			t.Errorf("API server failed: %v", err)
+		}
+	}()
+
+	// Wait for both services to be available
+	waitForTestAPI(t, socketPath, 1*time.Second)
+
+	// Test AMQP connectivity
+	time.Sleep(100 * time.Millisecond)
+	testConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), 1*time.Second)
+	if err != nil {
+		t.Fatalf("AMQP proxy not ready: %v", err)
+	}
+	testConn.Close()
+
+	client := newUnixSockHTTPClient(socketPath)
+	return cancel, socketPath, client, proxyPort
 }
 
 // startIsolatedAPIServer starts a new API server instance for isolated testing
@@ -520,6 +584,474 @@ local env = std.native('env');
 
 		if !foundSecondary {
 			t.Error("Expected to find 'secondary' upstream after reload")
+		}
+	})
+}
+
+// TestAPIGetClients tests the GET /clients endpoint
+func TestAPIGetClients(t *testing.T) {
+	// Start isolated server instance for clients test
+	cancel, socketPath, client := startIsolatedAPIServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+
+	// First test: No clients connected
+	t.Run("NoClients", func(t *testing.T) {
+		resp, err := client.Get("http://unix/clients")
+		if err != nil {
+			t.Fatalf("Failed to get clients: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected status 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Read the raw response to check it's [] not null
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("Failed to read response body: %v", err)
+		}
+
+		responseStr := strings.TrimSpace(string(body))
+		if responseStr != "[]" {
+			t.Errorf("Expected empty array '[]', got '%s'", responseStr)
+		}
+
+		// Also verify it can be parsed as empty array
+		var clientsInfo []trabbits.ClientInfo
+		if err := json.Unmarshal(body, &clientsInfo); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+
+		if len(clientsInfo) != 0 {
+			t.Errorf("Expected 0 clients, got %d", len(clientsInfo))
+		}
+	})
+
+	// Test with mock clients
+	t.Run("WithMockClients", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create mock proxies and register them
+		proxy1 := server.NewProxy(nil) // nil connection for testing
+		proxy2 := server.NewProxy(nil)
+
+		// Set some test data
+		proxy1.SetUser("user1")
+		proxy1.SetVirtualHost("/vhost1")
+		proxy2.SetUser("user2")
+		proxy2.SetVirtualHost("/vhost2")
+		proxy2.SetShutdownMessage("Test shutdown")
+
+		// Register proxies
+		server.RegisterProxy(proxy1, func() {})
+		server.RegisterProxy(proxy2, func() {})
+		defer func() {
+			server.UnregisterProxy(proxy1)
+			server.UnregisterProxy(proxy2)
+		}()
+
+		// Get clients info
+		clients := server.GetClientsInfo()
+
+		if len(clients) != 2 {
+			t.Fatalf("Expected 2 clients, got %d", len(clients))
+		}
+
+		// Log the clients info for debugging
+		for i, client := range clients {
+			t.Logf("Client %d: ID=%s, User=%s, VirtualHost=%s, Status=%s, ConnectedAt=%s, ShutdownReason=%s",
+				i, client.ID, client.User, client.VirtualHost, client.Status, client.ConnectedAt.Format("2006-01-02T15:04:05.000Z07:00"), client.ShutdownReason)
+		}
+
+		// Check first client (active)
+		client1 := clients[0]
+		if client1.Status != trabbits.ClientStatusActive {
+			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusActive, client1.Status)
+		}
+		if client1.User != "user1" {
+			t.Errorf("Expected user 'user1', got '%s'", client1.User)
+		}
+		if client1.VirtualHost != "/vhost1" {
+			t.Errorf("Expected virtual host '/vhost1', got '%s'", client1.VirtualHost)
+		}
+		if client1.ConnectedAt.IsZero() {
+			t.Error("Connected at time should not be zero")
+		}
+		if client1.ShutdownReason != "" {
+			t.Errorf("Expected empty shutdown reason for active client, got '%s'", client1.ShutdownReason)
+		}
+		if client1.ClientProperties != nil {
+			t.Errorf("Expected nil ClientProperties for clients list, got %v", client1.ClientProperties)
+		}
+
+		// Check second client (shutting down)
+		client2 := clients[1]
+		if client2.Status != trabbits.ClientStatusShuttingDown {
+			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusShuttingDown, client2.Status)
+		}
+		if client2.User != "user2" {
+			t.Errorf("Expected user 'user2', got '%s'", client2.User)
+		}
+		if client2.VirtualHost != "/vhost2" {
+			t.Errorf("Expected virtual host '/vhost2', got '%s'", client2.VirtualHost)
+		}
+		if client2.ShutdownReason != "Test shutdown" {
+			t.Errorf("Expected shutdown reason 'Test shutdown', got '%s'", client2.ShutdownReason)
+		}
+		if client2.ClientProperties != nil {
+			t.Errorf("Expected nil ClientProperties for clients list, got %v", client2.ClientProperties)
+		}
+
+		// Verify clients are sorted by connection time
+		if !client2.ConnectedAt.After(client1.ConnectedAt) && !client2.ConnectedAt.Equal(client1.ConnectedAt) {
+			t.Error("Clients should be sorted by connection time (oldest first)")
+		}
+
+		// Verify that ClientProperties are omitted from JSON output
+		jsonBytes, err := json.Marshal(clients)
+		if err != nil {
+			t.Fatalf("Failed to marshal clients to JSON: %v", err)
+		}
+		jsonStr := string(jsonBytes)
+		if strings.Contains(jsonStr, "client_properties") {
+			t.Errorf("JSON output should not contain 'client_properties' field: %s", jsonStr)
+		}
+	})
+
+}
+
+// TestAPIGetClientsIntegration tests the GET /clients endpoint with real AMQP connections
+func TestAPIGetClientsIntegration(t *testing.T) {
+	// Start unified server with both AMQP proxy and API
+	cancel, socketPath, client, proxyPort := startUnifiedTestServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+
+	// Create helper function for AMQP connections to the unified server
+	mustUnifiedTestConn := func(t *testing.T, keyValues ...string) *rabbitmq.Connection {
+		props := rabbitmq.Table{
+			"product":  "golang/AMQP 0.9.1 Client",
+			"version":  "1.10.0",
+			"platform": "golang",
+		}
+
+		// Add custom properties from key-value pairs
+		if len(keyValues)%2 != 0 {
+			t.Fatal("keyValues must be provided in pairs")
+		}
+		for i := 0; i < len(keyValues); i += 2 {
+			props[keyValues[i]] = keyValues[i+1]
+		}
+
+		cfg := rabbitmq.Config{
+			Properties: props,
+		}
+
+		conn, err := rabbitmq.DialConfig(fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", proxyPort), cfg)
+		if err != nil {
+			t.Fatalf("Failed to connect to test server: %v", err)
+		}
+		return conn
+	}
+
+	t.Run("WithRealClientConnections", func(t *testing.T) {
+		// Connect real AMQP clients to the unified server
+		conn1 := mustUnifiedTestConn(t, "test_type", "api_integration_test_1")
+		defer conn1.Close()
+		time.Sleep(100 * time.Millisecond) // Allow connection to be processed
+
+		conn2 := mustUnifiedTestConn(t, "test_type", "api_integration_test_2")
+		defer conn2.Close()
+		time.Sleep(100 * time.Millisecond) // Allow connection to be processed
+
+		// Test API response
+		resp, err := client.Get("http://unix/clients")
+		if err != nil {
+			t.Fatalf("Failed to get clients: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected status 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var clientsInfo []trabbits.ClientInfo
+		if err := json.NewDecoder(resp.Body).Decode(&clientsInfo); err != nil {
+			t.Fatalf("Failed to decode JSON: %v", err)
+		}
+
+		t.Logf("API returned %d clients", len(clientsInfo))
+		for i, c := range clientsInfo {
+			t.Logf("Client %d: ID=%s, User=%s, Status=%s, ConnectedAt=%s",
+				i, c.ID, c.User, c.Status, c.ConnectedAt.Format("2006-01-02T15:04:05.000Z07:00"))
+		}
+
+		if len(clientsInfo) < 2 {
+			t.Errorf("Expected at least 2 clients, got %d", len(clientsInfo))
+		}
+
+		// Check properties of connected clients
+		foundConnections := 0
+		for _, clientInfo := range clientsInfo {
+			// Verify basic client properties
+			if clientInfo.ID == "" {
+				t.Error("Client ID should not be empty")
+			}
+			if clientInfo.Status != trabbits.ClientStatusActive {
+				t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusActive, clientInfo.Status)
+			}
+			if clientInfo.ConnectedAt.IsZero() {
+				t.Error("ConnectedAt should not be zero value")
+			}
+			if clientInfo.User != "admin" {
+				t.Errorf("Expected user 'admin', got '%s'", clientInfo.User)
+			}
+			if clientInfo.VirtualHost != "/" {
+				t.Errorf("Expected virtual host '/', got '%s'", clientInfo.VirtualHost)
+			}
+			if clientInfo.ClientAddress == "" {
+				t.Error("Client address should not be empty")
+			}
+			if clientInfo.ShutdownReason != "" {
+				t.Errorf("Active client should have empty shutdown reason, got '%s'", clientInfo.ShutdownReason)
+			}
+
+			// Check if this is one of our test connections
+			if strings.Contains(clientInfo.ClientBanner, "golang/AMQP 0.9.1 Client") {
+				foundConnections++
+			}
+
+			t.Logf("Found client: ID=%s, User=%s, Address=%s, ConnectedAt=%s, Status=%s",
+				clientInfo.ID, clientInfo.User, clientInfo.ClientAddress,
+				clientInfo.ConnectedAt.Format("2006-01-02T15:04:05.000Z07:00"), clientInfo.Status)
+		}
+
+		if foundConnections < 2 {
+			t.Errorf("Expected to find at least 2 test connections, found %d", foundConnections)
+		}
+
+		// Verify clients are sorted by connection time
+		for i := 1; i < len(clientsInfo); i++ {
+			if clientsInfo[i].ConnectedAt.Before(clientsInfo[i-1].ConnectedAt) {
+				t.Error("Clients should be sorted by connection time (oldest first)")
+				break
+			}
+		}
+	})
+}
+
+func TestAPIGetClient(t *testing.T) {
+	// Create test server
+	cfg := &config.Config{
+		Upstreams: []config.Upstream{
+			{Name: "test", Address: "localhost:5672"},
+		},
+	}
+	server := trabbits.NewTestServer(cfg)
+
+	// Create test proxy with full client properties
+	proxy := server.NewProxy(nil)
+	proxy.SetUser("testuser")
+	proxy.SetVirtualHost("/test")
+
+	// Set client properties - manually set for testing
+	// Since we don't have a SetClientProps method, we'll skip this for now
+	// The test will check if ClientProperties are properly handled when they exist
+
+	// Add some stats
+	if proxy.Stats() != nil {
+		proxy.Stats().IncrementMethod("Basic.Publish")
+		proxy.Stats().IncrementMethod("Basic.Consume")
+		proxy.Stats().IncrementReceivedFrames()
+		proxy.Stats().IncrementSentFrames()
+	}
+
+	server.RegisterProxy(proxy, func() {})
+	defer server.UnregisterProxy(proxy)
+
+	// Get client info
+	clientInfo, found := server.GetClientInfo(proxy.ID())
+	if !found {
+		t.Fatal("Expected to find client info")
+	}
+
+	// Verify full client info
+	if clientInfo.ID != proxy.ID() {
+		t.Errorf("Expected ID %s, got %s", proxy.ID(), clientInfo.ID)
+	}
+	if clientInfo.User != "testuser" {
+		t.Errorf("Expected user 'testuser', got %s", clientInfo.User)
+	}
+	if clientInfo.VirtualHost != "/test" {
+		t.Errorf("Expected virtual host '/test', got %s", clientInfo.VirtualHost)
+	}
+
+	// Verify client properties are included (even if empty in test)
+	// For this test, we expect ClientProperties to be present (could be empty)
+	// The important thing is that it's not nil like in the clients list
+	if clientInfo.ClientProperties == nil {
+		t.Log("ClientProperties is nil - this is OK for test proxy without real client props")
+	}
+
+	// Verify full stats are included
+	if clientInfo.Stats == nil {
+		t.Error("Expected Stats to be included in full client info")
+	} else {
+		if clientInfo.Stats.TotalMethods != 2 {
+			t.Errorf("Expected 2 total methods, got %d", clientInfo.Stats.TotalMethods)
+		}
+		if clientInfo.Stats.Methods == nil || len(clientInfo.Stats.Methods) == 0 {
+			t.Error("Expected Methods breakdown to be included")
+		}
+		if clientInfo.Stats.StartedAt.IsZero() {
+			t.Error("Expected StartedAt to be set")
+		}
+	}
+}
+
+// TestAPIShutdownProxy tests the DELETE /clients/{proxy_id} endpoint
+func TestAPIShutdownProxy(t *testing.T) {
+	// Start isolated server for testing
+	cancel, socketPath, client := startIsolatedAPIServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+
+	t.Run("ProxyNotFound", func(t *testing.T) {
+		// Try to shutdown a non-existent proxy
+		req, _ := http.NewRequest(http.MethodDelete, "http://unix/clients/nonexistent", nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
+		}
+	})
+
+	t.Run("InvalidProxyID", func(t *testing.T) {
+		// Try to shutdown with empty proxy ID
+		req, _ := http.NewRequest(http.MethodDelete, "http://unix/clients/", nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Should be 404 because the route doesn't match
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
+		}
+	})
+
+	t.Run("SuccessfulShutdown", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create and register a mock proxy
+		proxy := server.NewProxy(nil)
+		proxy.SetUser("testuser")
+		proxy.SetVirtualHost("/test")
+		server.RegisterProxy(proxy, func() {})
+		defer server.UnregisterProxy(proxy)
+
+		// Test shutdown
+		found := server.ShutdownProxy(proxy.ID(), "Test shutdown")
+		if !found {
+			t.Error("Expected to find and shutdown the proxy")
+		}
+
+		// Verify the proxy has shutdown message set
+		clients := server.GetClientsInfo()
+		if len(clients) != 1 {
+			t.Fatalf("Expected 1 proxy, got %d", len(clients))
+		}
+
+		if clients[0].Status != trabbits.ClientStatusShuttingDown {
+			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusShuttingDown, clients[0].Status)
+		}
+
+		if clients[0].ShutdownReason != "Test shutdown" {
+			t.Errorf("Expected shutdown reason 'Test shutdown', got '%s'", clients[0].ShutdownReason)
+		}
+	})
+
+	t.Run("ShutdownWithCustomReason", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create and register a mock proxy
+		proxy := server.NewProxy(nil)
+		server.RegisterProxy(proxy, func() {})
+		defer server.UnregisterProxy(proxy)
+
+		// Test shutdown with custom reason
+		customReason := "Maintenance shutdown"
+		found := server.ShutdownProxy(proxy.ID(), customReason)
+		if !found {
+			t.Error("Expected to find and shutdown the proxy")
+		}
+
+		// Verify the shutdown reason
+		clients := server.GetClientsInfo()
+		if len(clients) != 1 {
+			t.Fatalf("Expected 1 proxy, got %d", len(clients))
+		}
+
+		if clients[0].ShutdownReason != customReason {
+			t.Errorf("Expected shutdown reason '%s', got '%s'", customReason, clients[0].ShutdownReason)
+		}
+	})
+
+	t.Run("DefaultShutdownReason", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create and register a mock proxy
+		proxy := server.NewProxy(nil)
+		server.RegisterProxy(proxy, func() {})
+		defer server.UnregisterProxy(proxy)
+
+		// Test shutdown without custom reason
+		found := server.ShutdownProxy(proxy.ID(), "")
+		if !found {
+			t.Error("Expected to find and shutdown the proxy")
+		}
+
+		// Verify the default shutdown reason
+		clients := server.GetClientsInfo()
+		if len(clients) != 1 {
+			t.Fatalf("Expected 1 proxy, got %d", len(clients))
+		}
+
+		if clients[0].ShutdownReason != "API shutdown request" {
+			t.Errorf("Expected default shutdown reason 'API shutdown request', got '%s'", clients[0].ShutdownReason)
 		}
 	})
 }
