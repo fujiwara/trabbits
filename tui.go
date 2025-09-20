@@ -106,7 +106,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		if time.Since(m.lastUpdate) > 2*time.Second {
-			return m, tea.Batch(m.fetchClients(), tick())
+			// Always fetch clients list
+			cmds := []tea.Cmd{m.fetchClients(), tick()}
+
+			// If in detail view, also fetch updated client detail
+			if m.viewMode == viewDetail && m.clientDetail != nil {
+				cmds = append(cmds, m.fetchClientDetail(m.clientDetail.ID))
+			}
+
+			return m, tea.Batch(cmds...)
 		}
 		return m, tick()
 
