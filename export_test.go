@@ -103,3 +103,5 @@ var (
 	ManageProxyShutdown = manageProxyShutdown
 	ColoredDiff         = coloredDiff
 )
+
+// TUI functionality moved to tui package

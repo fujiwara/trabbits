@@ -13,66 +13,13 @@ import (
 	"time"
 
 	"github.com/aereal/jsondiff"
-	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 )
 
 const (
 	APIContentType        = "application/json"
 	APIContentTypeJsonnet = "application/jsonnet"
-
-	// Client status constants
-	ClientStatusActive       = "active"
-	ClientStatusShuttingDown = "shutting_down"
 )
-
-// ClientInfo represents information about a connected client
-type ClientInfo struct {
-	ID               string        `json:"id"`
-	ClientAddress    string        `json:"client_address"`
-	User             string        `json:"user"`
-	VirtualHost      string        `json:"virtual_host"`
-	ClientBanner     string        `json:"client_banner"`
-	ClientProperties amqp091.Table `json:"client_properties,omitempty"`
-	ConnectedAt      time.Time     `json:"connected_at"`
-	Status           string        `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
-	ShutdownReason   string        `json:"shutdown_reason,omitempty"`
-	Stats            *StatsSummary `json:"stats,omitempty"`
-}
-
-// StatsSummary represents a summary of proxy statistics for API responses
-type StatsSummary struct {
-	TotalMethods   int64  `json:"total_methods"`
-	ReceivedFrames int64  `json:"received_frames"`
-	SentFrames     int64  `json:"sent_frames"`
-	TotalFrames    int64  `json:"total_frames"`
-	Duration       string `json:"duration"`
-}
-
-// FullStatsSummary represents complete proxy statistics including method breakdown
-type FullStatsSummary struct {
-	StartedAt      time.Time        `json:"started_at"`
-	Methods        map[string]int64 `json:"methods"`
-	TotalMethods   int64            `json:"total_methods"`
-	ReceivedFrames int64            `json:"received_frames"`
-	SentFrames     int64            `json:"sent_frames"`
-	TotalFrames    int64            `json:"total_frames"`
-	Duration       string           `json:"duration"`
-}
-
-// FullClientInfo represents complete information about a connected client including full stats
-type FullClientInfo struct {
-	ID               string            `json:"id"`
-	ClientAddress    string            `json:"client_address"`
-	User             string            `json:"user"`
-	VirtualHost      string            `json:"virtual_host"`
-	ClientBanner     string            `json:"client_banner"`
-	ClientProperties amqp091.Table     `json:"client_properties"`
-	ConnectedAt      time.Time         `json:"connected_at"`
-	Status           string            `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
-	ShutdownReason   string            `json:"shutdown_reason,omitempty"`
-	Stats            *FullStatsSummary `json:"stats,omitempty"`
-}
 
 func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 	if socketPath == "" {
@@ -168,8 +115,8 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("POST /config/diff", s.apiDiffConfigHandler())
 	mux.HandleFunc("POST /config/reload", s.apiReloadConfigHandler(configPath))
 	mux.HandleFunc("GET /clients", s.apiGetClientsHandler())
-	mux.HandleFunc("GET /clients/{proxy_id}", s.apiGetClientHandler())
-	mux.HandleFunc("DELETE /clients/{proxy_id}", s.apiShutdownClientHandler())
+	mux.HandleFunc("GET /clients/{proxy_id...}", s.apiGetClientHandler())
+	mux.HandleFunc("DELETE /clients/{proxy_id...}", s.apiShutdownClientHandler())
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -344,10 +291,16 @@ func (s *Server) apiShutdownClientHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
 
+		// Debug: log the request
+		slog.Debug("shutdown request received", "method", r.Method, "url", r.URL.String(), "path", r.URL.Path)
+
 		// Extract proxy ID from URL path
 		proxyID := r.PathValue("proxy_id")
+		slog.Debug("extracted proxy_id", "proxy_id", proxyID, "raw_path", r.URL.Path)
+
 		if proxyID == "" {
-			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
+			errorMsg := fmt.Sprintf("Proxy ID is required. URL path: %s, Method: %s", r.URL.Path, r.Method)
+			http.Error(w, errorMsg, http.StatusBadRequest)
 			return
 		}
 
