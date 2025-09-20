@@ -949,9 +949,9 @@ func TestAPIShutdownProxy(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		// Should be 404 because the route doesn't match
-		if resp.StatusCode != http.StatusNotFound {
-			t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
+		// Should be 400 because empty proxy ID is a bad request
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("Expected status %d, got %d", http.StatusBadRequest, resp.StatusCode)
 		}
 	})
 
