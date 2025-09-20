@@ -46,6 +46,17 @@ type FullStatsSummary struct {
 	Duration       string           `json:"duration"`
 }
 
+// StatsSnapshot represents a point-in-time snapshot of proxy statistics
+type StatsSnapshot struct {
+	StartedAt      time.Time        `json:"started_at"`
+	Methods        map[string]int64 `json:"methods"`
+	TotalMethods   int64            `json:"total_methods"`
+	ReceivedFrames int64            `json:"received_frames"`
+	SentFrames     int64            `json:"sent_frames"`
+	TotalFrames    int64            `json:"total_frames"`
+	Duration       string           `json:"duration"`
+}
+
 // FullClientInfo represents complete information about a connected client including full stats
 type FullClientInfo struct {
 	ID               string            `json:"id"`

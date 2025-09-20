@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/fujiwara/trabbits/types"
 )
 
 // ProxyStats holds statistics for a single proxy connection
@@ -104,20 +106,9 @@ func (s *ProxyStats) GetStartedAt() time.Time {
 	return s.startedAt
 }
 
-// StatsSnapshot represents a point-in-time snapshot of proxy statistics
-type StatsSnapshot struct {
-	StartedAt      time.Time        `json:"started_at"`
-	Methods        map[string]int64 `json:"methods"`
-	TotalMethods   int64            `json:"total_methods"`
-	ReceivedFrames int64            `json:"received_frames"`
-	SentFrames     int64            `json:"sent_frames"`
-	TotalFrames    int64            `json:"total_frames"`
-	Duration       string           `json:"duration"`
-}
-
 // Snapshot returns a snapshot of current statistics
-func (s *ProxyStats) Snapshot() StatsSnapshot {
-	return StatsSnapshot{
+func (s *ProxyStats) Snapshot() types.StatsSnapshot {
+	return types.StatsSnapshot{
 		StartedAt:      s.startedAt,
 		Methods:        s.GetAllMethodCounts(),
 		TotalMethods:   s.GetTotalMethods(),
