@@ -441,8 +441,6 @@ Commands:
 For interactive client management, trabbits provides a modern Terminal User Interface built with Bubble Tea:
 
 ```console
-$ trabbits manage clients
-# or
 $ trabbits manage clients tui
 ```
 
