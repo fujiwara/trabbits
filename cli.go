@@ -59,6 +59,9 @@ func Run(ctx context.Context) error {
 	case "manage config <command>", "manage config <command> <file>":
 		// Manage the server
 		return manageConfig(ctx, &cli)
+	case "manage clients":
+		// Get clients information
+		return manageClients(ctx, &cli)
 	case "test match-routing <pattern> <key>":
 		// Test routing pattern matching
 		return testMatchRouting(ctx, &cli)
@@ -78,6 +81,7 @@ type ManageOptions struct {
 		Command string `arg:"" enum:"get,diff,put,reload" help:"Command to run (get, diff, put, reload)."`
 		File    string `arg:"" optional:"" help:"Configuration file (required for diff/put commands)."`
 	} `cmd:"" help:"Manage the configuration."`
+	Clients struct{} `cmd:"" help:"Get connected clients information."`
 }
 
 type TestOptions struct {

@@ -38,6 +38,7 @@ type Proxy struct {
 	configHash         string      // hash of config used for this proxy
 	upstreamDisconnect chan string // channel to notify upstream disconnection
 	shutdownMessage    string      // message to send when shutting down
+	connectedAt        time.Time   // timestamp when the client connected
 }
 
 func NewProxy(conn net.Conn) *Proxy {
@@ -49,6 +50,7 @@ func NewProxy(conn net.Conn) *Proxy {
 		w:                  amqp091.NewWriter(conn),
 		upstreamDisconnect: make(chan string, 10), // buffered to avoid blocking
 		shutdownMessage:    ShutdownMsgDefault,    // default shutdown message
+		connectedAt:        time.Now(),
 	}
 	p.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", p.ClientAddr())
 	return p

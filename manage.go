@@ -229,3 +229,39 @@ func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 	}
 	return &cfg, nil
 }
+
+func manageClients(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	clients, err := client.getClients(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get clients: %w", err)
+	}
+
+	// Pretty print the clients information
+	clientsJSON, err := json.MarshalIndent(clients, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal clients: %w", err)
+	}
+
+	fmt.Print(string(clientsJSON))
+	return nil
+}
+
+func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
+	endpoint := "http://localhost/clients"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get clients: %s", resp.Status)
+	}
+
+	var clients []ClientInfo
+	if err := json.NewDecoder(resp.Body).Decode(&clients); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON: %w", err)
+	}
+	return clients, nil
+}
