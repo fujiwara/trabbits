@@ -9,12 +9,16 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
 	"github.com/fatih/color"
 	"github.com/fujiwara/trabbits/config"
+	"github.com/fujiwara/trabbits/tui"
+	"github.com/fujiwara/trabbits/types"
 )
 
 func manageConfig(ctx context.Context, opt *CLI) error {
@@ -115,8 +119,28 @@ func newAPIClient(socketPath string) *apiClient {
 	}
 }
 
+// buildURL constructs a full URL from the endpoint and path
+func (c *apiClient) buildURL(path string) (*url.URL, error) {
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path %q: %w", path, err)
+	}
+
+	return baseURL.ResolveReference(u), nil
+}
+
 func (c *apiClient) getConfig(ctx context.Context) (*config.Config, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"config", nil)
+	fullURL, err := c.buildURL("config")
+	if err != nil {
+		return nil, err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -142,7 +166,12 @@ func (c *apiClient) putConfigFromFile(ctx context.Context, configPath string) er
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+"config", bytes.NewReader(data))
+	fullURL, err := c.buildURL("config")
+	if err != nil {
+		return err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, fullURL.String(), bytes.NewReader(data))
 	req.Header.Set("Content-Type", APIContentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -161,7 +190,12 @@ func (c *apiClient) putConfig(ctx context.Context, cfg *config.Config) error {
 	slog.Info("putting config", "config", cfg)
 	b := new(bytes.Buffer)
 	b.WriteString(cfg.String())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+"config", b)
+	fullURL, err := c.buildURL("config")
+	if err != nil {
+		return err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, fullURL.String(), b)
 	req.Header.Set("Content-Type", APIContentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -190,7 +224,12 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 		contentType = APIContentTypeJsonnet
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"config/diff", bytes.NewReader(data))
+	fullURL, err := c.buildURL("config/diff")
+	if err != nil {
+		return "", err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, fullURL.String(), bytes.NewReader(data))
 	req.Header.Set("Content-Type", contentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -213,7 +252,12 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 	slog.Info("reloading config from server")
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"config/reload", nil)
+	fullURL, err := c.buildURL("config/reload")
+	if err != nil {
+		return nil, err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -232,7 +276,7 @@ func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 
 func manageClients(ctx context.Context, opt *CLI) error {
 	client := newAPIClient(opt.APISocket)
-	clients, err := client.getClients(ctx)
+	clients, err := client.GetClients(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get clients: %w", err)
 	}
@@ -247,8 +291,13 @@ func manageClients(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"clients", nil)
+func (c *apiClient) GetClients(ctx context.Context) ([]types.ClientInfo, error) {
+	fullURL, err := c.buildURL("clients")
+	if err != nil {
+		return nil, err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -258,7 +307,7 @@ func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
 		return nil, fmt.Errorf("failed to get clients: %s", resp.Status)
 	}
 
-	var clients []ClientInfo
+	var clients []types.ClientInfo
 	if err := json.NewDecoder(resp.Body).Decode(&clients); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON: %w", err)
 	}
@@ -274,18 +323,44 @@ func manageProxyShutdown(ctx context.Context, opt *CLI) error {
 }
 
 func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) error {
-	endpoint := fmt.Sprintf("%sclients/%s", c.endpoint, proxyID)
-	if reason != "" {
-		endpoint += "?reason=" + reason
+	if proxyID == "" {
+		return fmt.Errorf("proxy ID cannot be empty")
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	// Build URL properly using net/url
+	fullURL, err := c.buildURL(path.Join("clients", proxyID))
+	if err != nil {
+		return err
+	}
+
+	if reason != "" {
+		query := fullURL.Query()
+		query.Set("reason", reason)
+		fullURL.RawQuery = query.Encode()
+	}
+
+	// Debug: log the request details
+	slog.Debug("shutdown request", "url", fullURL.String(), "method", "DELETE", "proxy_id", proxyID)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusBadRequest {
+		// Read response body for more details
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("bad request (failed to read response): %s (URL: %s)", resp.Status, fullURL.String())
+		}
+		bodyStr := strings.TrimSpace(string(body))
+		if bodyStr == "" {
+			bodyStr = "no error message"
+		}
+		return fmt.Errorf("bad request: %s (URL: %s, Status: %s)", bodyStr, fullURL.String(), resp.Status)
+	}
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("proxy not found: %s", proxyID)
 	}
@@ -307,10 +382,87 @@ func manageProxyInfo(ctx context.Context, opt *CLI) error {
 	return client.getProxyInfo(ctx, proxyID)
 }
 
-func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
-	endpoint := fmt.Sprintf("%sclients/%s", c.endpoint, proxyID)
+func (c *apiClient) GetClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
+	fullURL, err := c.buildURL(path.Join("clients", clientID))
+	if err != nil {
+		return nil, err
+	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("client not found: %s", clientID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get client info: %s", resp.Status)
+	}
+
+	var clientInfo types.FullClientInfo
+	if err := json.NewDecoder(resp.Body).Decode(&clientInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &clientInfo, nil
+}
+
+func (c *apiClient) ShutdownClient(ctx context.Context, clientID, reason string) error {
+	if clientID == "" {
+		return fmt.Errorf("client ID cannot be empty")
+	}
+
+	// Build URL properly using net/url
+	fullURL, err := c.buildURL(path.Join("clients", clientID))
+	if err != nil {
+		return err
+	}
+
+	if reason != "" {
+		query := fullURL.Query()
+		query.Set("reason", reason)
+		fullURL.RawQuery = query.Encode()
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL.String(), nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusBadRequest {
+		// Read response body for more details
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("bad request (failed to read response): %s", resp.Status)
+		}
+		bodyStr := strings.TrimSpace(string(body))
+		if bodyStr == "" {
+			bodyStr = "no error message"
+		}
+		return fmt.Errorf("bad request: %s", bodyStr)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("client not found: %s", clientID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to shutdown client: %s", resp.Status)
+	}
+
+	return nil
+}
+
+func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
+	fullURL, err := c.buildURL(path.Join("clients", proxyID))
+	if err != nil {
+		return err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -338,4 +490,10 @@ func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
 
 	fmt.Print(string(clientJSON))
 	return nil
+}
+
+// runTUI starts the TUI using the new tui package
+func runTUI(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	return tui.Run(ctx, client)
 }
