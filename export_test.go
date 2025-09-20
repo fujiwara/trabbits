@@ -62,6 +62,16 @@ func (p *Proxy) SetShutdownMessage(message string) {
 	p.shutdownMessage = message
 }
 
+// Test-only method for setting proxy user
+func (p *Proxy) SetUser(user string) {
+	p.user = user
+}
+
+// Test-only method for setting proxy virtual host
+func (p *Proxy) SetVirtualHost(vhost string) {
+	p.VirtualHost = vhost
+}
+
 // Test-only method for gracefully stopping a specific proxy by client address
 func (s *Server) TestGracefulStopProxy(clientAddr string, shutdownMessage string) bool {
 	var found bool

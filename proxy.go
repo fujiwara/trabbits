@@ -41,21 +41,6 @@ type Proxy struct {
 	connectedAt        time.Time   // timestamp when the client connected
 }
 
-func NewProxy(conn net.Conn) *Proxy {
-	id := generateID()
-	p := &Proxy{
-		conn:               conn,
-		id:                 id,
-		r:                  amqp091.NewReader(conn),
-		w:                  amqp091.NewWriter(conn),
-		upstreamDisconnect: make(chan string, 10), // buffered to avoid blocking
-		shutdownMessage:    ShutdownMsgDefault,    // default shutdown message
-		connectedAt:        time.Now(),
-	}
-	p.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", p.ClientAddr())
-	return p
-}
-
 func (p *Proxy) Upstreams() []*Upstream {
 	return p.upstreams
 }
