@@ -300,3 +300,43 @@ func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) e
 	}
 	return nil
 }
+
+func manageProxyInfo(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	proxyID := opt.Manage.Clients.Info.ProxyID
+
+	return client.getProxyInfo(ctx, proxyID)
+}
+
+func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
+	endpoint := fmt.Sprintf("http://localhost/clients/%s", proxyID)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("proxy not found: %s", proxyID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get proxy info: %s", resp.Status)
+	}
+
+	// Parse and pretty-print JSON response for automation
+	var clientInfo map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&clientInfo); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Output indented JSON for better readability
+	clientJSON, err := json.MarshalIndent(clientInfo, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal client info: %w", err)
+	}
+
+	fmt.Print(string(clientJSON))
+	return nil
+}

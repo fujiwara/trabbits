@@ -33,10 +33,45 @@ type ClientInfo struct {
 	User             string        `json:"user"`
 	VirtualHost      string        `json:"virtual_host"`
 	ClientBanner     string        `json:"client_banner"`
-	ClientProperties amqp091.Table `json:"client_properties"`
+	ClientProperties amqp091.Table `json:"client_properties,omitempty"`
 	ConnectedAt      time.Time     `json:"connected_at"`
 	Status           string        `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
 	ShutdownReason   string        `json:"shutdown_reason,omitempty"`
+	Stats            *StatsSummary `json:"stats,omitempty"`
+}
+
+// StatsSummary represents a summary of proxy statistics for API responses
+type StatsSummary struct {
+	TotalMethods   int64  `json:"total_methods"`
+	ReceivedFrames int64  `json:"received_frames"`
+	SentFrames     int64  `json:"sent_frames"`
+	TotalFrames    int64  `json:"total_frames"`
+	Duration       string `json:"duration"`
+}
+
+// FullStatsSummary represents complete proxy statistics including method breakdown
+type FullStatsSummary struct {
+	StartedAt      time.Time        `json:"started_at"`
+	Methods        map[string]int64 `json:"methods"`
+	TotalMethods   int64            `json:"total_methods"`
+	ReceivedFrames int64            `json:"received_frames"`
+	SentFrames     int64            `json:"sent_frames"`
+	TotalFrames    int64            `json:"total_frames"`
+	Duration       string           `json:"duration"`
+}
+
+// FullClientInfo represents complete information about a connected client including full stats
+type FullClientInfo struct {
+	ID               string            `json:"id"`
+	ClientAddress    string            `json:"client_address"`
+	User             string            `json:"user"`
+	VirtualHost      string            `json:"virtual_host"`
+	ClientBanner     string            `json:"client_banner"`
+	ClientProperties amqp091.Table     `json:"client_properties"`
+	ConnectedAt      time.Time         `json:"connected_at"`
+	Status           string            `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
+	ShutdownReason   string            `json:"shutdown_reason,omitempty"`
+	Stats            *FullStatsSummary `json:"stats,omitempty"`
 }
 
 func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
@@ -133,6 +168,7 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("POST /config/diff", s.apiDiffConfigHandler())
 	mux.HandleFunc("POST /config/reload", s.apiReloadConfigHandler(configPath))
 	mux.HandleFunc("GET /clients", s.apiGetClientsHandler())
+	mux.HandleFunc("GET /clients/{proxy_id}", s.apiGetClientHandler())
 	mux.HandleFunc("DELETE /clients/{proxy_id}", s.apiShutdownClientHandler())
 	var srv http.Server
 	// start API server
@@ -336,5 +372,28 @@ func (s *Server) apiShutdownClientHandler() http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(response)
+	})
+}
+
+func (s *Server) apiGetClientHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", APIContentType)
+
+		// Extract proxy ID from URL path
+		proxyID := r.PathValue("proxy_id")
+		if proxyID == "" {
+			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
+			return
+		}
+
+		// Get full client information
+		clientInfo, found := s.GetClientInfo(proxyID)
+		if !found {
+			http.Error(w, "Proxy not found", http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(clientInfo)
 	})
 }
