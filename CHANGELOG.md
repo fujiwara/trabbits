@@ -1,5 +1,7 @@
 # Changelog
 
+## [v0.0.8](https://github.com/fujiwara/trabbits/compare/v0.0.7...v0.0.8) - 2025-09-20
+
 ## [v0.0.7](https://github.com/fujiwara/trabbits/compare/v0.0.6...v0.0.7) - 2025-09-20
 - Add tests to validate channel reopen behavior by @fujiwara in https://github.com/fujiwara/trabbits/pull/55
 - Add comprehensive clients management API with statistics tracking by @fujiwara in https://github.com/fujiwara/trabbits/pull/57
