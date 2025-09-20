@@ -30,8 +30,9 @@ fi
     coverage=$(go tool cover -func="$COVERAGE_FILE" | grep -E "^github.com/fujiwara/trabbits/[^/]+\.go:" | awk '{print $NF}' | sed 's/%//' | awk '{sum+=$1; count++} END {if(count>0) printf "%.1f%%", sum/count; else print "0.0%"}')
     echo "| github.com/fujiwara/trabbits | $coverage |"
 
-    # Sub-packages
-    for pkg in amqp091 config pattern health cmd/trabbits; do
+    # Sub-packages (dynamically detected)
+    subpackages=$(go tool cover -func="$COVERAGE_FILE" | grep -E "^github.com/fujiwara/trabbits/[^/]+/" | sed 's|^github.com/fujiwara/trabbits/||' | sed 's|/.*||' | sort -u)
+    for pkg in $subpackages; do
         coverage=$(go tool cover -func="$COVERAGE_FILE" | grep -E "^github.com/fujiwara/trabbits/$pkg/[^/]+\.go:" | awk '{print $NF}' | sed 's/%//' | awk '{sum+=$1; count++} END {if(count>0) printf "%.1f%%", sum/count; else print "0.0%"}')
         echo "| github.com/fujiwara/trabbits/$pkg | $coverage |"
     done
