@@ -226,6 +226,15 @@ func (m *tuiModel) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewMode = viewList
 		m.clientDetail = nil
 		m.detailScroll = 0
+	case "K":
+		// Shutdown client from detail view
+		if m.clientDetail != nil {
+			m.confirmState = &confirmState{
+				clientID: m.clientDetail.ID,
+				message:  fmt.Sprintf("Shutdown client %s (%s@%s)?", formatID(m.clientDetail.ID), m.clientDetail.User, m.clientDetail.ClientAddress),
+			}
+			m.viewMode = viewConfirm
+		}
 	case "up", "k":
 		if m.detailScroll > 0 {
 			m.detailScroll--
@@ -522,7 +531,7 @@ func (m *tuiModel) renderDetailView() string {
 	}
 
 	b.WriteString("\n")
-	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End"
+	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • Shift+K shutdown"
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
 
 	// Implement scrolling
