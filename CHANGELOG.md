@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.7](https://github.com/fujiwara/trabbits/compare/v0.0.6...v0.0.7) - 2025-09-20
+- Add tests to validate channel reopen behavior by @fujiwara in https://github.com/fujiwara/trabbits/pull/55
+- Add comprehensive clients management API with statistics tracking by @fujiwara in https://github.com/fujiwara/trabbits/pull/57
+- Add TUI for client management with Bubble Tea by @fujiwara in https://github.com/fujiwara/trabbits/pull/58
+- Refactor: Improve code organization by moving types and Proxy methods by @fujiwara in https://github.com/fujiwara/trabbits/pull/59
+
 ## [v0.0.6](https://github.com/fujiwara/trabbits/compare/v0.0.5...v0.0.6) - 2025-09-13
 - fix cli command dispatch. by @fujiwara in https://github.com/fujiwara/trabbits/pull/43
 - uniq queue name on test by @fujiwara in https://github.com/fujiwara/trabbits/pull/44
