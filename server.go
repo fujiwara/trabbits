@@ -32,6 +32,7 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/health"
+	"github.com/fujiwara/trabbits/types"
 	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 	"golang.org/x/time/rate"
@@ -1065,21 +1066,21 @@ func (s *Server) CountActiveProxies() int {
 }
 
 // GetClientsInfo returns information about all connected clients
-func (s *Server) GetClientsInfo() []ClientInfo {
-	clients := make([]ClientInfo, 0) // Initialize as empty slice instead of nil
+func (s *Server) GetClientsInfo() []types.ClientInfo {
+	clients := make([]types.ClientInfo, 0) // Initialize as empty slice instead of nil
 	s.activeProxies.Range(func(key, value interface{}) bool {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
 
 		// Determine status based on shutdown message
-		status := ClientStatusActive
+		status := types.ClientStatusActive
 		shutdownReason := ""
 		if proxy.shutdownMessage != ShutdownMsgDefault {
-			status = ClientStatusShuttingDown
+			status = types.ClientStatusShuttingDown
 			shutdownReason = proxy.shutdownMessage
 		}
 
-		clientInfo := ClientInfo{
+		clientInfo := types.ClientInfo{
 			ID:               proxy.id,
 			ClientAddress:    proxy.ClientAddr(),
 			User:             proxy.user,
@@ -1094,7 +1095,7 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 		// Add statistics summary if available
 		if proxy.stats != nil {
 			snapshot := proxy.stats.Snapshot()
-			clientInfo.Stats = &StatsSummary{
+			clientInfo.Stats = &types.StatsSummary{
 				TotalMethods:   snapshot.TotalMethods,
 				ReceivedFrames: snapshot.ReceivedFrames,
 				SentFrames:     snapshot.SentFrames,
@@ -1115,7 +1116,7 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 }
 
 // GetClientInfo returns full client information including ClientProperties and complete stats
-func (s *Server) GetClientInfo(proxyID string) (*FullClientInfo, bool) {
+func (s *Server) GetClientInfo(proxyID string) (*types.FullClientInfo, bool) {
 	value, ok := s.activeProxies.Load(proxyID)
 	if !ok {
 		return nil, false
@@ -1125,14 +1126,14 @@ func (s *Server) GetClientInfo(proxyID string) (*FullClientInfo, bool) {
 	proxy := entry.proxy
 
 	// Determine status based on shutdown message
-	status := ClientStatusActive
+	status := types.ClientStatusActive
 	shutdownReason := ""
 	if proxy.shutdownMessage != ShutdownMsgDefault {
-		status = ClientStatusShuttingDown
+		status = types.ClientStatusShuttingDown
 		shutdownReason = proxy.shutdownMessage
 	}
 
-	clientInfo := &FullClientInfo{
+	clientInfo := &types.FullClientInfo{
 		ID:               proxy.id,
 		ClientAddress:    proxy.ClientAddr(),
 		User:             proxy.user,
@@ -1147,7 +1148,7 @@ func (s *Server) GetClientInfo(proxyID string) (*FullClientInfo, bool) {
 	// Add complete statistics if available
 	if proxy.stats != nil {
 		snapshot := proxy.stats.Snapshot()
-		clientInfo.Stats = &FullStatsSummary{
+		clientInfo.Stats = &types.FullStatsSummary{
 			StartedAt:      snapshot.StartedAt,
 			Methods:        snapshot.Methods,
 			TotalMethods:   snapshot.TotalMethods,
