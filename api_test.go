@@ -523,3 +523,37 @@ local env = std.native('env');
 		}
 	})
 }
+
+// TestAPIGetClients tests the GET /clients endpoint
+func TestAPIGetClients(t *testing.T) {
+	// Start isolated server instance for clients test
+	cancel, socketPath, client := startIsolatedAPIServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+
+	// First test: No clients connected
+	t.Run("NoClients", func(t *testing.T) {
+		resp, err := client.Get("http://unix/clients")
+		if err != nil {
+			t.Fatalf("Failed to get clients: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected status 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var clientsInfo []trabbits.ClientInfo
+		if err := json.NewDecoder(resp.Body).Decode(&clientsInfo); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+
+		if len(clientsInfo) != 0 {
+			t.Errorf("Expected 0 clients, got %d", len(clientsInfo))
+		}
+	})
+
+	// Note: Testing with actual client connections would require a full server setup
+	// with RabbitMQ backend, which is tested in integration tests
+}

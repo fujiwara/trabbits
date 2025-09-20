@@ -21,6 +21,18 @@ const (
 	APIContentTypeJsonnet = "application/jsonnet"
 )
 
+// ClientInfo represents information about a connected client
+type ClientInfo struct {
+	ID             string    `json:"id"`
+	ClientAddress  string    `json:"client_address"`
+	User           string    `json:"user"`
+	VirtualHost    string    `json:"virtual_host"`
+	ClientBanner   string    `json:"client_banner"`
+	ConnectedAt    time.Time `json:"connected_at"`
+	Status         string    `json:"status"` // "active" or "shutting_down"
+	ShutdownReason string    `json:"shutdown_reason,omitempty"`
+}
+
 func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 	if socketPath == "" {
 		return nil, func() {}, fmt.Errorf("path to socket is empty")
@@ -114,6 +126,7 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("PUT /config", s.apiPutConfigHandler())
 	mux.HandleFunc("POST /config/diff", s.apiDiffConfigHandler())
 	mux.HandleFunc("POST /config/reload", s.apiReloadConfigHandler(configPath))
+	mux.HandleFunc("GET /clients", s.apiGetClientsHandler())
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -274,4 +287,12 @@ func (s *Server) reloadConfigFromFile(ctx context.Context, configPath string) (*
 
 	slog.Info("Configuration reloaded successfully")
 	return cfg, nil
+}
+
+func (s *Server) apiGetClientsHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", APIContentType)
+		clients := s.GetClientsInfo()
+		json.NewEncoder(w).Encode(clients)
+	})
 }

@@ -1035,3 +1035,40 @@ func (s *Server) CountActiveProxies() int {
 	})
 	return count
 }
+
+// GetClientsInfo returns information about all connected clients
+func (s *Server) GetClientsInfo() []ClientInfo {
+	var clients []ClientInfo
+	s.activeProxies.Range(func(key, value interface{}) bool {
+		entry := value.(*proxyEntry)
+		proxy := entry.proxy
+
+		// Determine status based on shutdown message
+		status := "active"
+		shutdownReason := ""
+		if proxy.shutdownMessage != ShutdownMsgDefault {
+			status = "shutting_down"
+			shutdownReason = proxy.shutdownMessage
+		}
+
+		clientInfo := ClientInfo{
+			ID:             proxy.id,
+			ClientAddress:  proxy.ClientAddr(),
+			User:           proxy.user,
+			VirtualHost:    proxy.VirtualHost,
+			ClientBanner:   proxy.ClientBanner(),
+			ConnectedAt:    proxy.connectedAt,
+			Status:         status,
+			ShutdownReason: shutdownReason,
+		}
+		clients = append(clients, clientInfo)
+		return true
+	})
+
+	// Sort clients by connection time (oldest first)
+	sort.Slice(clients, func(i, j int) bool {
+		return clients[i].ConnectedAt.Before(clients[j].ConnectedAt)
+	})
+
+	return clients
+}

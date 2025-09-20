@@ -409,7 +409,7 @@ trabbits provides an HTTP API server that allows you to manage the configuration
 
 You can update the configuration of trabbits via the API server. You can get the current configuration and update with a new configuration via HTTP request to `/config` endpoint.
 
-trabbits cli also supports the configuration management. You can use `trabbits manage config` command to manage 
+trabbits cli also supports the configuration management. You can use `trabbits manage config` command to manage
 the configuration. The cli access to the API server on the localhost.
 
 ```
@@ -420,6 +420,14 @@ Manage the configuration.
 Arguments:
   <command>    Command to run (get, diff, put, reload).
   <file>       Configuration file (required for diff/put commands).
+```
+
+You can also get information about connected clients using the `trabbits manage clients` command:
+
+```
+Usage: trabbits manage clients
+
+Get connected clients information.
 ```
 
 #### Configuration Versioning and Graceful Disconnection
@@ -496,6 +504,62 @@ $ trabbits manage config reload
 ```
 
 This command reloads the configuration from the file specified by `--config` option (default: `config.json`).
+
+### Clients API
+
+trabbits provides an API to get information about connected clients. You can get the list of all connected clients by sending a GET request to the `/clients` endpoint.
+
+#### Get connected clients information
+
+You can get information about all connected clients by sending a GET request to the `/clients` endpoint.
+
+```console
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/clients
+```
+
+The response includes the following information for each client:
+
+```json
+[
+  {
+    "id": "proxy-12345678",
+    "client_address": "127.0.0.1:54321",
+    "user": "guest",
+    "virtual_host": "/",
+    "client_banner": "Platform/Product/Version",
+    "connected_at": "2025-01-01T12:00:00Z",
+    "status": "active",
+    "shutdown_reason": ""
+  },
+  {
+    "id": "proxy-87654321",
+    "client_address": "127.0.0.1:54322",
+    "user": "guest",
+    "virtual_host": "/",
+    "client_banner": "Platform/Product/Version",
+    "connected_at": "2025-01-01T12:01:00Z",
+    "status": "shutting_down",
+    "shutdown_reason": "Configuration updated, please reconnect"
+  }
+]
+```
+
+Fields description:
+
+- `id`: Unique proxy identifier
+- `client_address`: Client's IP address and port
+- `user`: Authenticated username
+- `virtual_host`: Virtual host the client is connected to
+- `client_banner`: Client platform/product/version information
+- `connected_at`: Timestamp when the client connected
+- `status`: Connection status - either `active` or `shutting_down`
+- `shutdown_reason`: Reason for shutdown (only present when status is `shutting_down`)
+
+You can also use the `trabbits` CLI to get clients information:
+
+```console
+$ trabbits manage clients
+```
 
 #### Reload configuration with SIGHUP
 
