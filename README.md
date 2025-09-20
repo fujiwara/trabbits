@@ -422,7 +422,7 @@ Arguments:
   <file>       Configuration file (required for diff/put commands).
 ```
 
-You can also manage connected clients using the `trabbits manage clients` command:
+You can also manage connected clients using the `trabbits manage clients` command. This provides both CLI commands for scripting and a Terminal User Interface (TUI) for interactive management:
 
 ```
 Usage: trabbits manage clients <command>
@@ -433,7 +433,62 @@ Commands:
   list                     Get connected clients information
   info <proxy-id>          Get detailed information for a specific proxy
   shutdown <proxy-id>      Shutdown a specific proxy
+  tui                      Interactive terminal interface for managing clients
 ```
+
+#### Interactive Client Management (TUI)
+
+For interactive client management, trabbits provides a modern Terminal User Interface built with Bubble Tea:
+
+```console
+$ trabbits manage clients
+# or
+$ trabbits manage clients tui
+```
+
+The TUI provides a real-time, top-like interface with the following features:
+
+**Main Interface:**
+- **Fixed Header**: Server statistics (active clients, total clients, last update time) always visible at top
+- **Client List**: Scrollable table showing connected clients with key information:
+  - Client ID (shortened for display)
+  - Username and Virtual Host
+  - Client address
+  - Connection status (active/shutting_down)
+  - Connected time (relative)
+  - Method and frame statistics
+- **Real-time Updates**: All information refreshes automatically every 2 seconds
+- **Pagination**: Handles large numbers of clients with proper scrolling and pagination indicators
+
+**Navigation:**
+- `↑↓` or `k/j`: Navigate through client list
+- `Page Up/Down`: Jump by pages for large client lists
+- `Home/End`: Jump to first/last client
+- `Enter`: View detailed client information
+- `Shift+K`: Shutdown selected client (with confirmation)
+- `r`: Force refresh
+- `q`: Quit
+
+**Client Detail View:**
+- Complete client information including properties and capabilities
+- Method-level statistics breakdown showing usage patterns
+- Frame counters and connection duration
+- Scrollable content for clients with many properties
+- `Shift+K`: Shutdown client directly from detail view
+- Real-time updates of statistics and status
+
+**Client Shutdown:**
+- Confirmation dialog showing client details before shutdown
+- Optional reason (defaults to "TUI shutdown")
+- Immediate feedback on success/failure
+- Graceful disconnection with proper AMQP close protocol
+
+**Benefits:**
+- **No Terminal Disruption**: Unlike `curl` commands, the TUI doesn't clutter your terminal with JSON output
+- **Real-time Monitoring**: See client connections, disconnections, and activity as it happens
+- **Efficient Navigation**: Quickly browse through many clients without manual ID copying
+- **Comprehensive Information**: All client details in an easy-to-read format
+- **Safe Operations**: Confirmation dialogs prevent accidental shutdowns
 
 #### Configuration Versioning and Graceful Disconnection
 
