@@ -16,6 +16,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/fujiwara/trabbits/config"
+	"github.com/fujiwara/trabbits/types"
 )
 
 func manageConfig(ctx context.Context, opt *CLI) error {
@@ -308,7 +309,7 @@ func manageClients(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
+func (c *apiClient) getClients(ctx context.Context) ([]types.ClientInfo, error) {
 	baseURL, err := url.Parse(c.endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base URL: %w", err)
@@ -331,7 +332,7 @@ func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
 		return nil, fmt.Errorf("failed to get clients: %s", resp.Status)
 	}
 
-	var clients []ClientInfo
+	var clients []types.ClientInfo
 	if err := json.NewDecoder(resp.Body).Decode(&clients); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON: %w", err)
 	}
@@ -411,6 +412,94 @@ func manageProxyInfo(ctx context.Context, opt *CLI) error {
 	proxyID := opt.Manage.Clients.Info.ProxyID
 
 	return client.getProxyInfo(ctx, proxyID)
+}
+
+func (c *apiClient) getClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse(fmt.Sprintf("clients/%s", clientID))
+	if err != nil {
+		return nil, fmt.Errorf("invalid client path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("client not found: %s", clientID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get client info: %s", resp.Status)
+	}
+
+	var clientInfo types.FullClientInfo
+	if err := json.NewDecoder(resp.Body).Decode(&clientInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &clientInfo, nil
+}
+
+func (c *apiClient) shutdownClient(ctx context.Context, clientID, reason string) error {
+	if clientID == "" {
+		return fmt.Errorf("client ID cannot be empty")
+	}
+
+	// Build URL properly using net/url
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse(fmt.Sprintf("clients/%s", clientID))
+	if err != nil {
+		return fmt.Errorf("invalid client path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	if reason != "" {
+		query := fullURL.Query()
+		query.Set("reason", reason)
+		fullURL.RawQuery = query.Encode()
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL.String(), nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusBadRequest {
+		// Read response body for more details
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("bad request (failed to read response): %s", resp.Status)
+		}
+		bodyStr := strings.TrimSpace(string(body))
+		if bodyStr == "" {
+			bodyStr = "no error message"
+		}
+		return fmt.Errorf("bad request: %s", bodyStr)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("client not found: %s", clientID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to shutdown client: %s", resp.Status)
+	}
+
+	return nil
 }
 
 func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {

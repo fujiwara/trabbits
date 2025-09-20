@@ -13,66 +13,13 @@ import (
 	"time"
 
 	"github.com/aereal/jsondiff"
-	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 )
 
 const (
 	APIContentType        = "application/json"
 	APIContentTypeJsonnet = "application/jsonnet"
-
-	// Client status constants
-	ClientStatusActive       = "active"
-	ClientStatusShuttingDown = "shutting_down"
 )
-
-// ClientInfo represents information about a connected client
-type ClientInfo struct {
-	ID               string        `json:"id"`
-	ClientAddress    string        `json:"client_address"`
-	User             string        `json:"user"`
-	VirtualHost      string        `json:"virtual_host"`
-	ClientBanner     string        `json:"client_banner"`
-	ClientProperties amqp091.Table `json:"client_properties,omitempty"`
-	ConnectedAt      time.Time     `json:"connected_at"`
-	Status           string        `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
-	ShutdownReason   string        `json:"shutdown_reason,omitempty"`
-	Stats            *StatsSummary `json:"stats,omitempty"`
-}
-
-// StatsSummary represents a summary of proxy statistics for API responses
-type StatsSummary struct {
-	TotalMethods   int64  `json:"total_methods"`
-	ReceivedFrames int64  `json:"received_frames"`
-	SentFrames     int64  `json:"sent_frames"`
-	TotalFrames    int64  `json:"total_frames"`
-	Duration       string `json:"duration"`
-}
-
-// FullStatsSummary represents complete proxy statistics including method breakdown
-type FullStatsSummary struct {
-	StartedAt      time.Time        `json:"started_at"`
-	Methods        map[string]int64 `json:"methods"`
-	TotalMethods   int64            `json:"total_methods"`
-	ReceivedFrames int64            `json:"received_frames"`
-	SentFrames     int64            `json:"sent_frames"`
-	TotalFrames    int64            `json:"total_frames"`
-	Duration       string           `json:"duration"`
-}
-
-// FullClientInfo represents complete information about a connected client including full stats
-type FullClientInfo struct {
-	ID               string            `json:"id"`
-	ClientAddress    string            `json:"client_address"`
-	User             string            `json:"user"`
-	VirtualHost      string            `json:"virtual_host"`
-	ClientBanner     string            `json:"client_banner"`
-	ClientProperties amqp091.Table     `json:"client_properties"`
-	ConnectedAt      time.Time         `json:"connected_at"`
-	Status           string            `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
-	ShutdownReason   string            `json:"shutdown_reason,omitempty"`
-	Stats            *FullStatsSummary `json:"stats,omitempty"`
-}
 
 func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 	if socketPath == "" {

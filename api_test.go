@@ -15,6 +15,7 @@ import (
 
 	"github.com/fujiwara/trabbits"
 	"github.com/fujiwara/trabbits/config"
+	"github.com/fujiwara/trabbits/types"
 	"github.com/google/go-cmp/cmp"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
@@ -620,7 +621,7 @@ func TestAPIGetClients(t *testing.T) {
 		}
 
 		// Also verify it can be parsed as empty array
-		var clientsInfo []trabbits.ClientInfo
+		var clientsInfo []types.ClientInfo
 		if err := json.Unmarshal(body, &clientsInfo); err != nil {
 			t.Fatalf("Failed to decode response: %v", err)
 		}
@@ -674,8 +675,8 @@ func TestAPIGetClients(t *testing.T) {
 
 		// Check first client (active)
 		client1 := clients[0]
-		if client1.Status != trabbits.ClientStatusActive {
-			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusActive, client1.Status)
+		if client1.Status != types.ClientStatusActive {
+			t.Errorf("Expected status '%s', got '%s'", types.ClientStatusActive, client1.Status)
 		}
 		if client1.User != "user1" {
 			t.Errorf("Expected user 'user1', got '%s'", client1.User)
@@ -695,8 +696,8 @@ func TestAPIGetClients(t *testing.T) {
 
 		// Check second client (shutting down)
 		client2 := clients[1]
-		if client2.Status != trabbits.ClientStatusShuttingDown {
-			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusShuttingDown, client2.Status)
+		if client2.Status != types.ClientStatusShuttingDown {
+			t.Errorf("Expected status '%s', got '%s'", types.ClientStatusShuttingDown, client2.Status)
 		}
 		if client2.User != "user2" {
 			t.Errorf("Expected user 'user2', got '%s'", client2.User)
@@ -785,7 +786,7 @@ func TestAPIGetClientsIntegration(t *testing.T) {
 			t.Fatalf("Expected status 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var clientsInfo []trabbits.ClientInfo
+		var clientsInfo []types.ClientInfo
 		if err := json.NewDecoder(resp.Body).Decode(&clientsInfo); err != nil {
 			t.Fatalf("Failed to decode JSON: %v", err)
 		}
@@ -807,8 +808,8 @@ func TestAPIGetClientsIntegration(t *testing.T) {
 			if clientInfo.ID == "" {
 				t.Error("Client ID should not be empty")
 			}
-			if clientInfo.Status != trabbits.ClientStatusActive {
-				t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusActive, clientInfo.Status)
+			if clientInfo.Status != types.ClientStatusActive {
+				t.Errorf("Expected status '%s', got '%s'", types.ClientStatusActive, clientInfo.Status)
 			}
 			if clientInfo.ConnectedAt.IsZero() {
 				t.Error("ConnectedAt should not be zero value")
@@ -983,8 +984,8 @@ func TestAPIShutdownProxy(t *testing.T) {
 			t.Fatalf("Expected 1 proxy, got %d", len(clients))
 		}
 
-		if clients[0].Status != trabbits.ClientStatusShuttingDown {
-			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusShuttingDown, clients[0].Status)
+		if clients[0].Status != types.ClientStatusShuttingDown {
+			t.Errorf("Expected status '%s', got '%s'", types.ClientStatusShuttingDown, clients[0].Status)
 		}
 
 		if clients[0].ShutdownReason != "Test shutdown" {
