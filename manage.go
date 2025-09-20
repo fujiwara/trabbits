@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -326,7 +327,7 @@ func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) e
 	}
 
 	// Build URL properly using net/url
-	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s", proxyID))
+	fullURL, err := c.buildURL(path.Join("clients", proxyID))
 	if err != nil {
 		return err
 	}
@@ -381,7 +382,7 @@ func manageProxyInfo(ctx context.Context, opt *CLI) error {
 }
 
 func (c *apiClient) getClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
-	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s", clientID))
+	fullURL, err := c.buildURL(path.Join("clients", clientID))
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +415,7 @@ func (c *apiClient) shutdownClient(ctx context.Context, clientID, reason string)
 	}
 
 	// Build URL properly using net/url
-	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s", clientID))
+	fullURL, err := c.buildURL(path.Join("clients", clientID))
 	if err != nil {
 		return err
 	}
@@ -455,7 +456,7 @@ func (c *apiClient) shutdownClient(ctx context.Context, clientID, reason string)
 }
 
 func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
-	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s", proxyID))
+	fullURL, err := c.buildURL(path.Join("clients", proxyID))
 	if err != nil {
 		return err
 	}
