@@ -117,6 +117,8 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		configHash:             s.GetConfigHash(),
 		readTimeout:            config.ReadTimeout.ToDuration(),
 		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
+		shutdownMessage:        ShutdownMsgDefault, // default shutdown message
+		connectedAt:            time.Now(),         // timestamp when the client connected
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
@@ -1038,7 +1040,7 @@ func (s *Server) CountActiveProxies() int {
 
 // GetClientsInfo returns information about all connected clients
 func (s *Server) GetClientsInfo() []ClientInfo {
-	var clients []ClientInfo
+	clients := make([]ClientInfo, 0) // Initialize as empty slice instead of nil
 	s.activeProxies.Range(func(key, value interface{}) bool {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
