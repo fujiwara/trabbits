@@ -833,3 +833,140 @@ func TestAPIGetClientsIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestAPIShutdownProxy tests the DELETE /clients/{proxy_id} endpoint
+func TestAPIShutdownProxy(t *testing.T) {
+	// Start isolated server for testing
+	cancel, socketPath, client := startIsolatedAPIServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+
+	t.Run("ProxyNotFound", func(t *testing.T) {
+		// Try to shutdown a non-existent proxy
+		req, _ := http.NewRequest(http.MethodDelete, "http://unix/clients/nonexistent", nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
+		}
+	})
+
+	t.Run("InvalidProxyID", func(t *testing.T) {
+		// Try to shutdown with empty proxy ID
+		req, _ := http.NewRequest(http.MethodDelete, "http://unix/clients/", nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Should be 404 because the route doesn't match
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
+		}
+	})
+
+	t.Run("SuccessfulShutdown", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create and register a mock proxy
+		proxy := server.NewProxy(nil)
+		proxy.SetUser("testuser")
+		proxy.SetVirtualHost("/test")
+		server.RegisterProxy(proxy, func() {})
+		defer server.UnregisterProxy(proxy)
+
+		// Test shutdown
+		found := server.ShutdownProxy(proxy.ID(), "Test shutdown")
+		if !found {
+			t.Error("Expected to find and shutdown the proxy")
+		}
+
+		// Verify the proxy has shutdown message set
+		clients := server.GetClientsInfo()
+		if len(clients) != 1 {
+			t.Fatalf("Expected 1 proxy, got %d", len(clients))
+		}
+
+		if clients[0].Status != trabbits.ClientStatusShuttingDown {
+			t.Errorf("Expected status '%s', got '%s'", trabbits.ClientStatusShuttingDown, clients[0].Status)
+		}
+
+		if clients[0].ShutdownReason != "Test shutdown" {
+			t.Errorf("Expected shutdown reason 'Test shutdown', got '%s'", clients[0].ShutdownReason)
+		}
+	})
+
+	t.Run("ShutdownWithCustomReason", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create and register a mock proxy
+		proxy := server.NewProxy(nil)
+		server.RegisterProxy(proxy, func() {})
+		defer server.UnregisterProxy(proxy)
+
+		// Test shutdown with custom reason
+		customReason := "Maintenance shutdown"
+		found := server.ShutdownProxy(proxy.ID(), customReason)
+		if !found {
+			t.Error("Expected to find and shutdown the proxy")
+		}
+
+		// Verify the shutdown reason
+		clients := server.GetClientsInfo()
+		if len(clients) != 1 {
+			t.Fatalf("Expected 1 proxy, got %d", len(clients))
+		}
+
+		if clients[0].ShutdownReason != customReason {
+			t.Errorf("Expected shutdown reason '%s', got '%s'", customReason, clients[0].ShutdownReason)
+		}
+	})
+
+	t.Run("DefaultShutdownReason", func(t *testing.T) {
+		// Create a server instance for testing
+		cfg := &config.Config{
+			Upstreams: []config.Upstream{
+				{Name: "test", Address: "localhost:5672"},
+			},
+		}
+		server := trabbits.NewServer(cfg, "")
+
+		// Create and register a mock proxy
+		proxy := server.NewProxy(nil)
+		server.RegisterProxy(proxy, func() {})
+		defer server.UnregisterProxy(proxy)
+
+		// Test shutdown without custom reason
+		found := server.ShutdownProxy(proxy.ID(), "")
+		if !found {
+			t.Error("Expected to find and shutdown the proxy")
+		}
+
+		// Verify the default shutdown reason
+		clients := server.GetClientsInfo()
+		if len(clients) != 1 {
+			t.Fatalf("Expected 1 proxy, got %d", len(clients))
+		}
+
+		if clients[0].ShutdownReason != "API shutdown request" {
+			t.Errorf("Expected default shutdown reason 'API shutdown request', got '%s'", clients[0].ShutdownReason)
+		}
+	})
+}

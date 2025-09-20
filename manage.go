@@ -265,3 +265,38 @@ func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
 	}
 	return clients, nil
 }
+
+func manageProxyShutdown(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	proxyID := opt.Manage.Clients.Shutdown.ProxyID
+	reason := opt.Manage.Clients.Shutdown.Reason
+
+	return client.shutdownProxy(ctx, proxyID, reason)
+}
+
+func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) error {
+	endpoint := fmt.Sprintf("http://localhost/clients/%s", proxyID)
+	if reason != "" {
+		endpoint += "?reason=" + reason
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("proxy not found: %s", proxyID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to shutdown proxy: %s", resp.Status)
+	}
+
+	fmt.Printf("Proxy %s shutdown initiated successfully\n", proxyID)
+	if reason != "" {
+		fmt.Printf("Reason: %s\n", reason)
+	}
+	return nil
+}

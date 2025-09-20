@@ -59,9 +59,12 @@ func Run(ctx context.Context) error {
 	case "manage config <command>", "manage config <command> <file>":
 		// Manage the server
 		return manageConfig(ctx, &cli)
-	case "manage clients":
+	case "manage clients list":
 		// Get clients information
 		return manageClients(ctx, &cli)
+	case "manage clients shutdown <proxy-id>":
+		// Shutdown a specific proxy
+		return manageProxyShutdown(ctx, &cli)
 	case "test match-routing <pattern> <key>":
 		// Test routing pattern matching
 		return testMatchRouting(ctx, &cli)
@@ -81,7 +84,13 @@ type ManageOptions struct {
 		Command string `arg:"" enum:"get,diff,put,reload" help:"Command to run (get, diff, put, reload)."`
 		File    string `arg:"" optional:"" help:"Configuration file (required for diff/put commands)."`
 	} `cmd:"" help:"Manage the configuration."`
-	Clients struct{} `cmd:"" help:"Get connected clients information."`
+	Clients struct {
+		List struct{} `cmd:"" help:"Get connected clients information."`
+		Shutdown struct {
+			ProxyID string `arg:"" required:"" help:"Proxy ID to shutdown."`
+			Reason  string `help:"Optional shutdown reason."`
+		} `cmd:"" help:"Shutdown a specific proxy."`
+	} `cmd:"" help:"Manage connected clients."`
 }
 
 type TestOptions struct {
