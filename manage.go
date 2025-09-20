@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -116,7 +117,19 @@ func newAPIClient(socketPath string) *apiClient {
 }
 
 func (c *apiClient) getConfig(ctx context.Context) (*config.Config, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"config", nil)
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse("config")
+	if err != nil {
+		return nil, fmt.Errorf("invalid config path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -142,7 +155,19 @@ func (c *apiClient) putConfigFromFile(ctx context.Context, configPath string) er
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+"config", bytes.NewReader(data))
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse("config")
+	if err != nil {
+		return fmt.Errorf("invalid config path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, fullURL.String(), bytes.NewReader(data))
 	req.Header.Set("Content-Type", APIContentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -161,7 +186,19 @@ func (c *apiClient) putConfig(ctx context.Context, cfg *config.Config) error {
 	slog.Info("putting config", "config", cfg)
 	b := new(bytes.Buffer)
 	b.WriteString(cfg.String())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+"config", b)
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse("config")
+	if err != nil {
+		return fmt.Errorf("invalid config path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, fullURL.String(), b)
 	req.Header.Set("Content-Type", APIContentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -190,7 +227,19 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 		contentType = APIContentTypeJsonnet
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"config/diff", bytes.NewReader(data))
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse("config/diff")
+	if err != nil {
+		return "", fmt.Errorf("invalid config/diff path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, fullURL.String(), bytes.NewReader(data))
 	req.Header.Set("Content-Type", contentType)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -213,7 +262,19 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 	slog.Info("reloading config from server")
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"config/reload", nil)
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse("config/reload")
+	if err != nil {
+		return nil, fmt.Errorf("invalid config/reload path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -248,7 +309,19 @@ func manageClients(ctx context.Context, opt *CLI) error {
 }
 
 func (c *apiClient) getClients(ctx context.Context) ([]ClientInfo, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"clients", nil)
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse("clients")
+	if err != nil {
+		return nil, fmt.Errorf("invalid clients path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -274,18 +347,51 @@ func manageProxyShutdown(ctx context.Context, opt *CLI) error {
 }
 
 func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) error {
-	endpoint := fmt.Sprintf("%sclients/%s", c.endpoint, proxyID)
-	if reason != "" {
-		endpoint += "?reason=" + reason
+	if proxyID == "" {
+		return fmt.Errorf("proxy ID cannot be empty")
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	// Build URL properly using net/url
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	u, err := url.Parse(fmt.Sprintf("clients/%s", proxyID))
+	if err != nil {
+		return fmt.Errorf("invalid client path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	if reason != "" {
+		query := fullURL.Query()
+		query.Set("reason", reason)
+		fullURL.RawQuery = query.Encode()
+	}
+
+	// Debug: log the request details
+	slog.Debug("shutdown request", "url", fullURL.String(), "method", "DELETE", "proxy_id", proxyID)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusBadRequest {
+		// Read response body for more details
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("bad request (failed to read response): %s (URL: %s)", resp.Status, fullURL.String())
+		}
+		bodyStr := strings.TrimSpace(string(body))
+		if bodyStr == "" {
+			bodyStr = "no error message"
+		}
+		return fmt.Errorf("bad request: %s (URL: %s, Status: %s)", bodyStr, fullURL.String(), resp.Status)
+	}
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("proxy not found: %s", proxyID)
 	}
@@ -308,9 +414,19 @@ func manageProxyInfo(ctx context.Context, opt *CLI) error {
 }
 
 func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
-	endpoint := fmt.Sprintf("%sclients/%s", c.endpoint, proxyID)
+	baseURL, err := url.Parse(c.endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid base URL: %w", err)
+	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	u, err := url.Parse(fmt.Sprintf("clients/%s", proxyID))
+	if err != nil {
+		return fmt.Errorf("invalid client path: %w", err)
+	}
+
+	fullURL := baseURL.ResolveReference(u)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
