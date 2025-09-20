@@ -89,3 +89,8 @@ func (s *Server) TestGracefulStopProxy(clientAddr string, shutdownMessage string
 	})
 	return found
 }
+
+// Test-only method for accessing proxy statistics
+func (p *Proxy) Stats() *ProxyStats {
+	return p.stats
+}

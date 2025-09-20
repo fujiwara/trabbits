@@ -39,6 +39,7 @@ type Proxy struct {
 	upstreamDisconnect chan string // channel to notify upstream disconnection
 	shutdownMessage    string      // message to send when shutting down
 	connectedAt        time.Time   // timestamp when the client connected
+	stats              *ProxyStats // statistics for this proxy
 }
 
 func (p *Proxy) Upstreams() []*Upstream {

@@ -119,6 +119,7 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
 		shutdownMessage:        ShutdownMsgDefault, // default shutdown message
 		connectedAt:            time.Now(),         // timestamp when the client connected
+		stats:                  NewProxyStats(),    // initialize statistics
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
@@ -749,6 +750,10 @@ func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 				p.shutdown(ctx)
 				return
 			}
+			// Count heartbeat frame
+			if p.stats != nil {
+				p.stats.IncrementSentFrames()
+			}
 			p.mu.Unlock()
 		}
 	}
@@ -809,6 +814,11 @@ func (p *Proxy) process(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
+
+	// Update frame statistics
+	if p.stats != nil {
+		p.stats.IncrementReceivedFrames()
+	}
 	GetMetrics().ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
@@ -844,6 +854,10 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		}
 		methodName := strings.TrimLeft(reflect.TypeOf(f.Method).String(), "*amqp091.")
 		GetMetrics().ProcessedMessages.WithLabelValues(methodName).Inc()
+		// Update proxy-specific statistics
+		if p.stats != nil {
+			p.stats.IncrementMethod(methodName)
+		}
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
 			return p.replyChannelOpen(ctx, f, m)
@@ -920,6 +934,9 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
 		GetMetrics().ClientSentFrames.Inc()
+		if p.stats != nil {
+			p.stats.IncrementSentFrames()
+		}
 
 		if err := p.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
@@ -930,6 +947,9 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			return fmt.Errorf("failed to write HeaderFrame: %w", err)
 		}
 		GetMetrics().ClientSentFrames.Inc()
+		if p.stats != nil {
+			p.stats.IncrementSentFrames()
+		}
 
 		// split body frame is it is too large (>= FrameMax)
 		// The overhead of BodyFrame is 8 bytes
@@ -947,6 +967,9 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			}
 			offset = end
 			GetMetrics().ClientSentFrames.Inc()
+			if p.stats != nil {
+				p.stats.IncrementSentFrames()
+			}
 		}
 	} else {
 		if err := p.w.WriteFrame(&amqp091.MethodFrame{
@@ -956,6 +979,9 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
 		GetMetrics().ClientSentFrames.Inc()
+		if p.stats != nil {
+			p.stats.IncrementSentFrames()
+		}
 	}
 	return nil
 }
@@ -1059,10 +1085,22 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 			User:             proxy.user,
 			VirtualHost:      proxy.VirtualHost,
 			ClientBanner:     proxy.ClientBanner(),
-			ClientProperties: proxy.clientProps,
+			ClientProperties: nil, // Nil for clients list to omit from JSON output
 			ConnectedAt:      proxy.connectedAt,
 			Status:           status,
 			ShutdownReason:   shutdownReason,
+		}
+
+		// Add statistics summary if available
+		if proxy.stats != nil {
+			snapshot := proxy.stats.Snapshot()
+			clientInfo.Stats = &StatsSummary{
+				TotalMethods:   snapshot.TotalMethods,
+				ReceivedFrames: snapshot.ReceivedFrames,
+				SentFrames:     snapshot.SentFrames,
+				TotalFrames:    snapshot.TotalFrames,
+				Duration:       snapshot.Duration,
+			}
 		}
 		clients = append(clients, clientInfo)
 		return true
@@ -1074,6 +1112,53 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 	})
 
 	return clients
+}
+
+// GetClientInfo returns full client information including ClientProperties and complete stats
+func (s *Server) GetClientInfo(proxyID string) (*FullClientInfo, bool) {
+	value, ok := s.activeProxies.Load(proxyID)
+	if !ok {
+		return nil, false
+	}
+
+	entry := value.(*proxyEntry)
+	proxy := entry.proxy
+
+	// Determine status based on shutdown message
+	status := ClientStatusActive
+	shutdownReason := ""
+	if proxy.shutdownMessage != ShutdownMsgDefault {
+		status = ClientStatusShuttingDown
+		shutdownReason = proxy.shutdownMessage
+	}
+
+	clientInfo := &FullClientInfo{
+		ID:               proxy.id,
+		ClientAddress:    proxy.ClientAddr(),
+		User:             proxy.user,
+		VirtualHost:      proxy.VirtualHost,
+		ClientBanner:     proxy.ClientBanner(),
+		ClientProperties: proxy.clientProps, // Include full client properties
+		ConnectedAt:      proxy.connectedAt,
+		Status:           status,
+		ShutdownReason:   shutdownReason,
+	}
+
+	// Add complete statistics if available
+	if proxy.stats != nil {
+		snapshot := proxy.stats.Snapshot()
+		clientInfo.Stats = &FullStatsSummary{
+			StartedAt:      snapshot.StartedAt,
+			Methods:        snapshot.Methods,
+			TotalMethods:   snapshot.TotalMethods,
+			ReceivedFrames: snapshot.ReceivedFrames,
+			SentFrames:     snapshot.SentFrames,
+			TotalFrames:    snapshot.TotalFrames,
+			Duration:       snapshot.Duration,
+		}
+	}
+
+	return clientInfo, true
 }
 
 // ShutdownProxy gracefully shuts down a specific proxy by proxy ID
