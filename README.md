@@ -431,7 +431,8 @@ Manage connected clients.
 
 Commands:
   list                     Get connected clients information
-  shutdown <client-id>     Shutdown a specific client
+  info <proxy-id>          Get detailed information for a specific proxy
+  shutdown <proxy-id>      Shutdown a specific proxy
 ```
 
 #### Configuration Versioning and Graceful Disconnection
@@ -564,6 +565,61 @@ You can also use the `trabbits` CLI to get clients information:
 ```console
 $ trabbits manage clients list
 ```
+
+#### Get detailed client information
+
+You can get comprehensive information about a specific client by sending a GET request to the `/clients/{proxy_id}` endpoint.
+
+```console
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/clients/proxy-12345678
+```
+
+This returns complete client information including:
+
+```json
+{
+  "id": "proxy-12345678",
+  "client_address": "127.0.0.1:54321",
+  "user": "admin",
+  "virtual_host": "/",
+  "client_banner": "golang/golang/AMQP 0.9.1 Client/1.10.0",
+  "client_properties": {
+    "product": "my-app",
+    "version": "1.0.0",
+    "capabilities": {
+      "publisher_confirms": true,
+      "consumer_cancel_notify": true
+    }
+  },
+  "connected_at": "2023-11-20T10:30:00Z",
+  "status": "active",
+  "stats": {
+    "started_at": "2023-11-20T10:30:00Z",
+    "methods": {
+      "Basic.Publish": 150,
+      "Basic.Consume": 5,
+      "Queue.Declare": 3
+    },
+    "total_methods": 158,
+    "received_frames": 320,
+    "sent_frames": 285,
+    "total_frames": 605,
+    "duration": "45m30s"
+  }
+}
+```
+
+Using the CLI:
+
+```console
+$ trabbits manage clients info proxy-12345678
+```
+
+The response includes:
+- Complete client properties and capabilities
+- Detailed statistics with method-level breakdown
+- Frame counters (received/sent frames)
+- Connection duration and timestamps
 
 #### Shutdown a specific proxy
 
