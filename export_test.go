@@ -94,3 +94,12 @@ func (s *Server) TestGracefulStopProxy(clientAddr string, shutdownMessage string
 func (p *Proxy) Stats() *ProxyStats {
 	return p.stats
 }
+
+// Export manage functions for testing
+var (
+	ManageConfig        = manageConfig
+	ManageClients       = manageClients
+	ManageProxyInfo     = manageProxyInfo
+	ManageProxyShutdown = manageProxyShutdown
+	ColoredDiff         = coloredDiff
+)
