@@ -422,12 +422,16 @@ Arguments:
   <file>       Configuration file (required for diff/put commands).
 ```
 
-You can also get information about connected clients using the `trabbits manage clients` command:
+You can also manage connected clients using the `trabbits manage clients` command:
 
 ```
-Usage: trabbits manage clients
+Usage: trabbits manage clients <command>
 
-Get connected clients information.
+Manage connected clients.
+
+Commands:
+  list                     Get connected clients information
+  shutdown <client-id>     Shutdown a specific client
 ```
 
 #### Configuration Versioning and Graceful Disconnection
@@ -558,8 +562,44 @@ Fields description:
 You can also use the `trabbits` CLI to get clients information:
 
 ```console
-$ trabbits manage clients
+$ trabbits manage clients list
 ```
+
+#### Shutdown a specific proxy
+
+You can gracefully shutdown a specific proxy by sending a DELETE request to the `/clients/{proxy_id}` endpoint.
+
+```console
+$ curl -X DELETE --unix-socket /tmp/trabbits.sock http://localhost/clients/proxy-12345678
+```
+
+You can also provide a custom shutdown reason using the `reason` query parameter:
+
+```console
+$ curl -X DELETE --unix-socket /tmp/trabbits.sock "http://localhost/clients/proxy-12345678?reason=Maintenance"
+```
+
+The response includes the shutdown status:
+
+```json
+{
+  "status": "shutdown_initiated",
+  "proxy_id": "proxy-12345678",
+  "reason": "Maintenance"
+}
+```
+
+Using the CLI:
+
+```console
+# Shutdown a proxy with default reason
+$ trabbits manage clients shutdown proxy-12345678
+
+# Shutdown a proxy with custom reason
+$ trabbits manage clients shutdown proxy-12345678 --reason "Scheduled maintenance"
+```
+
+The proxy will be gracefully disconnected, allowing it to properly close ongoing operations before termination.
 
 #### Reload configuration with SIGHUP
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aereal/jsondiff"
+	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 )
 
@@ -27,14 +28,15 @@ const (
 
 // ClientInfo represents information about a connected client
 type ClientInfo struct {
-	ID             string    `json:"id"`
-	ClientAddress  string    `json:"client_address"`
-	User           string    `json:"user"`
-	VirtualHost    string    `json:"virtual_host"`
-	ClientBanner   string    `json:"client_banner"`
-	ConnectedAt    time.Time `json:"connected_at"`
-	Status         string    `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
-	ShutdownReason string    `json:"shutdown_reason,omitempty"`
+	ID               string        `json:"id"`
+	ClientAddress    string        `json:"client_address"`
+	User             string        `json:"user"`
+	VirtualHost      string        `json:"virtual_host"`
+	ClientBanner     string        `json:"client_banner"`
+	ClientProperties amqp091.Table `json:"client_properties"`
+	ConnectedAt      time.Time     `json:"connected_at"`
+	Status           string        `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
+	ShutdownReason   string        `json:"shutdown_reason,omitempty"`
 }
 
 func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
@@ -131,6 +133,7 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("POST /config/diff", s.apiDiffConfigHandler())
 	mux.HandleFunc("POST /config/reload", s.apiReloadConfigHandler(configPath))
 	mux.HandleFunc("GET /clients", s.apiGetClientsHandler())
+	mux.HandleFunc("DELETE /clients/{proxy_id}", s.apiShutdownClientHandler())
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -298,5 +301,40 @@ func (s *Server) apiGetClientsHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", APIContentType)
 		clients := s.GetClientsInfo()
 		json.NewEncoder(w).Encode(clients)
+	})
+}
+
+func (s *Server) apiShutdownClientHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", APIContentType)
+
+		// Extract proxy ID from URL path
+		proxyID := r.PathValue("proxy_id")
+		if proxyID == "" {
+			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
+			return
+		}
+
+		// Get optional shutdown reason from query parameter
+		shutdownReason := r.URL.Query().Get("reason")
+
+		// Attempt to shutdown the proxy
+		found := s.ShutdownProxy(proxyID, shutdownReason)
+		if !found {
+			http.Error(w, "Proxy not found", http.StatusNotFound)
+			return
+		}
+
+		// Return success response
+		response := map[string]string{
+			"status":   "shutdown_initiated",
+			"proxy_id": proxyID,
+		}
+		if shutdownReason != "" {
+			response["reason"] = shutdownReason
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
 	})
 }

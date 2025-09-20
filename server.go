@@ -1054,14 +1054,15 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 		}
 
 		clientInfo := ClientInfo{
-			ID:             proxy.id,
-			ClientAddress:  proxy.ClientAddr(),
-			User:           proxy.user,
-			VirtualHost:    proxy.VirtualHost,
-			ClientBanner:   proxy.ClientBanner(),
-			ConnectedAt:    proxy.connectedAt,
-			Status:         status,
-			ShutdownReason: shutdownReason,
+			ID:               proxy.id,
+			ClientAddress:    proxy.ClientAddr(),
+			User:             proxy.user,
+			VirtualHost:      proxy.VirtualHost,
+			ClientBanner:     proxy.ClientBanner(),
+			ClientProperties: proxy.clientProps,
+			ConnectedAt:      proxy.connectedAt,
+			Status:           status,
+			ShutdownReason:   shutdownReason,
 		}
 		clients = append(clients, clientInfo)
 		return true
@@ -1073,4 +1074,34 @@ func (s *Server) GetClientsInfo() []ClientInfo {
 	})
 
 	return clients
+}
+
+// ShutdownProxy gracefully shuts down a specific proxy by proxy ID
+func (s *Server) ShutdownProxy(proxyID string, shutdownReason string) bool {
+	if shutdownReason == "" {
+		shutdownReason = "API shutdown request"
+	}
+
+	value, ok := s.activeProxies.Load(proxyID)
+	if !ok {
+		slog.Warn("proxy shutdown failed: proxy not found", "proxy", proxyID)
+		return false
+	}
+
+	entry := value.(*proxyEntry)
+	proxy := entry.proxy
+
+	slog.Info("shutting down proxy",
+		"proxy", proxyID,
+		"client_addr", proxy.ClientAddr(),
+		"user", proxy.user,
+		"vhost", proxy.VirtualHost,
+		"reason", shutdownReason)
+
+	// Set custom shutdown message
+	proxy.shutdownMessage = shutdownReason
+	// Trigger graceful shutdown
+	entry.cancel()
+
+	return true
 }
