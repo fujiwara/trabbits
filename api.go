@@ -168,8 +168,8 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("POST /config/diff", s.apiDiffConfigHandler())
 	mux.HandleFunc("POST /config/reload", s.apiReloadConfigHandler(configPath))
 	mux.HandleFunc("GET /clients", s.apiGetClientsHandler())
-	mux.HandleFunc("GET /clients/{proxy_id}", s.apiGetClientHandler())
-	mux.HandleFunc("DELETE /clients/{proxy_id}", s.apiShutdownClientHandler())
+	mux.HandleFunc("GET /clients/{proxy_id...}", s.apiGetClientHandler())
+	mux.HandleFunc("DELETE /clients/{proxy_id...}", s.apiShutdownClientHandler())
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -344,10 +344,16 @@ func (s *Server) apiShutdownClientHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
 
+		// Debug: log the request
+		slog.Debug("shutdown request received", "method", r.Method, "url", r.URL.String(), "path", r.URL.Path)
+
 		// Extract proxy ID from URL path
 		proxyID := r.PathValue("proxy_id")
+		slog.Debug("extracted proxy_id", "proxy_id", proxyID, "raw_path", r.URL.Path)
+
 		if proxyID == "" {
-			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
+			errorMsg := fmt.Sprintf("Proxy ID is required. URL path: %s, Method: %s", r.URL.Path, r.Method)
+			http.Error(w, errorMsg, http.StatusBadRequest)
 			return
 		}
 

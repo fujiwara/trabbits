@@ -62,6 +62,12 @@ func Run(ctx context.Context) error {
 	case "manage clients list":
 		// Get clients information
 		return manageClients(ctx, &cli)
+	case "manage clients":
+		// Interactive TUI for managing clients (default when no subcommand)
+		return runTUI(ctx, &cli)
+	case "manage clients tui":
+		// Interactive TUI for managing clients
+		return runTUI(ctx, &cli)
 	case "manage clients shutdown <proxy-id>":
 		// Shutdown a specific proxy
 		return manageProxyShutdown(ctx, &cli)
@@ -89,6 +95,7 @@ type ManageOptions struct {
 	} `cmd:"" help:"Manage the configuration."`
 	Clients struct {
 		List     struct{} `cmd:"" help:"Get connected clients information."`
+		TUI      struct{} `cmd:"" help:"Interactive TUI for managing clients."`
 		Shutdown struct {
 			ProxyID string `arg:"" required:"" help:"Proxy ID to shutdown."`
 			Reason  string `help:"Optional shutdown reason."`
