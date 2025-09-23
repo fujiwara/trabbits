@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -628,11 +629,18 @@ func (c *apiClient) formatProbeLog(data, format string) error {
 	timestamp := logEntry.Timestamp.Format("15:04:05.000")
 	output := fmt.Sprintf("%s %s", timestamp, logEntry.Message)
 
-	// Add attributes
+	// Add attributes with consistent ordering
 	if len(logEntry.Attrs) > 0 {
+		// Sort keys to ensure consistent display order
+		var keys []string
+		for k := range logEntry.Attrs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
 		var attrs []string
-		for k, v := range logEntry.Attrs {
-			attrs = append(attrs, fmt.Sprintf("%s=%v", k, v))
+		for _, k := range keys {
+			attrs = append(attrs, fmt.Sprintf("%s=%v", k, logEntry.Attrs[k]))
 		}
 		output += " " + strings.Join(attrs, " ")
 	}

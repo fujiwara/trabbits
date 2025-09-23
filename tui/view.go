@@ -338,6 +338,13 @@ func (m *TUIModel) renderProbeView() string {
 		latest := m.probeState.logs[logCount-1]
 		statusText += fmt.Sprintf(" • Latest: %s", latest.Timestamp.Format("15:04:05.000"))
 	}
+	// Debug: Show scroll position
+	visibleRows := m.getProbeVisibleRows()
+	maxScroll := logCount - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	statusText += fmt.Sprintf(" • Scroll: %d/%d (visible: %d)", m.probeState.scroll, maxScroll, visibleRows)
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(statusText))
 	b.WriteString("\n\n")
 
@@ -358,11 +365,15 @@ func (m *TUIModel) renderProbeView() string {
 	} else {
 		visibleRows := m.getProbeVisibleRows()
 		startIdx := m.probeState.scroll
-		if startIdx > logCount-visibleRows {
-			startIdx = logCount - visibleRows
-		}
 		if startIdx < 0 {
 			startIdx = 0
+		}
+		maxScroll := logCount - visibleRows
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if startIdx > maxScroll {
+			startIdx = maxScroll
 		}
 		endIdx := startIdx + visibleRows
 		if endIdx > logCount {
@@ -389,6 +400,9 @@ func (m *TUIModel) renderProbeView() string {
 	// Help text
 	b.WriteString("\n")
 	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page"
+	if m.probeState != nil && !m.probeState.autoScroll {
+		helpText += " • Auto-scroll: OFF (press End to re-enable)"
+	}
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
 
 	// Show error messages
@@ -406,11 +420,18 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 	timestamp := log.Timestamp.Format("15:04:05.000")
 	message := log.Message
 
-	// Build attributes string
+	// Build attributes string with consistent ordering
 	var attrs []string
 	if len(log.Attrs) > 0 {
-		for k, v := range log.Attrs {
-			attrs = append(attrs, fmt.Sprintf("%s=%v", k, v))
+		// Sort keys to ensure consistent display order
+		var keys []string
+		for k := range log.Attrs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			attrs = append(attrs, fmt.Sprintf("%s=%v", k, log.Attrs[k]))
 		}
 	}
 

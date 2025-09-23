@@ -53,6 +53,7 @@ type probeState struct {
 	cancelFunc context.CancelFunc
 	ctx        context.Context
 	logChan    <-chan ProbeLogEntry
+	autoScroll bool // whether to auto-scroll to latest logs
 }
 
 type ProbeLogEntry struct {
@@ -162,8 +163,10 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.probeState.logs) > 1000 {
 				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-1000:]
 			}
-			// Auto-scroll to bottom
-			m.probeState.scroll = len(m.probeState.logs)
+			// Auto-scroll to bottom only if auto-scroll is enabled
+			if m.probeState.autoScroll {
+				m.probeState.scroll = len(m.probeState.logs)
+			}
 
 			// Continue listening for next log
 			return m, m.listenForProbeLog()
@@ -186,6 +189,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cancelFunc: msg.cancelFunc,
 			ctx:        msg.ctx,
 			logChan:    msg.logChan,
+			autoScroll: true, // start with auto-scroll enabled
 		}
 		return m, m.listenForProbeLog()
 	}
