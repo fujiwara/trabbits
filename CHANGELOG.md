@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.9](https://github.com/fujiwara/trabbits/compare/v0.0.8...v0.0.9) - 2025-09-23
+- Add real-time probe log system for AMQP protocol monitoring by @fujiwara in https://github.com/fujiwara/trabbits/pull/62
+- Refactor test package declarations and create independent apiclient package by @fujiwara in https://github.com/fujiwara/trabbits/pull/64
+
 ## [v0.0.8](https://github.com/fujiwara/trabbits/compare/v0.0.7...v0.0.8) - 2025-09-20
 
 ## [v0.0.7](https://github.com/fujiwara/trabbits/compare/v0.0.6...v0.0.7) - 2025-09-20
