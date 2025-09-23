@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.10](https://github.com/fujiwara/trabbits/compare/v0.0.9...v0.0.10) - 2025-09-23
+- Refactor metrics system and fix duplicate tracking by @fujiwara in https://github.com/fujiwara/trabbits/pull/66
+- Remove duplicate metrics implementation and unused API client methods by @fujiwara in https://github.com/fujiwara/trabbits/pull/68
+
 ## [v0.0.9](https://github.com/fujiwara/trabbits/compare/v0.0.8...v0.0.9) - 2025-09-23
 - Add real-time probe log system for AMQP protocol monitoring by @fujiwara in https://github.com/fujiwara/trabbits/pull/62
 - Refactor test package declarations and create independent apiclient package by @fujiwara in https://github.com/fujiwara/trabbits/pull/64
