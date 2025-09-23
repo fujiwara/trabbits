@@ -432,6 +432,7 @@ Manage connected clients.
 Commands:
   list                     Get connected clients information
   info <proxy-id>          Get detailed information for a specific proxy
+  probe <proxy-id>         Stream real-time probe logs for a specific proxy
   shutdown <proxy-id>      Shutdown a specific proxy
   tui                      Interactive terminal interface for managing clients
 ```
@@ -463,6 +464,7 @@ The TUI provides a real-time, top-like interface with the following features:
 - `Page Up/Down`: Jump by pages for large client lists
 - `Home/End`: Jump to first/last client
 - `Enter`: View detailed client information
+- `p`: Start probe log streaming for selected client
 - `Shift+K`: Shutdown selected client (with confirmation)
 - `r`: Force refresh
 - `q`: Quit
@@ -472,8 +474,18 @@ The TUI provides a real-time, top-like interface with the following features:
 - Method-level statistics breakdown showing usage patterns
 - Frame counters and connection duration
 - Scrollable content for clients with many properties
+- `p`: Start probe log streaming for current client
 - `Shift+K`: Shutdown client directly from detail view
 - Real-time updates of statistics and status
+
+**Probe Log View:**
+- Real-time streaming of AMQP protocol events for selected client
+- Shows method calls with structured attributes (routing keys, message properties, etc.)
+- Scrollable log viewer with auto-scroll behavior
+- Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
+- Auto-scroll automatically disables when scrolling up to view older logs
+- Press `End` to re-enable auto-scroll and jump to latest logs
+- `q/Esc`: Return to main client list
 
 **Client Shutdown:**
 - Confirmation dialog showing client details before shutdown
@@ -484,6 +496,7 @@ The TUI provides a real-time, top-like interface with the following features:
 **Benefits:**
 - **No Terminal Disruption**: Unlike `curl` commands, the TUI doesn't clutter your terminal with JSON output
 - **Real-time Monitoring**: See client connections, disconnections, and activity as it happens
+- **Live Protocol Inspection**: Stream real-time AMQP protocol events and method calls for debugging
 - **Efficient Navigation**: Quickly browse through many clients without manual ID copying
 - **Comprehensive Information**: All client details in an easy-to-read format
 - **Safe Operations**: Confirmation dialogs prevent accidental shutdowns
@@ -709,6 +722,80 @@ $ trabbits manage clients shutdown proxy-12345678 --reason "Scheduled maintenanc
 ```
 
 The proxy will be gracefully disconnected, allowing it to properly close ongoing operations before termination.
+
+#### Stream real-time probe logs
+
+trabbits provides a probe log system for real-time monitoring and debugging of AMQP protocol events. This allows you to observe what operations a specific client is performing in real-time.
+
+**API Access:**
+
+You can stream real-time probe logs for a specific proxy using Server-Sent Events (SSE):
+
+```console
+$ curl --unix-socket /tmp/trabbits.sock http://localhost/clients/proxy-12345678/probe
+```
+
+The response uses Server-Sent Events (SSE) format with JSON payloads:
+
+```
+data: {"type":"connected","proxy_id":"proxy-12345678"}
+
+data: {"timestamp":"2025-01-20T15:04:05.123Z","message":"Channel.Open","attrs":{"channel":1,"message":{"Reserved1":0}}}
+
+data: {"timestamp":"2025-01-20T15:04:05.234Z","message":"Queue.Declare","attrs":{"message":{"Queue":"test.queue","Passive":false,"Durable":true,"AutoDelete":false,"Exclusive":false,"NoWait":false,"Arguments":null}}}
+
+data: {"timestamp":"2025-01-20T15:04:05.345Z","message":"Basic.Publish","attrs":{"message":{"Exchange":"","RoutingKey":"test.queue","Mandatory":false,"Immediate":false,"Properties":{"ContentType":"text/plain","DeliveryMode":2},"Body":"SGVsbG8gV29ybGQh"}}}
+
+data: {"type":"proxy_ended"}
+```
+
+**CLI Access:**
+
+Stream probe logs using the CLI for human-readable output:
+
+```console
+# Stream probe logs in text format (default)
+$ trabbits manage clients probe proxy-12345678
+
+# Stream probe logs in JSON format
+$ trabbits manage clients probe proxy-12345678 --format json
+```
+
+Example text output:
+```
+Connected to probe stream for proxy: proxy-12345678
+Press Ctrl+C to stop...
+✓ Connected to probe stream
+15:04:05.123 Channel.Open channel=1
+15:04:05.234 Queue.Declare queue=test.queue durable=true
+15:04:05.345 Basic.Publish exchange= routing_key=test.queue mandatory=false
+15:04:05.456 Basic.Consume queue=test.queue consumer_tag=ctag-1
+15:04:05.567 Basic.Deliver delivery_tag=1 exchange= routing_key=test.queue
+```
+
+**What Probe Logs Capture:**
+
+Probe logs capture all major AMQP method calls with structured attributes:
+- **Channel operations**: Open/Close with channel IDs
+- **Queue operations**: Declare, Bind, Delete with queue names and attributes
+- **Exchange operations**: Declare with exchange names and properties
+- **Basic operations**: Publish (with routing keys, properties), Consume, Deliver, Ack/Nack
+- **Message properties**: Content type, delivery mode, routing keys, exchange names
+- **Delivery tags**: Both client-side and upstream delivery tag mappings
+- **Error conditions**: Protocol errors and connection issues
+
+**Use Cases:**
+- **Protocol Debugging**: See exactly what AMQP methods clients are calling
+- **Message Flow Analysis**: Track publish/consume patterns and routing behavior
+- **Performance Investigation**: Identify bottlenecks in client operations
+- **Integration Testing**: Verify that applications are using AMQP correctly
+- **Troubleshooting**: Debug unexpected client behavior or routing issues
+
+**Important Notes:**
+- Probe logs have minimal performance impact as they use non-blocking channels
+- Only the latest 100 log entries are buffered per client; older logs are discarded
+- Probe logs are automatically cleaned up when clients disconnect
+- Use Ctrl+C to stop CLI streaming; the connection will be gracefully closed
 
 #### Reload configuration with SIGHUP
 
