@@ -70,3 +70,11 @@ type FullClientInfo struct {
 	ShutdownReason   string            `json:"shutdown_reason,omitempty"`
 	Stats            *FullStatsSummary `json:"stats,omitempty"`
 }
+
+// ProbeLogEntry represents a probe log entry
+type ProbeLogEntry struct {
+	Timestamp time.Time      `json:"timestamp"`
+	Message   string         `json:"message"`
+	ProxyID   string         `json:"proxy_id,omitempty"`
+	Attrs     map[string]any `json:"attrs,omitempty"`
+}

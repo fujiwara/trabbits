@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/apiclient"
 )
 
 func TestColoredDiff(t *testing.T) {
@@ -30,12 +31,12 @@ func TestColoredDiff(t *testing.T) {
 }
 
 func TestNewAPIClient(t *testing.T) {
-	// Test the newAPIClient function
+	// Test the NewAPIClient function
 	socketPath := "/tmp/test.sock"
-	client := trabbits.NewAPIClient(socketPath)
+	client := apiclient.New(socketPath)
 
 	if client == nil {
-		t.Fatal("newAPIClient should not return nil")
+		t.Fatal("NewAPIClient should not return nil")
 	}
 
 	// Since endpoint is unexported, we just verify the client is properly created

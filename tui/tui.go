@@ -6,10 +6,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/fujiwara/trabbits/apiclient"
 )
 
 // Run starts the TUI application
-func Run(ctx context.Context, apiClient APIClient) error {
+func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 	model := NewModel(ctx, apiClient)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()

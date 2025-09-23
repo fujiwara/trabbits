@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fujiwara/trabbits/apiclient"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/tui"
 	"github.com/fujiwara/trabbits/types"
 )
@@ -13,7 +15,7 @@ import (
 type mockAPIClient struct {
 	clients       []types.ClientInfo
 	clientDetails map[string]*types.FullClientInfo
-	probeStreams  map[string]chan tui.ProbeLogEntry
+	probeStreams  map[string]chan types.ProbeLogEntry
 }
 
 func (m *mockAPIClient) GetClients(ctx context.Context) ([]types.ClientInfo, error) {
@@ -31,11 +33,39 @@ func (m *mockAPIClient) ShutdownClient(ctx context.Context, clientID, reason str
 	return nil
 }
 
-func (m *mockAPIClient) StreamProbeLog(ctx context.Context, proxyID string) (<-chan tui.ProbeLogEntry, error) {
-	ch := make(chan tui.ProbeLogEntry, 10)
+func (m *mockAPIClient) StreamProbeLogEntries(ctx context.Context, proxyID string) (<-chan types.ProbeLogEntry, error) {
+	ch := make(chan types.ProbeLogEntry, 10)
 	m.probeStreams[proxyID] = ch
 	return ch, nil
 }
+
+// Implement remaining methods to satisfy apiclient.APIClient interface
+func (m *mockAPIClient) GetConfig(ctx context.Context) (*config.Config, error) {
+	return &config.Config{}, nil
+}
+
+func (m *mockAPIClient) PutConfigFromFile(ctx context.Context, configPath string) error {
+	return nil
+}
+
+func (m *mockAPIClient) PutConfig(ctx context.Context, cfg *config.Config) error {
+	return nil
+}
+
+func (m *mockAPIClient) DiffConfigFromFile(ctx context.Context, configPath string) (string, error) {
+	return "", nil
+}
+
+func (m *mockAPIClient) ReloadConfig(ctx context.Context) (*config.Config, error) {
+	return &config.Config{}, nil
+}
+
+func (m *mockAPIClient) StreamProbeLog(ctx context.Context, proxyID, format string) error {
+	return nil
+}
+
+// Ensure mockAPIClient implements apiclient.APIClient
+var _ apiclient.APIClient = (*mockAPIClient)(nil)
 
 func newMockAPIClient() *mockAPIClient {
 	return &mockAPIClient{
@@ -48,7 +78,7 @@ func newMockAPIClient() *mockAPIClient {
 			},
 		},
 		clientDetails: make(map[string]*types.FullClientInfo),
-		probeStreams:  make(map[string]chan tui.ProbeLogEntry),
+		probeStreams:  make(map[string]chan types.ProbeLogEntry),
 	}
 }
 
@@ -64,7 +94,7 @@ func TestTUIModelCreation(t *testing.T) {
 }
 
 func TestProbeLogEntry(t *testing.T) {
-	entry := tui.ProbeLogEntry{
+	entry := types.ProbeLogEntry{
 		Timestamp: time.Now(),
 		Message:   "test message",
 		Attrs: map[string]any{
@@ -91,13 +121,13 @@ func TestMockAPIClientProbeStream(t *testing.T) {
 	client := newMockAPIClient()
 
 	// Test streaming
-	logChan, err := client.StreamProbeLog(ctx, "test-client-1")
+	logChan, err := client.StreamProbeLogEntries(ctx, "test-client-1")
 	if err != nil {
 		t.Fatalf("StreamProbeLog failed: %v", err)
 	}
 
 	// Send a test log
-	testLog := tui.ProbeLogEntry{
+	testLog := types.ProbeLogEntry{
 		Timestamp: time.Now(),
 		Message:   "test probe log",
 		Attrs:     map[string]any{"test": true},
