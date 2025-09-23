@@ -39,6 +39,8 @@ func (m *TUIModel) View() string {
 		return m.renderDetailView()
 	case ViewConfirm:
 		return m.renderConfirmView()
+	case ViewProbe:
+		return m.renderProbeView()
 	default:
 		return "Unknown view"
 	}
@@ -243,7 +245,7 @@ func (m *TUIModel) renderDetailView() string {
 	}
 
 	b.WriteString("\n")
-	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • Shift+K shutdown"
+	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • p probe • Shift+K shutdown"
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
 
 	// Implement scrolling
@@ -299,7 +301,7 @@ func (m *TUIModel) renderConfirmView() string {
 
 // renderHelp renders the help text
 func (m *TUIModel) renderHelp() string {
-	help := "↑↓/kj navigate • PgUp/PgDn page • Enter info • Shift+K shutdown • r refresh • q quit"
+	help := "↑↓/kj navigate • PgUp/PgDn page • Enter info • p probe • Shift+K shutdown • r refresh • q quit"
 	return helpStyle.Render(help)
 }
 
@@ -314,6 +316,116 @@ func (m *TUIModel) getVisibleRows() int {
 		visibleHeight = 5
 	}
 	return visibleHeight
+}
+
+// renderProbeView renders the probe log streaming view
+func (m *TUIModel) renderProbeView() string {
+	if m.probeState == nil {
+		return "No probe stream active"
+	}
+
+	var b strings.Builder
+
+	// Header
+	headerText := fmt.Sprintf("Probe Logs: %s", formatID(m.probeState.clientID))
+	b.WriteString(headerStyle.Render(headerText))
+	b.WriteString("\n\n")
+
+	// Show log count
+	logCount := len(m.probeState.logs)
+	statusText := fmt.Sprintf("Total logs: %d", logCount)
+	if logCount > 0 {
+		latest := m.probeState.logs[logCount-1]
+		statusText += fmt.Sprintf(" • Latest: %s", latest.Timestamp.Format("15:04:05.000"))
+	}
+	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(statusText))
+	b.WriteString("\n\n")
+
+	// Render logs
+	if logCount == 0 {
+		b.WriteString("Waiting for probe logs...\n")
+		// Debug: Show probe state details
+		if m.probeState != nil {
+			debugText := fmt.Sprintf("Debug: State initialized for %s", m.probeState.clientID)
+			if m.probeState.logChan != nil {
+				debugText += " • Channel ready"
+			} else {
+				debugText += " • Channel not ready"
+			}
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(debugText))
+			b.WriteString("\n")
+		}
+	} else {
+		visibleRows := m.getProbeVisibleRows()
+		startIdx := m.probeState.scroll
+		if startIdx > logCount-visibleRows {
+			startIdx = logCount - visibleRows
+		}
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		endIdx := startIdx + visibleRows
+		if endIdx > logCount {
+			endIdx = logCount
+		}
+
+		// Render visible logs
+		for i := startIdx; i < endIdx; i++ {
+			log := m.probeState.logs[i]
+			logLine := m.formatProbeLogLine(log)
+			b.WriteString(logLine)
+			b.WriteString("\n")
+		}
+
+		// Add scroll indicator
+		if logCount > visibleRows {
+			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
+				startIdx+1, endIdx, logCount)
+			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+			b.WriteString("\n" + scrollStyle.Render(scrollInfo))
+		}
+	}
+
+	// Help text
+	b.WriteString("\n")
+	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page"
+	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+
+	// Show error messages
+	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+		errMsg := fmt.Sprintf("Error: %v", m.err)
+		b.WriteString("\n" + errorStyle.Render(errMsg))
+	}
+
+	return b.String()
+}
+
+// formatProbeLogLine formats a single probe log entry
+func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
+	timestamp := log.Timestamp.Format("15:04:05.000")
+	message := log.Message
+
+	// Build attributes string
+	var attrs []string
+	if len(log.Attrs) > 0 {
+		for k, v := range log.Attrs {
+			attrs = append(attrs, fmt.Sprintf("%s=%v", k, v))
+		}
+	}
+
+	// Combine parts
+	result := fmt.Sprintf("%s %s", timestamp, message)
+	if len(attrs) > 0 {
+		attrStr := strings.Join(attrs, " ")
+		// Truncate attributes if too long
+		if len(attrStr) > 100 {
+			attrStr = attrStr[:97] + "..."
+		}
+		result += " " + lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(attrStr)
+	}
+
+	return result
 }
 
 // adjustScrollForSelection adjusts scroll position to keep selected item visible
