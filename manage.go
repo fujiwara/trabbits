@@ -1,6 +1,7 @@
 package trabbits
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -496,4 +497,146 @@ func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
 func runTUI(ctx context.Context, opt *CLI) error {
 	client := newAPIClient(opt.APISocket)
 	return tui.Run(ctx, client)
+}
+
+// manageProxyProbe streams real-time probe logs for a specific proxy
+func manageProxyProbe(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	proxyID := opt.Manage.Clients.Probe.ProxyID
+	format := opt.Manage.Clients.Probe.Format
+
+	slog.Info("Starting probe log stream", "proxy_id", proxyID, "format", format)
+
+	return client.streamProbeLog(ctx, proxyID, format)
+}
+
+// streamProbeLog streams real-time probe logs from the API via SSE
+func (c *apiClient) streamProbeLog(ctx context.Context, proxyID, format string) error {
+	if proxyID == "" {
+		return fmt.Errorf("proxy ID cannot be empty")
+	}
+
+	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s/probe", proxyID))
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set SSE headers
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	// Create a new client with no timeout for SSE streaming
+	// We need to get the socket path from somewhere - let's create a new client
+	// Use a temporary solution by creating the transport inline
+	streamClient := c.client
+	// Override the timeout for this request
+	originalTimeout := c.client.Timeout
+	c.client.Timeout = 0 // No timeout for streaming
+	defer func() {
+		c.client.Timeout = originalTimeout // Restore original timeout
+	}()
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to probe stream: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to stream probe logs: %s", resp.Status)
+	}
+
+	fmt.Printf("Connected to probe stream for proxy: %s\n", proxyID)
+	fmt.Println("Press Ctrl+C to stop...")
+
+	return c.readSSEStream(ctx, resp.Body, format)
+}
+
+// readSSEStream reads and formats SSE stream data
+func (c *apiClient) readSSEStream(ctx context.Context, body io.Reader, format string) error {
+	scanner := bufio.NewScanner(body)
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			// Context cancelled (Ctrl+C) - this is expected, not an error
+			return nil
+		default:
+		}
+
+		line := scanner.Text()
+
+		// Skip empty lines and non-data lines
+		if line == "" || !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		// Extract JSON data
+		data := strings.TrimPrefix(line, "data: ")
+
+		// Handle control messages
+		if strings.Contains(data, `"type":"connected"`) {
+			fmt.Println("✓ Connected to probe stream")
+			continue
+		}
+		if strings.Contains(data, `"type":"proxy_ended"`) {
+			fmt.Println("✗ Proxy connection ended")
+			return nil
+		}
+
+		// Format and display probe log
+		if err := c.formatProbeLog(data, format); err != nil {
+			slog.Warn("Failed to format probe log", "error", err, "data", data)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		// Check if this is a context cancellation error
+		if ctx.Err() != nil {
+			return nil // Context cancelled - not an error
+		}
+		return fmt.Errorf("error reading stream: %w", err)
+	}
+
+	return nil
+}
+
+// formatProbeLog formats and displays a probe log entry
+func (c *apiClient) formatProbeLog(data, format string) error {
+	if format == "json" {
+		fmt.Println(data)
+		return nil
+	}
+
+	// Parse JSON for text formatting
+	var logEntry struct {
+		Timestamp time.Time      `json:"timestamp"`
+		Message   string         `json:"message"`
+		Attrs     map[string]any `json:"attrs,omitempty"`
+	}
+
+	if err := json.Unmarshal([]byte(data), &logEntry); err != nil {
+		return err
+	}
+
+	// Format as human-readable text
+	timestamp := logEntry.Timestamp.Format("15:04:05.000")
+	output := fmt.Sprintf("%s %s", timestamp, logEntry.Message)
+
+	// Add attributes
+	if len(logEntry.Attrs) > 0 {
+		var attrs []string
+		for k, v := range logEntry.Attrs {
+			attrs = append(attrs, fmt.Sprintf("%s=%v", k, v))
+		}
+		output += " " + strings.Join(attrs, " ")
+	}
+
+	fmt.Println(output)
+	return nil
 }

@@ -71,6 +71,9 @@ func Run(ctx context.Context) error {
 	case "manage clients info <proxy-id>":
 		// Get detailed information for a specific proxy
 		return manageProxyInfo(ctx, &cli)
+	case "manage clients probe <proxy-id>":
+		// Stream real-time probe logs for a specific proxy
+		return manageProxyProbe(ctx, &cli)
 	case "test match-routing <pattern> <key>":
 		// Test routing pattern matching
 		return testMatchRouting(ctx, &cli)
@@ -100,6 +103,10 @@ type ManageOptions struct {
 		Info struct {
 			ProxyID string `arg:"" required:"" help:"Proxy ID to get detailed information for."`
 		} `cmd:"" help:"Get detailed information for a specific proxy."`
+		Probe struct {
+			ProxyID string `arg:"" required:"" help:"Proxy ID to monitor probe logs for."`
+			Format  string `help:"Output format (json|text)." default:"text" enum:"json,text"`
+		} `cmd:"" help:"Stream real-time probe logs for a specific proxy."`
 	} `cmd:"" help:"Manage connected clients."`
 }
 
