@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/fujiwara/trabbits/config"
 )
@@ -57,7 +58,13 @@ func (c *Client) PutConfigFromFile(ctx context.Context, configPath string) error
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+
+	// Set Content-Type based on file extension
+	contentType := "application/json"
+	if strings.HasSuffix(configPath, ".jsonnet") {
+		contentType = "application/jsonnet"
+	}
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -118,7 +125,13 @@ func (c *Client) DiffConfigFromFile(ctx context.Context, configPath string) (str
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
+
+	// Set Content-Type based on file extension
+	contentType := "application/json"
+	if strings.HasSuffix(configPath, ".jsonnet") {
+		contentType = "application/jsonnet"
+	}
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
