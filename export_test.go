@@ -48,8 +48,7 @@ func init() {
 }
 
 func GetMetricsRegistry() *prometheus.Registry {
-	initMetricsRegistry()
-	return metricsReg
+	return prometheus.NewRegistry()
 }
 
 // Test-only method for setting proxy config hash
