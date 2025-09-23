@@ -1,8 +1,8 @@
 services:
 
-# rabbitmq1 is a standalone instance
+  # rabbitmq1 is a standalone instance
   rabbitmq1:
-    image: rabbitmq:3.12-management
+    image: mirror.gcr.io/rabbitmq:3.12-management
     container_name: rabbitmq1
     hostname: rabbitmq1
     ports:
@@ -14,9 +14,9 @@ services:
       RABBITMQ_DEFAULT_PASS: admin
       RABBITMQ_ERLANG_COOKIE: "standalone-cookie"
 
-# rabbitmq2-4 are clustered
+  # rabbitmq2-4 are clustered
   rabbitmq2:
-    image: rabbitmq:3.12-management
+    image: mirror.gcr.io/rabbitmq:3.12-management
     container_name: rabbitmq2
     hostname: rabbitmq2
     ports:
@@ -28,7 +28,7 @@ services:
       RABBITMQ_DEFAULT_PASS: admin
       RABBITMQ_ERLANG_COOKIE: "cluster-cookie"
   rabbitmq3:
-    image: rabbitmq:3.12-management
+    image: mirror.gcr.io/rabbitmq:3.12-management
     container_name: rabbitmq3
     hostname: rabbitmq3
     ports:
@@ -40,7 +40,7 @@ services:
       RABBITMQ_DEFAULT_PASS: admin
       RABBITMQ_ERLANG_COOKIE: "cluster-cookie"
   rabbitmq4:
-    image: rabbitmq:3.12-management
+    image: mirror.gcr.io/rabbitmq:3.12-management
     container_name: rabbitmq4
     hostname: rabbitmq4
     ports:
