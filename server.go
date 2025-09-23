@@ -112,9 +112,10 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		configHash:             s.GetConfigHash(),
 		readTimeout:            config.ReadTimeout.ToDuration(),
 		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
-		shutdownMessage:        ShutdownMsgDefault, // default shutdown message
-		connectedAt:            time.Now(),         // timestamp when the client connected
-		stats:                  NewProxyStats(),    // initialize statistics
+		shutdownMessage:        ShutdownMsgDefault,       // default shutdown message
+		connectedAt:            time.Now(),               // timestamp when the client connected
+		stats:                  NewProxyStats(),          // initialize statistics
+		probeChan:              make(chan probeLog, 100), // buffered channel for probe logs
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
