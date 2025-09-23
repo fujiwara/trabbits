@@ -1,21 +1,22 @@
-package trabbits
+package trabbits_test
 
 import (
 	"testing"
 
+	"github.com/fujiwara/trabbits"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestSortNodesByLeastConnections(t *testing.T) {
-	// Create a test registry to avoid interference with global metrics
+	// Create a test registry to avoid interference with global trabbits.Metrics
 	testReg := prometheus.NewRegistry()
-	testMetrics := NewMetrics()
+	testMetrics := trabbits.NewMetrics()
 	testMetrics.MustRegister(testReg)
 
-	// Replace global metrics with test metrics
-	oldMetrics := metrics
-	metrics = testMetrics
-	defer func() { metrics = oldMetrics }()
+	// Replace global trabbits.Metrics with test trabbits.Metrics
+	oldMetrics := *trabbits.MetricsStore
+	*trabbits.MetricsStore = testMetrics
+	defer func() { *trabbits.MetricsStore = oldMetrics }()
 
 	tests := []struct {
 		name             string
@@ -81,7 +82,7 @@ func TestSortNodesByLeastConnections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset metrics
+			// Reset trabbits.Metrics
 			testMetrics.UpstreamConnections.Reset()
 
 			// Set up connection counts
@@ -90,7 +91,7 @@ func TestSortNodesByLeastConnections(t *testing.T) {
 				gauge.Set(float64(count))
 			}
 
-			result := sortNodesByLeastConnections(tt.nodes)
+			result := trabbits.SortNodesByLeastConnections(tt.nodes)
 
 			if tt.want == nil && tt.name == "zero connections" {
 				// Special case: check that all nodes are present
@@ -129,13 +130,13 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 
 	// Create a test registry
 	testReg := prometheus.NewRegistry()
-	testMetrics := NewMetrics()
+	testMetrics := trabbits.NewMetrics()
 	testMetrics.MustRegister(testReg)
 
-	// Replace global metrics with test metrics
-	oldMetrics := metrics
-	metrics = testMetrics
-	defer func() { metrics = oldMetrics }()
+	// Replace global trabbits.Metrics with test trabbits.Metrics
+	oldMetrics := *trabbits.MetricsStore
+	*trabbits.MetricsStore = testMetrics
+	defer func() { *trabbits.MetricsStore = oldMetrics }()
 
 	nodes := []string{"low1:5672", "low2:5672", "high1:5672", "high2:5672"}
 	connectionCounts := map[string]int{
@@ -145,7 +146,7 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 		"high2:5672": 10, // Same as high1
 	}
 
-	// Reset metrics and set up connection counts
+	// Reset trabbits.Metrics and set up connection counts
 	testMetrics.UpstreamConnections.Reset()
 	for addr, count := range connectionCounts {
 		gauge := testMetrics.UpstreamConnections.WithLabelValues(addr)
@@ -154,7 +155,7 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 
 	// Run multiple times to check randomization of same-count nodes
 	for i := 0; i < 10; i++ {
-		result := sortNodesByLeastConnections(nodes)
+		result := trabbits.SortNodesByLeastConnections(nodes)
 
 		if len(result) != 4 {
 			t.Fatalf("Expected 4 nodes, got %d", len(result))
@@ -183,16 +184,16 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 func TestSortNodesByLeastConnectionsEdgeCases(t *testing.T) {
 	// Create a test registry
 	testReg := prometheus.NewRegistry()
-	testMetrics := NewMetrics()
+	testMetrics := trabbits.NewMetrics()
 	testMetrics.MustRegister(testReg)
 
-	// Replace global metrics with test metrics
-	oldMetrics := metrics
-	metrics = testMetrics
-	defer func() { metrics = oldMetrics }()
+	// Replace global trabbits.Metrics with test trabbits.Metrics
+	oldMetrics := *trabbits.MetricsStore
+	*trabbits.MetricsStore = testMetrics
+	defer func() { *trabbits.MetricsStore = oldMetrics }()
 
 	t.Run("nil slice", func(t *testing.T) {
-		result := sortNodesByLeastConnections(nil)
+		result := trabbits.SortNodesByLeastConnections(nil)
 		if result != nil {
 			t.Errorf("Expected nil, got %v", result)
 		}
@@ -204,7 +205,7 @@ func TestSortNodesByLeastConnectionsEdgeCases(t *testing.T) {
 		gauge := testMetrics.UpstreamConnections.WithLabelValues("busy:5672")
 		gauge.Set(1000)
 
-		result := sortNodesByLeastConnections(nodes)
+		result := trabbits.SortNodesByLeastConnections(nodes)
 		expected := []string{"busy:5672"}
 
 		if len(result) != len(expected) {
@@ -225,7 +226,7 @@ func TestSortNodesByLeastConnectionsEdgeCases(t *testing.T) {
 			gauge.Set(5)
 		}
 
-		result := sortNodesByLeastConnections(nodes)
+		result := trabbits.SortNodesByLeastConnections(nodes)
 
 		// Should contain all nodes
 		if len(result) != len(nodes) {

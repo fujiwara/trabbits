@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/fujiwara/trabbits/apiclient"
 	"github.com/fujiwara/trabbits/types"
 )
 
@@ -22,7 +23,7 @@ const (
 // TUIModel represents the TUI application state
 type TUIModel struct {
 	ctx          context.Context
-	apiClient    APIClient
+	apiClient    apiclient.APIClient
 	clients      []types.ClientInfo
 	selectedIdx  int
 	viewMode     ViewMode
@@ -56,21 +57,13 @@ type probeState struct {
 	autoScroll bool // whether to auto-scroll to latest logs
 }
 
-type ProbeLogEntry struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Message   string         `json:"message"`
-	Attrs     map[string]any `json:"attrs,omitempty"`
-}
+// Use types.ProbeLogEntry instead of local definition
+type ProbeLogEntry = types.ProbeLogEntry
 
 type probeLogEntry = ProbeLogEntry
 
-// APIClient interface for TUI to interact with the trabbits API
-type APIClient interface {
-	GetClients(ctx context.Context) ([]types.ClientInfo, error)
-	GetClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error)
-	ShutdownClient(ctx context.Context, clientID, reason string) error
-	StreamProbeLog(ctx context.Context, proxyID string) (<-chan ProbeLogEntry, error)
-}
+// APIClient is aliased from apiclient.APIClient
+type APIClient = apiclient.APIClient
 
 // Message types for Bubble Tea
 type (
@@ -84,13 +77,13 @@ type (
 	probeStreamStartedMsg struct {
 		clientID   string
 		ctx        context.Context
-		logChan    <-chan ProbeLogEntry
+		logChan    <-chan types.ProbeLogEntry
 		cancelFunc context.CancelFunc
 	}
 )
 
 // NewModel creates a new TUI model
-func NewModel(ctx context.Context, apiClient APIClient) *TUIModel {
+func NewModel(ctx context.Context, apiClient apiclient.APIClient) *TUIModel {
 	return &TUIModel{
 		ctx:       ctx,
 		apiClient: apiClient,
@@ -235,7 +228,7 @@ func (m *TUIModel) startProbeStream(clientID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithCancel(m.ctx)
 
-		logChan, err := m.apiClient.StreamProbeLog(ctx, clientID)
+		logChan, err := m.apiClient.StreamProbeLogEntries(ctx, clientID)
 		if err != nil {
 			cancel()
 			return errorMsg(err)

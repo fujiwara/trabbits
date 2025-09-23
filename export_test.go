@@ -11,14 +11,14 @@ import (
 )
 
 var (
-	SetupLogger        = setupLogger
-	NewDelivery        = newDelivery
-	RestoreDeliveryTag = restoreDeliveryTag
-	MatchPattern       = pattern.Match
-	MetricsStore       = metrics
-	NewAPIClient       = newAPIClient
-	TestMatchRouting   = testMatchRouting
-	RecoverFromPanic   = recoverFromPanic
+	SetupLogger                 = setupLogger
+	NewDelivery                 = newDelivery
+	RestoreDeliveryTag          = restoreDeliveryTag
+	MatchPattern                = pattern.Match
+	MetricsStore                = &metrics
+	TestMatchRouting            = testMatchRouting
+	RecoverFromPanic            = recoverFromPanic
+	SortNodesByLeastConnections = sortNodesByLeastConnections
 )
 
 // Server instance functions for testing
@@ -102,7 +102,6 @@ var (
 	ManageClients       = manageClients
 	ManageProxyInfo     = manageProxyInfo
 	ManageProxyShutdown = manageProxyShutdown
-	ColoredDiff         = coloredDiff
 )
 
 // TUI functionality moved to tui package
