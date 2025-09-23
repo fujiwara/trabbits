@@ -101,10 +101,10 @@ func (p *Proxy) SortNodesByLeastConnections(nodes []string) []string {
 
 // Export manage functions for testing
 var (
-	ManageConfig        = manageConfig
-	ManageClients       = manageClients
-	ManageProxyInfo     = manageProxyInfo
-	ManageProxyShutdown = manageProxyShutdown
+	ManageConfig         = manageConfig
+	ManageClients        = manageClients
+	ManageClientInfo     = manageClientInfo
+	ManageClientShutdown = manageClientShutdown
 )
 
 // TUI functionality moved to tui package
