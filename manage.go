@@ -39,7 +39,7 @@ func manageConfig(ctx context.Context, opt *CLI) error {
 }
 
 func manageConfigGet(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	cfg, err := client.getConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
@@ -53,14 +53,14 @@ func manageConfigDiff(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("configuration file is required for diff command")
 	}
 
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	diff, err := client.diffConfigFromFile(ctx, opt.Manage.Config.File)
 	if err != nil {
 		return fmt.Errorf("failed to get diff: %w", err)
 	}
 
 	if diff != "" {
-		fmt.Print(coloredDiff(diff))
+		fmt.Print(ColoredDiff(diff))
 	}
 
 	return nil
@@ -71,12 +71,12 @@ func manageConfigPut(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("configuration file is required for put command")
 	}
 
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	return client.putConfigFromFile(ctx, opt.Manage.Config.File)
 }
 
 func manageConfigReload(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	cfg, err := client.reloadConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to reload config: %w", err)
@@ -86,7 +86,8 @@ func manageConfigReload(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-func coloredDiff(src string) string {
+// ColoredDiff adds color to diff output (+/- lines)
+func ColoredDiff(src string) string {
 	var b strings.Builder
 	for _, line := range strings.Split(src, "\n") {
 		if strings.HasPrefix(line, "-") {
@@ -100,12 +101,14 @@ func coloredDiff(src string) string {
 	return b.String()
 }
 
-type apiClient struct {
+// APIClient represents a client for communicating with trabbits API server via Unix socket
+type APIClient struct {
 	endpoint string
 	client   *http.Client
 }
 
-func newAPIClient(socketPath string) *apiClient {
+// NewAPIClient creates a new API client that communicates via Unix socket
+func NewAPIClient(socketPath string) *APIClient {
 	tr := &http.Transport{
 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 			return net.Dial("unix", socketPath)
@@ -115,14 +118,14 @@ func newAPIClient(socketPath string) *apiClient {
 		Transport: tr,
 		Timeout:   30 * time.Second,
 	}
-	return &apiClient{
+	return &APIClient{
 		endpoint: "http://localhost/",
 		client:   client,
 	}
 }
 
 // buildURL constructs a full URL from the endpoint and path
-func (c *apiClient) buildURL(path string) (*url.URL, error) {
+func (c *APIClient) buildURL(path string) (*url.URL, error) {
 	baseURL, err := url.Parse(c.endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base URL: %w", err)
@@ -136,7 +139,7 @@ func (c *apiClient) buildURL(path string) (*url.URL, error) {
 	return baseURL.ResolveReference(u), nil
 }
 
-func (c *apiClient) getConfig(ctx context.Context) (*config.Config, error) {
+func (c *APIClient) getConfig(ctx context.Context) (*config.Config, error) {
 	fullURL, err := c.buildURL("config")
 	if err != nil {
 		return nil, err
@@ -158,7 +161,7 @@ func (c *apiClient) getConfig(ctx context.Context) (*config.Config, error) {
 	return &cfg, nil
 }
 
-func (c *apiClient) putConfigFromFile(ctx context.Context, configPath string) error {
+func (c *APIClient) putConfigFromFile(ctx context.Context, configPath string) error {
 	slog.Info("putting config from file", "file", configPath)
 
 	// Read raw file content without any processing
@@ -188,7 +191,7 @@ func (c *apiClient) putConfigFromFile(ctx context.Context, configPath string) er
 }
 
 // Keep the old method for backward compatibility, though it's not used anymore
-func (c *apiClient) putConfig(ctx context.Context, cfg *config.Config) error {
+func (c *APIClient) putConfig(ctx context.Context, cfg *config.Config) error {
 	slog.Info("putting config", "config", cfg)
 	b := new(bytes.Buffer)
 	b.WriteString(cfg.String())
@@ -211,7 +214,7 @@ func (c *apiClient) putConfig(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (string, error) {
+func (c *APIClient) diffConfigFromFile(ctx context.Context, configPath string) (string, error) {
 	slog.Info("getting diff from file", "file", configPath)
 
 	// Read raw file content
@@ -251,7 +254,7 @@ func (c *apiClient) diffConfigFromFile(ctx context.Context, configPath string) (
 	return string(diffBytes), nil
 }
 
-func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
+func (c *APIClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 	slog.Info("reloading config from server")
 
 	fullURL, err := c.buildURL("config/reload")
@@ -277,7 +280,7 @@ func (c *apiClient) reloadConfig(ctx context.Context) (*config.Config, error) {
 }
 
 func manageClients(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	clients, err := client.GetClients(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get clients: %w", err)
@@ -293,7 +296,7 @@ func manageClients(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-func (c *apiClient) GetClients(ctx context.Context) ([]types.ClientInfo, error) {
+func (c *APIClient) GetClients(ctx context.Context) ([]types.ClientInfo, error) {
 	fullURL, err := c.buildURL("clients")
 	if err != nil {
 		return nil, err
@@ -317,14 +320,14 @@ func (c *apiClient) GetClients(ctx context.Context) ([]types.ClientInfo, error) 
 }
 
 func manageProxyShutdown(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	proxyID := opt.Manage.Clients.Shutdown.ProxyID
 	reason := opt.Manage.Clients.Shutdown.Reason
 
 	return client.shutdownProxy(ctx, proxyID, reason)
 }
 
-func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) error {
+func (c *APIClient) shutdownProxy(ctx context.Context, proxyID, reason string) error {
 	if proxyID == "" {
 		return fmt.Errorf("proxy ID cannot be empty")
 	}
@@ -378,13 +381,13 @@ func (c *apiClient) shutdownProxy(ctx context.Context, proxyID, reason string) e
 }
 
 func manageProxyInfo(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	proxyID := opt.Manage.Clients.Info.ProxyID
 
 	return client.getProxyInfo(ctx, proxyID)
 }
 
-func (c *apiClient) GetClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
+func (c *APIClient) GetClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error) {
 	fullURL, err := c.buildURL(path.Join("clients", clientID))
 	if err != nil {
 		return nil, err
@@ -412,7 +415,7 @@ func (c *apiClient) GetClientDetail(ctx context.Context, clientID string) (*type
 	return &clientInfo, nil
 }
 
-func (c *apiClient) ShutdownClient(ctx context.Context, clientID, reason string) error {
+func (c *APIClient) ShutdownClient(ctx context.Context, clientID, reason string) error {
 	if clientID == "" {
 		return fmt.Errorf("client ID cannot be empty")
 	}
@@ -458,7 +461,7 @@ func (c *apiClient) ShutdownClient(ctx context.Context, clientID, reason string)
 	return nil
 }
 
-func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
+func (c *APIClient) getProxyInfo(ctx context.Context, proxyID string) error {
 	fullURL, err := c.buildURL(path.Join("clients", proxyID))
 	if err != nil {
 		return err
@@ -496,13 +499,13 @@ func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
 
 // runTUI starts the TUI using the new tui package
 func runTUI(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	return tui.Run(ctx, client)
 }
 
 // manageProxyProbe streams real-time probe logs for a specific proxy
 func manageProxyProbe(ctx context.Context, opt *CLI) error {
-	client := newAPIClient(opt.APISocket)
+	client := NewAPIClient(opt.APISocket)
 	proxyID := opt.Manage.Clients.Probe.ProxyID
 	format := opt.Manage.Clients.Probe.Format
 
@@ -519,7 +522,7 @@ type ProbeLogEntry struct {
 }
 
 // streamProbeLog streams real-time probe logs from the API via SSE for CLI
-func (c *apiClient) streamProbeLog(ctx context.Context, proxyID, format string) error {
+func (c *APIClient) streamProbeLog(ctx context.Context, proxyID, format string) error {
 	if proxyID == "" {
 		return fmt.Errorf("proxy ID cannot be empty")
 	}
@@ -535,7 +538,7 @@ func (c *apiClient) streamProbeLog(ctx context.Context, proxyID, format string) 
 }
 
 // readProbeLogSSE reads SSE stream and calls handler for each probe log entry
-func (c *apiClient) readProbeLogSSE(ctx context.Context, proxyID string, handler func(*ProbeLogEntry) error) error {
+func (c *APIClient) readProbeLogSSE(ctx context.Context, proxyID string, handler func(*ProbeLogEntry) error) error {
 	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s/probe", proxyID))
 	if err != nil {
 		return err
@@ -622,7 +625,7 @@ func (c *apiClient) readProbeLogSSE(ctx context.Context, proxyID string, handler
 }
 
 // formatProbeLogEntry formats and displays a probe log entry
-func (c *apiClient) formatProbeLogEntry(entry *ProbeLogEntry, format string) error {
+func (c *APIClient) formatProbeLogEntry(entry *ProbeLogEntry, format string) error {
 	if format == "json" {
 		// Re-marshal to JSON for consistent output
 		data, err := json.Marshal(entry)
@@ -658,7 +661,7 @@ func (c *apiClient) formatProbeLogEntry(entry *ProbeLogEntry, format string) err
 }
 
 // StreamProbeLog streams probe logs for TUI interface
-func (c *apiClient) StreamProbeLog(ctx context.Context, proxyID string) (<-chan tui.ProbeLogEntry, error) {
+func (c *APIClient) StreamProbeLog(ctx context.Context, proxyID string) (<-chan tui.ProbeLogEntry, error) {
 	logChan := make(chan tui.ProbeLogEntry, 100)
 	slog.Debug("StreamProbeLog starting", "proxy_id", proxyID)
 

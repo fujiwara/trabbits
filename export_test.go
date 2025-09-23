@@ -16,7 +16,6 @@ var (
 	RestoreDeliveryTag          = restoreDeliveryTag
 	MatchPattern                = pattern.Match
 	MetricsStore                = &metrics
-	NewAPIClient                = newAPIClient
 	TestMatchRouting            = testMatchRouting
 	RecoverFromPanic            = recoverFromPanic
 	SortNodesByLeastConnections = sortNodesByLeastConnections
@@ -103,7 +102,6 @@ var (
 	ManageClients       = manageClients
 	ManageProxyInfo     = manageProxyInfo
 	ManageProxyShutdown = manageProxyShutdown
-	ColoredDiff         = coloredDiff
 )
 
 // TUI functionality moved to tui package
