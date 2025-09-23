@@ -12,21 +12,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var globalMetrics *Metrics
 var metricsReg *prometheus.Registry
 var metricsOnce sync.Once
 
-func initMetrics() {
+func initMetricsRegistry() {
 	metricsOnce.Do(func() {
-		globalMetrics = NewMetrics()
 		metricsReg = prometheus.NewRegistry()
-		globalMetrics.MustRegister(metricsReg)
 	})
-}
-
-func GetMetrics() *Metrics {
-	initMetrics()
-	return globalMetrics
 }
 
 type Metrics struct {
@@ -145,6 +137,7 @@ func (m *Metrics) MustRegister(reg prometheus.Registerer) {
 }
 
 func runMetricsServer(ctx context.Context, opt *CLI) (func(), error) {
+	initMetricsRegistry()
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(metricsReg, promhttp.HandlerOpts{}))
 	var srv http.Server

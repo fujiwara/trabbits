@@ -84,7 +84,8 @@ func Run(ctx context.Context) error {
 
 func setupLogger(level slog.Level) {
 	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-	mh := NewMetricSlogHandler(h, GetMetrics().LoggerStats)
+	// Use nil for LoggerStats during CLI setup - metrics will be available after server creation
+	mh := NewMetricSlogHandler(h, nil)
 	slog.SetDefault(slog.New(mh))
 }
 

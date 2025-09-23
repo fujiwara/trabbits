@@ -18,8 +18,8 @@ import (
 
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
-	"github.com/fujiwara/trabbits/pattern"
 	metricsstore "github.com/fujiwara/trabbits/metrics"
+	"github.com/fujiwara/trabbits/pattern"
 	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
@@ -43,12 +43,12 @@ type Proxy struct {
 	readTimeout            time.Duration
 	connectionCloseTimeout time.Duration
 
-	configHash         string           // hash of config used for this proxy
-	upstreamDisconnect chan string      // channel to notify upstream disconnection
-	shutdownMessage    string           // message to send when shutting down
-	connectedAt        time.Time        // timestamp when the client connected
-	stats              *ProxyStats      // statistics for this proxy
-	probeChan          chan probeLog    // channel to send probe logs
+	configHash         string                // hash of config used for this proxy
+	upstreamDisconnect chan string           // channel to notify upstream disconnection
+	shutdownMessage    string                // message to send when shutting down
+	connectedAt        time.Time             // timestamp when the client connected
+	stats              *ProxyStats           // statistics for this proxy
+	probeChan          chan probeLog         // channel to send probe logs
 	metrics            *metricsstore.Metrics // metrics instance for this proxy
 }
 
@@ -244,7 +244,7 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	}
 
 	// Sort nodes using least connection algorithm
-	nodesToTry = sortNodesByLeastConnections(nodesToTry)
+	nodesToTry = p.sortNodesByLeastConnections(nodesToTry)
 
 	// Try to connect to each node
 	for _, addr := range nodesToTry {
@@ -264,7 +264,7 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 
 // sortNodesByLeastConnections sorts nodes by connection count using least connection algorithm.
 // Nodes with fewer connections are placed first. Nodes with equal connections are randomly ordered.
-func sortNodesByLeastConnections(nodes []string) []string {
+func (p *Proxy) sortNodesByLeastConnections(nodes []string) []string {
 	if len(nodes) <= 1 {
 		return nodes
 	}
@@ -277,7 +277,7 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	var nodeInfos []nodeInfo
 	for _, addr := range nodes {
 		metric := &dto.Metric{}
-		gauge := GetMetrics().UpstreamConnections.WithLabelValues(addr)
+		gauge := p.metrics.UpstreamConnections.WithLabelValues(addr)
 		gauge.Write(metric)
 		connections := int64(metric.GetGauge().GetValue())
 		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
