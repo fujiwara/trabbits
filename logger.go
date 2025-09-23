@@ -13,9 +13,11 @@ type MetricSlogHandler struct {
 }
 
 func NewMetricSlogHandler(base slog.Handler, logCounter *prometheus.CounterVec) slog.Handler {
-	logCounter.WithLabelValues("INFO").Add(0)
-	logCounter.WithLabelValues("WARN").Add(0)
-	logCounter.WithLabelValues("ERROR").Add(0)
+	if logCounter != nil {
+		logCounter.WithLabelValues("INFO").Add(0)
+		logCounter.WithLabelValues("WARN").Add(0)
+		logCounter.WithLabelValues("ERROR").Add(0)
+	}
 	return &MetricSlogHandler{
 		Handler:    base,
 		logCounter: logCounter,
@@ -23,6 +25,8 @@ func NewMetricSlogHandler(base slog.Handler, logCounter *prometheus.CounterVec) 
 }
 
 func (h *MetricSlogHandler) Handle(ctx context.Context, r slog.Record) error {
-	h.logCounter.WithLabelValues(r.Level.String()).Inc()
+	if h.logCounter != nil {
+		h.logCounter.WithLabelValues(r.Level.String()).Inc()
+	}
 	return h.Handler.Handle(ctx, r)
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
+	metricsstore "github.com/fujiwara/trabbits/metrics"
 	"github.com/fujiwara/trabbits/pattern"
 	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
@@ -42,12 +43,13 @@ type Proxy struct {
 	readTimeout            time.Duration
 	connectionCloseTimeout time.Duration
 
-	configHash         string        // hash of config used for this proxy
-	upstreamDisconnect chan string   // channel to notify upstream disconnection
-	shutdownMessage    string        // message to send when shutting down
-	connectedAt        time.Time     // timestamp when the client connected
-	stats              *ProxyStats   // statistics for this proxy
-	probeChan          chan probeLog // channel to send probe logs
+	configHash         string                // hash of config used for this proxy
+	upstreamDisconnect chan string           // channel to notify upstream disconnection
+	shutdownMessage    string                // message to send when shutting down
+	connectedAt        time.Time             // timestamp when the client connected
+	stats              *ProxyStats           // statistics for this proxy
+	probeChan          chan probeLog         // channel to send probe logs
+	metrics            *metricsstore.Metrics // metrics instance for this proxy
 }
 
 func (p *Proxy) Upstreams() []*Upstream {
@@ -174,7 +176,7 @@ func (p *Proxy) ClientBanner() string {
 
 // MonitorUpstreamConnection monitors an upstream connection and notifies when it closes
 func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstream) {
-	defer recoverFromPanic(p.logger, "MonitorUpstreamConnection")
+	defer recoverFromPanic(p.logger, "MonitorUpstreamConnection", p.metrics)
 
 	select {
 	case <-ctx.Done():
@@ -224,7 +226,7 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	}
 	conn, err := rabbitmq.DialConfig(u.String(), cfg)
 	if err != nil {
-		GetMetrics().UpstreamConnectionErrors.WithLabelValues(addr).Inc()
+		p.metrics.UpstreamConnectionErrors.WithLabelValues(addr).Inc()
 		return nil, fmt.Errorf("failed to open upstream %s %w", u, err)
 	}
 	return conn, nil
@@ -242,7 +244,7 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	}
 
 	// Sort nodes using least connection algorithm
-	nodesToTry = sortNodesByLeastConnections(nodesToTry)
+	nodesToTry = p.sortNodesByLeastConnections(nodesToTry)
 
 	// Try to connect to each node
 	for _, addr := range nodesToTry {
@@ -262,7 +264,7 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 
 // sortNodesByLeastConnections sorts nodes by connection count using least connection algorithm.
 // Nodes with fewer connections are placed first. Nodes with equal connections are randomly ordered.
-func sortNodesByLeastConnections(nodes []string) []string {
+func (p *Proxy) sortNodesByLeastConnections(nodes []string) []string {
 	if len(nodes) <= 1 {
 		return nodes
 	}
@@ -275,7 +277,7 @@ func sortNodesByLeastConnections(nodes []string) []string {
 	var nodeInfos []nodeInfo
 	for _, addr := range nodes {
 		metric := &dto.Metric{}
-		gauge := GetMetrics().UpstreamConnections.WithLabelValues(addr)
+		gauge := p.metrics.UpstreamConnections.WithLabelValues(addr)
 		gauge.Write(metric)
 		connections := int64(metric.GetGauge().GetValue())
 		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
@@ -307,7 +309,7 @@ func (p *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config
 		if err != nil {
 			return err
 		}
-		us := NewUpstream(conn, p.logger, c, addr)
+		us := NewUpstream(conn, p.logger, c, addr, p.metrics)
 		p.upstreams = append(p.upstreams, us)
 
 		// Start monitoring the upstream connection
@@ -391,7 +393,7 @@ func (p *Proxy) handshake(ctx context.Context) error {
 }
 
 func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
-	defer recoverFromPanic(p.logger, "runHeartbeat")
+	defer recoverFromPanic(p.logger, "runHeartbeat", p.metrics)
 
 	if interval == 0 {
 		interval = uint16(HeartbeatInterval)
@@ -481,7 +483,7 @@ func (p *Proxy) process(ctx context.Context) error {
 	if p.stats != nil {
 		p.stats.IncrementReceivedFrames()
 	}
-	GetMetrics().ClientReceivedFrames.Inc()
+	p.metrics.ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
 		p.sendProbeLog("read method frame", "type", reflect.TypeOf(mf.Method).String())
@@ -515,7 +517,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			f.Method = m // replace method with message
 		}
 		methodName := strings.TrimLeft(reflect.TypeOf(f.Method).String(), "*amqp091.")
-		GetMetrics().ProcessedMessages.WithLabelValues(methodName).Inc()
+		p.metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
 		// Update proxy-specific statistics
 		if p.stats != nil {
 			p.stats.IncrementMethod(methodName)
@@ -552,7 +554,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		case *amqp091.BasicQos:
 			return p.replyBasicQos(ctx, f, m)
 		default:
-			GetMetrics().ErroredMessages.WithLabelValues(methodName).Inc()
+			p.metrics.ErroredMessages.WithLabelValues(methodName).Inc()
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
@@ -595,7 +597,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
-		GetMetrics().ClientSentFrames.Inc()
+		p.metrics.ClientSentFrames.Inc()
 		if p.stats != nil {
 			p.stats.IncrementSentFrames()
 		}
@@ -608,7 +610,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write HeaderFrame: %w", err)
 		}
-		GetMetrics().ClientSentFrames.Inc()
+		p.metrics.ClientSentFrames.Inc()
 		if p.stats != nil {
 			p.stats.IncrementSentFrames()
 		}
@@ -628,7 +630,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 				return fmt.Errorf("failed to write BodyFrame: %w", err)
 			}
 			offset = end
-			GetMetrics().ClientSentFrames.Inc()
+			p.metrics.ClientSentFrames.Inc()
 			if p.stats != nil {
 				p.stats.IncrementSentFrames()
 			}
@@ -640,7 +642,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		}); err != nil {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
-		GetMetrics().ClientSentFrames.Inc()
+		p.metrics.ClientSentFrames.Inc()
 		if p.stats != nil {
 			p.stats.IncrementSentFrames()
 		}
@@ -661,7 +663,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
-		GetMetrics().ClientReceivedFrames.Inc()
+		p.metrics.ClientReceivedFrames.Inc()
 
 		if frame.Channel() != uint16(channel) {
 			return nil, fmt.Errorf("expected frame on channel %d, got channel %d", channel, frame.Channel())

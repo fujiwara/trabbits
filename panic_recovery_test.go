@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/fujiwara/trabbits"
+	"github.com/fujiwara/trabbits/config"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
@@ -17,8 +18,10 @@ func TestRecoverFromPanic(t *testing.T) {
 		Level: slog.LevelDebug,
 	}))
 
-	// Use the global metrics instance with sync.Once initialization
-	metrics := trabbits.GetMetrics()
+	// Create a server instance to get metrics
+	cfg := &config.Config{}
+	server := trabbits.NewServer(cfg, "/tmp/test-api.sock")
+	metrics := server.Metrics()
 
 	functionName := "test_function"
 	panicMessage := "test panic message"
@@ -28,7 +31,7 @@ func TestRecoverFromPanic(t *testing.T) {
 
 	// Test panic recovery
 	func() {
-		defer trabbits.RecoverFromPanic(logger, functionName)
+		defer trabbits.RecoverFromPanic(logger, functionName, metrics)
 		panic(panicMessage)
 	}()
 
@@ -67,8 +70,10 @@ func TestRecoverFromPanicNoPanic(t *testing.T) {
 		Level: slog.LevelDebug,
 	}))
 
-	// Use the global metrics instance with sync.Once initialization
-	metrics := trabbits.GetMetrics()
+	// Create a server instance to get metrics
+	cfg := &config.Config{}
+	server := trabbits.NewServer(cfg, "/tmp/test-api-2.sock")
+	metrics := server.Metrics()
 
 	functionName := "test_function_no_panic"
 
@@ -77,7 +82,7 @@ func TestRecoverFromPanicNoPanic(t *testing.T) {
 
 	// Test normal execution (no panic)
 	func() {
-		defer trabbits.RecoverFromPanic(logger, functionName)
+		defer trabbits.RecoverFromPanic(logger, functionName, metrics)
 		// Normal execution, no panic
 	}()
 
@@ -103,8 +108,10 @@ func TestRecoverFromPanicDifferentFunctions(t *testing.T) {
 		Level: slog.LevelDebug,
 	}))
 
-	// Use the global metrics instance with sync.Once initialization
-	metrics := trabbits.GetMetrics()
+	// Create a server instance to get metrics
+	cfg := &config.Config{}
+	server := trabbits.NewServer(cfg, "/tmp/test-api-3.sock")
+	metrics := server.Metrics()
 
 	function1 := "handleConnection"
 	function2 := "runHeartbeat"
@@ -115,13 +122,13 @@ func TestRecoverFromPanicDifferentFunctions(t *testing.T) {
 
 	// Test panic in function1
 	func() {
-		defer trabbits.RecoverFromPanic(logger, function1)
+		defer trabbits.RecoverFromPanic(logger, function1, metrics)
 		panic("panic in function1")
 	}()
 
 	// Test panic in function2
 	func() {
-		defer trabbits.RecoverFromPanic(logger, function2)
+		defer trabbits.RecoverFromPanic(logger, function2, metrics)
 		panic("panic in function2")
 	}()
 

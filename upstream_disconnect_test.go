@@ -252,7 +252,10 @@ func TestUpstreamMonitoring(t *testing.T) {
 		},
 	}
 
-	upstream := trabbits.NewUpstream(conn, logger, conf, "localhost:5672")
+	// Create a dummy metrics instance for testing
+	cfg := &config.Config{}
+	server := trabbits.NewServer(cfg, "/tmp/test-upstream-disconnect.sock")
+	upstream := trabbits.NewUpstream(conn, logger, conf, "localhost:5672", server.Metrics())
 
 	// Verify that NotifyClose channel is available
 	closeChan := upstream.NotifyClose()
@@ -281,7 +284,10 @@ func TestUpstreamNotifyCloseSetup(t *testing.T) {
 		},
 	}
 
-	upstream := trabbits.NewUpstream(conn, logger, conf, "localhost:5672")
+	// Create a dummy metrics instance for testing
+	cfg2 := &config.Config{}
+	server2 := trabbits.NewServer(cfg2, "/tmp/test-upstream-disconnect-2.sock")
+	upstream := trabbits.NewUpstream(conn, logger, conf, "localhost:5672", server2.Metrics())
 	defer upstream.Close()
 
 	// Test that NotifyClose channel is not nil and responsive

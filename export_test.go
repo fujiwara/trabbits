@@ -11,14 +11,12 @@ import (
 )
 
 var (
-	SetupLogger                 = setupLogger
-	NewDelivery                 = newDelivery
-	RestoreDeliveryTag          = restoreDeliveryTag
-	MatchPattern                = pattern.Match
-	MetricsStore                = &metrics
-	TestMatchRouting            = testMatchRouting
-	RecoverFromPanic            = recoverFromPanic
-	SortNodesByLeastConnections = sortNodesByLeastConnections
+	SetupLogger        = setupLogger
+	NewDelivery        = newDelivery
+	RestoreDeliveryTag = restoreDeliveryTag
+	MatchPattern       = pattern.Match
+	TestMatchRouting   = testMatchRouting
+	RecoverFromPanic   = recoverFromPanic
 )
 
 // Server instance functions for testing
@@ -50,6 +48,7 @@ func init() {
 }
 
 func GetMetricsRegistry() *prometheus.Registry {
+	initMetricsRegistry()
 	return metricsReg
 }
 
@@ -94,6 +93,11 @@ func (s *Server) TestGracefulStopProxy(clientAddr string, shutdownMessage string
 // Test-only method for accessing proxy statistics
 func (p *Proxy) Stats() *ProxyStats {
 	return p.stats
+}
+
+// Test-only method for accessing sortNodesByLeastConnections
+func (p *Proxy) SortNodesByLeastConnections(nodes []string) []string {
+	return p.sortNodesByLeastConnections(nodes)
 }
 
 // Export manage functions for testing
