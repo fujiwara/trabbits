@@ -640,3 +640,111 @@ func (c *apiClient) formatProbeLog(data, format string) error {
 	fmt.Println(output)
 	return nil
 }
+
+// StreamProbeLog streams probe logs for TUI interface
+func (c *apiClient) StreamProbeLog(ctx context.Context, proxyID string) (<-chan tui.ProbeLogEntry, error) {
+	logChan := make(chan tui.ProbeLogEntry, 100)
+	slog.Debug("StreamProbeLog starting", "proxy_id", proxyID)
+
+	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s/probe", proxyID))
+	if err != nil {
+		slog.Error("Failed to build URL", "error", err)
+		close(logChan)
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
+	if err != nil {
+		close(logChan)
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set SSE headers
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	// Create a new client with no timeout for SSE streaming
+	streamClient := c.client
+	originalTimeout := c.client.Timeout
+	c.client.Timeout = 0 // No timeout for streaming
+
+	go func() {
+		defer close(logChan)
+		defer func() {
+			c.client.Timeout = originalTimeout // Restore original timeout
+		}()
+
+		slog.Debug("Making HTTP request for probe stream", "url", fullURL.String())
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			slog.Error("HTTP request failed", "error", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			slog.Error("HTTP request failed", "status", resp.Status, "status_code", resp.StatusCode)
+			return
+		}
+
+		slog.Debug("Connected to probe stream", "status", resp.Status)
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				slog.Debug("Context cancelled, stopping probe stream")
+				return
+			default:
+			}
+
+			line := scanner.Text()
+			slog.Debug("Received SSE line", "line", line)
+
+			// Skip empty lines and non-data lines
+			if line == "" || !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			// Extract JSON data
+			data := strings.TrimPrefix(line, "data: ")
+			slog.Debug("Processing probe data", "data", data)
+
+			// Handle control messages
+			if strings.Contains(data, `"type":"connected"`) || strings.Contains(data, `"type":"proxy_ended"`) {
+				slog.Debug("Received control message", "type", data)
+				continue
+			}
+
+			// Parse probe log
+			var logEntry struct {
+				Timestamp time.Time      `json:"timestamp"`
+				Message   string         `json:"message"`
+				Attrs     map[string]any `json:"attrs,omitempty"`
+			}
+
+			if err := json.Unmarshal([]byte(data), &logEntry); err != nil {
+				slog.Warn("Failed to parse probe log JSON", "error", err, "data", data)
+				continue // Skip invalid logs
+			}
+
+			// Send to channel
+			entry := tui.ProbeLogEntry{
+				Timestamp: logEntry.Timestamp,
+				Message:   logEntry.Message,
+				Attrs:     logEntry.Attrs,
+			}
+
+			slog.Debug("Sending probe log to channel", "message", entry.Message)
+			select {
+			case logChan <- entry:
+				slog.Debug("Probe log sent successfully")
+			case <-ctx.Done():
+				slog.Debug("Context cancelled while sending probe log")
+				return
+			}
+		}
+	}()
+
+	return logChan, nil
+}
