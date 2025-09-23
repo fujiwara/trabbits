@@ -3,6 +3,7 @@ package trabbits
 import (
 	"context"
 	"net"
+	"net/http"
 
 	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/pattern"
@@ -114,12 +115,12 @@ func (p *Proxy) SendProbeLog(message string, attrs ...any) {
 	p.sendProbeLog(message, attrs...)
 }
 
-// GetProbeChan returns the probe channel for testing
-func (p *Proxy) GetProbeChan() chan probeLog {
-	return p.probeChan
-}
-
 // SetProbeChan sets the probe channel for testing
 func (p *Proxy) SetProbeChan(ch chan probeLog) {
 	p.probeChan = ch
+}
+
+// GetAPIProbeLogHandler exports the API probe log handler for testing
+func (s *Server) GetAPIProbeLogHandler() http.HandlerFunc {
+	return s.apiProbeLogHandler()
 }
