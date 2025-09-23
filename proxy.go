@@ -59,20 +59,34 @@ func (p *Proxy) GetProbeChan() chan probeLog {
 	return p.probeChan
 }
 
-// sendProbeLog sends a probe log message with structured attributes to the probe channel without blocking
+// sendProbeLog sends a probe log message with structured attributes to the probe channel
+// If the channel is full, it removes the oldest log and sends the new one
 func (p *Proxy) sendProbeLog(message string, attrs ...any) {
 	if p.probeChan == nil {
 		return
 	}
 
-	select {
-	case p.probeChan <- probeLog{
+	newLog := probeLog{
 		Timestamp: time.Now(),
 		Message:   message,
 		attrs:     attrs, // Store as slice without conversion
-	}:
+	}
+
+	select {
+	case p.probeChan <- newLog:
+		// Successfully sent
 	default:
-		// channel is full, drop the log
+		// Channel is full, discard one old log and try to send the new one
+		select {
+		case <-p.probeChan: // Remove oldest log
+		default:
+		}
+		// Try to send new log, but don't block if still full (race condition with other goroutines)
+		select {
+		case p.probeChan <- newLog:
+		default:
+			// Still full, drop this log
+		}
 	}
 }
 
