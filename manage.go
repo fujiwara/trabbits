@@ -111,7 +111,7 @@ func manageClients(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-func manageProxyShutdown(ctx context.Context, opt *CLI) error {
+func manageClientShutdown(ctx context.Context, opt *CLI) error {
 	client := apiclient.New(opt.APISocket)
 	proxyID := opt.Manage.Clients.Shutdown.ProxyID
 	reason := opt.Manage.Clients.Shutdown.Reason
@@ -119,7 +119,7 @@ func manageProxyShutdown(ctx context.Context, opt *CLI) error {
 	return client.ShutdownClient(ctx, proxyID, reason)
 }
 
-func manageProxyInfo(ctx context.Context, opt *CLI) error {
+func manageClientInfo(ctx context.Context, opt *CLI) error {
 	client := apiclient.New(opt.APISocket)
 	proxyID := opt.Manage.Clients.Info.ProxyID
 
@@ -144,7 +144,7 @@ func runTUI(ctx context.Context, opt *CLI) error {
 }
 
 // manageProxyProbe streams real-time probe logs for a specific proxy
-func manageProxyProbe(ctx context.Context, opt *CLI) error {
+func manageClientProbe(ctx context.Context, opt *CLI) error {
 	client := apiclient.New(opt.APISocket)
 	proxyID := opt.Manage.Clients.Probe.ProxyID
 	format := opt.Manage.Clients.Probe.Format

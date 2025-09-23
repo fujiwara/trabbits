@@ -67,13 +67,13 @@ func Run(ctx context.Context) error {
 		return runTUI(ctx, &cli)
 	case "manage clients shutdown <proxy-id>":
 		// Shutdown a specific proxy
-		return manageProxyShutdown(ctx, &cli)
+		return manageClientShutdown(ctx, &cli)
 	case "manage clients info <proxy-id>":
 		// Get detailed information for a specific proxy
-		return manageProxyInfo(ctx, &cli)
+		return manageClientInfo(ctx, &cli)
 	case "manage clients probe <proxy-id>":
 		// Stream real-time probe logs for a specific proxy
-		return manageProxyProbe(ctx, &cli)
+		return manageClientProbe(ctx, &cli)
 	case "test match-routing <pattern> <key>":
 		// Test routing pattern matching
 		return testMatchRouting(ctx, &cli)
