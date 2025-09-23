@@ -100,7 +100,10 @@ var testUpstreamQueueAttrSuites = []struct {
 func TestUpstreamQueueAttr(t *testing.T) {
 	for _, tc := range testUpstreamQueueAttrSuites {
 		t.Run(tc.name, func(t *testing.T) {
-			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr}, "test:5672")
+			// Create a dummy metrics instance for testing
+			cfg := &config.Config{}
+			server := trabbits.NewServer(cfg, "/tmp/test-upstream.sock")
+			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr}, "test:5672", server.Metrics())
 			queue, durable, autoDelete, exclusive, noWait, args := u.QueueDeclareArgs(tc.m)
 			if queue != tc.queue {
 				t.Errorf("queue name mismatch: %s != %s", queue, tc.queue)

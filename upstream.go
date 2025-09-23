@@ -11,6 +11,7 @@ import (
 
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
+	"github.com/fujiwara/trabbits/metrics"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -26,9 +27,10 @@ type Upstream struct {
 	shutdownFuncs sync.Map
 	destruct      []func(*rabbitmq.Channel)
 	closeChan     chan *rabbitmq.Error
+	metrics       *metrics.Metrics
 }
 
-func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.Upstream, address string) *Upstream {
+func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.Upstream, address string, metrics *metrics.Metrics) *Upstream {
 	u := &Upstream{
 		name:        conf.Name,
 		address:     address,
@@ -40,13 +42,14 @@ func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.Ups
 		queueAttr:   conf.QueueAttributes,
 		destruct:    []func(*rabbitmq.Channel){},
 		closeChan:   make(chan *rabbitmq.Error, 1),
+		metrics:     metrics,
 	}
 	// Register for connection close notifications if connection is not nil
 	if conn != nil {
 		conn.NotifyClose(u.closeChan)
 	}
-	GetMetrics().UpstreamTotalConnections.WithLabelValues(address).Inc()
-	GetMetrics().UpstreamConnections.WithLabelValues(address).Inc()
+	u.metrics.UpstreamTotalConnections.WithLabelValues(address).Inc()
+	u.metrics.UpstreamConnections.WithLabelValues(address).Inc()
 	return u
 }
 
@@ -80,7 +83,7 @@ func (u *Upstream) Close() error {
 	}
 
 	if u.conn != nil {
-		GetMetrics().UpstreamConnections.WithLabelValues(u.address).Dec()
+		u.metrics.UpstreamConnections.WithLabelValues(u.address).Dec()
 		if err := u.conn.Close(); err != nil {
 			return fmt.Errorf("failed to close connection: %w", err)
 		}

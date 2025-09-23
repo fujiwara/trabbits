@@ -28,6 +28,7 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/health"
+	"github.com/fujiwara/trabbits/metrics"
 	"github.com/fujiwara/trabbits/types"
 	"golang.org/x/time/rate"
 )
@@ -62,15 +63,17 @@ type Server struct {
 	healthManagers sync.Map // upstream name -> *health.Manager
 	logger         *slog.Logger
 	apiSocket      string // API socket path
+	metricsStore   *metrics.Store
 }
 
 // NewServer creates a new Server instance
 func NewServer(config *config.Config, apiSocket string) *Server {
 	return &Server{
-		config:     config,
-		configHash: config.Hash(),
-		logger:     slog.Default(),
-		apiSocket:  apiSocket,
+		config:       config,
+		configHash:   config.Hash(),
+		logger:       slog.Default(),
+		apiSocket:    apiSocket,
+		metricsStore: metrics.NewStore(),
 	}
 }
 
@@ -79,6 +82,16 @@ func (s *Server) GetConfig() *config.Config {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	return s.config
+}
+
+// Metrics returns the metrics instance for this server
+func (s *Server) Metrics() *metrics.Metrics {
+	return s.metricsStore.Metrics()
+}
+
+// MetricsStore returns the metrics store for this server
+func (s *Server) MetricsStore() *metrics.Store {
+	return s.metricsStore
 }
 
 // GetConfigHash returns the current config hash (thread-safe)
@@ -116,6 +129,7 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		connectedAt:            time.Now(),               // timestamp when the client connected
 		stats:                  NewProxyStats(),          // initialize statistics
 		probeChan:              make(chan probeLog, 100), // buffered channel for probe logs
+		metrics:                s.Metrics(),              // metrics instance from server
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
@@ -197,7 +211,7 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
 			go func(workerID int) {
-				defer recoverFromPanic(slog.Default(), "DisconnectOutdatedProxies.worker")
+				defer recoverFromPanic(slog.Default(), "DisconnectOutdatedProxies.worker", srv.Metrics())
 				defer wg.Done()
 
 				for cancel := range cancelChan {
@@ -317,7 +331,7 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 	defer cancelAPI()
 
-	cancelMetrics, err := runMetricsServer(ctx, opt)
+	cancelMetrics, err := server.MetricsStore().RunServer(ctx, opt.MetricsPort)
 	if err != nil {
 		return fmt.Errorf("failed to start metrics server: %w", err)
 	}
@@ -426,7 +440,7 @@ func (srv *Server) initHealthManagers(ctx context.Context) error {
 	cfg := srv.GetConfig()
 	for _, upstream := range cfg.Upstreams {
 		if upstream.Cluster != nil && upstream.HealthCheck != nil {
-			mgr := health.NewManager(&upstream, metrics)
+			mgr := health.NewManager(&upstream, srv.Metrics())
 			if mgr != nil {
 				mgr.StartHealthCheck(ctx)
 				srv.healthManagers.Store(upstream.Name, mgr)
@@ -441,13 +455,15 @@ func (srv *Server) initHealthManagers(ctx context.Context) error {
 }
 
 // recoverFromPanic recovers from panic and logs the details with metrics
-func recoverFromPanic(logger *slog.Logger, functionName string) {
+func recoverFromPanic(logger *slog.Logger, functionName string, metrics *metrics.Metrics) {
 	if r := recover(); r != nil {
 		logger.Error("panic recovered",
 			"function", functionName,
 			"panic", r,
 			"stack", string(debug.Stack()))
-		GetMetrics().PanicRecoveries.WithLabelValues(functionName).Inc()
+		if metrics != nil {
+			metrics.PanicRecoveries.WithLabelValues(functionName).Inc()
+		}
 	}
 }
 
@@ -455,13 +471,13 @@ var amqpHeader = []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}
 
 // handleConnection handles a new client connection for this server
 func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
-	defer recoverFromPanic(slog.Default(), "handleConnection")
+	defer recoverFromPanic(slog.Default(), "handleConnection", srv.Metrics())
 
-	GetMetrics().ClientConnections.Inc()
-	GetMetrics().ClientTotalConnections.Inc()
+	srv.Metrics().ClientConnections.Inc()
+	srv.Metrics().ClientTotalConnections.Inc()
 	defer func() {
 		conn.Close()
-		GetMetrics().ClientConnections.Dec()
+		srv.Metrics().ClientConnections.Dec()
 	}()
 
 	slog.Info("new connection", "client_addr", conn.RemoteAddr().String())
@@ -469,12 +485,12 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		slog.Warn("Failed to read AMQP header:", "error", err)
-		GetMetrics().ClientConnectionErrors.Inc()
+		srv.Metrics().ClientConnectionErrors.Inc()
 		return
 	}
 	if !bytes.Equal(header, amqpHeader) {
 		slog.Warn("Invalid AMQP protocol header", "header", header)
-		GetMetrics().ClientConnectionErrors.Inc()
+		srv.Metrics().ClientConnectionErrors.Inc()
 		return
 	}
 
@@ -486,7 +502,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	if err := p.handshake(ctx); err != nil {
 		p.logger.Warn("Failed to handshake", "error", err)
-		GetMetrics().ClientConnectionErrors.Inc()
+		srv.Metrics().ClientConnectionErrors.Inc()
 		return
 	}
 	p.logger.Info("handshake completed")

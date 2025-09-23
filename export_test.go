@@ -15,7 +15,7 @@ var (
 	NewDelivery                 = newDelivery
 	RestoreDeliveryTag          = restoreDeliveryTag
 	MatchPattern                = pattern.Match
-	MetricsStore                = &metrics
+	MetricsStore                = &globalMetrics
 	TestMatchRouting            = testMatchRouting
 	RecoverFromPanic            = recoverFromPanic
 	SortNodesByLeastConnections = sortNodesByLeastConnections
