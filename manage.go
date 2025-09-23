@@ -1,6 +1,7 @@
 package trabbits
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -496,4 +498,194 @@ func (c *apiClient) getProxyInfo(ctx context.Context, proxyID string) error {
 func runTUI(ctx context.Context, opt *CLI) error {
 	client := newAPIClient(opt.APISocket)
 	return tui.Run(ctx, client)
+}
+
+// manageProxyProbe streams real-time probe logs for a specific proxy
+func manageProxyProbe(ctx context.Context, opt *CLI) error {
+	client := newAPIClient(opt.APISocket)
+	proxyID := opt.Manage.Clients.Probe.ProxyID
+	format := opt.Manage.Clients.Probe.Format
+
+	slog.Info("Starting probe log stream", "proxy_id", proxyID, "format", format)
+
+	return client.streamProbeLog(ctx, proxyID, format)
+}
+
+// ProbeLogEntry represents a parsed probe log entry
+type ProbeLogEntry struct {
+	Timestamp time.Time      `json:"timestamp"`
+	Message   string         `json:"message"`
+	Attrs     map[string]any `json:"attrs,omitempty"`
+}
+
+// streamProbeLog streams real-time probe logs from the API via SSE for CLI
+func (c *apiClient) streamProbeLog(ctx context.Context, proxyID, format string) error {
+	if proxyID == "" {
+		return fmt.Errorf("proxy ID cannot be empty")
+	}
+
+	fmt.Printf("Connected to probe stream for proxy: %s\n", proxyID)
+	fmt.Println("Press Ctrl+C to stop...")
+
+	// Use the unified SSE reader
+	return c.readProbeLogSSE(ctx, proxyID, func(entry *ProbeLogEntry) error {
+		// Format for CLI display
+		return c.formatProbeLogEntry(entry, format)
+	})
+}
+
+// readProbeLogSSE reads SSE stream and calls handler for each probe log entry
+func (c *apiClient) readProbeLogSSE(ctx context.Context, proxyID string, handler func(*ProbeLogEntry) error) error {
+	fullURL, err := c.buildURL(fmt.Sprintf("clients/%s/probe", proxyID))
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set SSE headers
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	// Create a new client with no timeout for SSE streaming
+	streamClient := c.client
+	originalTimeout := c.client.Timeout
+	c.client.Timeout = 0 // No timeout for streaming
+	defer func() {
+		c.client.Timeout = originalTimeout // Restore original timeout
+	}()
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get probe stream: %s", resp.Status)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			// Context cancelled (Ctrl+C) - this is expected, not an error
+			return nil
+		default:
+		}
+
+		line := scanner.Text()
+
+		// Skip empty lines and non-data lines
+		if line == "" || !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		// Extract JSON data
+		data := strings.TrimPrefix(line, "data: ")
+
+		// Handle control messages
+		if strings.Contains(data, `"type":"connected"`) {
+			fmt.Println("✓ Connected to probe stream")
+			continue
+		}
+		if strings.Contains(data, `"type":"proxy_ended"`) {
+			fmt.Println("✗ Proxy connection ended")
+			return nil
+		}
+
+		// Parse probe log
+		var entry ProbeLogEntry
+		if err := json.Unmarshal([]byte(data), &entry); err != nil {
+			slog.Warn("Failed to parse probe log JSON", "error", err, "data", data)
+			continue // Skip invalid logs
+		}
+
+		// Call handler
+		if err := handler(&entry); err != nil {
+			slog.Warn("Handler failed for probe log", "error", err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		// Check if this is a context cancellation error
+		if ctx.Err() != nil {
+			return nil // Context cancelled - not an error
+		}
+		return fmt.Errorf("error reading stream: %w", err)
+	}
+
+	return nil
+}
+
+// formatProbeLogEntry formats and displays a probe log entry
+func (c *apiClient) formatProbeLogEntry(entry *ProbeLogEntry, format string) error {
+	if format == "json" {
+		// Re-marshal to JSON for consistent output
+		data, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	// Format as human-readable text
+	timestamp := entry.Timestamp.Format("15:04:05.000")
+	output := fmt.Sprintf("%s %s", timestamp, entry.Message)
+
+	// Add attributes with consistent ordering
+	if len(entry.Attrs) > 0 {
+		// Sort keys to ensure consistent display order
+		var keys []string
+		for k := range entry.Attrs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		var attrs []string
+		for _, k := range keys {
+			attrs = append(attrs, fmt.Sprintf("%s=%v", k, entry.Attrs[k]))
+		}
+		output += " " + strings.Join(attrs, " ")
+	}
+
+	fmt.Println(output)
+	return nil
+}
+
+// StreamProbeLog streams probe logs for TUI interface
+func (c *apiClient) StreamProbeLog(ctx context.Context, proxyID string) (<-chan tui.ProbeLogEntry, error) {
+	logChan := make(chan tui.ProbeLogEntry, 100)
+	slog.Debug("StreamProbeLog starting", "proxy_id", proxyID)
+
+	go func() {
+		defer close(logChan)
+
+		// Use the unified SSE reader
+		err := c.readProbeLogSSE(ctx, proxyID, func(entry *ProbeLogEntry) error {
+			// Convert to TUI format and send to channel
+			tuiEntry := tui.ProbeLogEntry{
+				Timestamp: entry.Timestamp,
+				Message:   entry.Message,
+				Attrs:     entry.Attrs,
+			}
+
+			select {
+			case logChan <- tuiEntry:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+
+		if err != nil && ctx.Err() == nil {
+			slog.Error("Probe stream error", "error", err)
+		}
+	}()
+
+	return logChan, nil
 }

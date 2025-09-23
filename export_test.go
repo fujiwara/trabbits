@@ -3,6 +3,7 @@ package trabbits
 import (
 	"context"
 	"net"
+	"net/http"
 
 	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/pattern"
@@ -105,3 +106,21 @@ var (
 )
 
 // TUI functionality moved to tui package
+
+// Export probe log related types and methods for testing
+type ProbeLog = probeLog
+
+// SendProbeLog exports the sendProbeLog method for testing
+func (p *Proxy) SendProbeLog(message string, attrs ...any) {
+	p.sendProbeLog(message, attrs...)
+}
+
+// SetProbeChan sets the probe channel for testing
+func (p *Proxy) SetProbeChan(ch chan probeLog) {
+	p.probeChan = ch
+}
+
+// GetAPIProbeLogHandler exports the API probe log handler for testing
+func (s *Server) GetAPIProbeLogHandler() http.HandlerFunc {
+	return s.apiProbeLogHandler()
+}

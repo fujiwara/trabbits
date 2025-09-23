@@ -36,6 +36,8 @@ func (m *TUIModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKeys(msg)
 	case ViewConfirm:
 		return m.handleConfirmKeys(msg)
+	case ViewProbe:
+		return m.handleProbeKeys(msg)
 	}
 
 	return m, nil
@@ -98,6 +100,13 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		return m, m.fetchClients()
+	case "p":
+		// Start probe stream for selected client
+		if len(m.clients) > 0 {
+			clientID := m.clients[m.selectedIdx].ID
+			m.viewMode = ViewProbe
+			return m, m.startProbeStream(clientID)
+		}
 	}
 	return m, nil
 }
@@ -130,6 +139,12 @@ func (m *TUIModel) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		// Set to large number, will be limited in render
 		m.detailScroll = 1000
+	case "p":
+		// Start probe stream for current client
+		if m.clientDetail != nil {
+			m.viewMode = ViewProbe
+			return m, m.startProbeStream(m.clientDetail.ID)
+		}
 	}
 	return m, nil
 }
@@ -149,6 +164,93 @@ func (m *TUIModel) handleConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// handleProbeKeys handles keys in the probe view
+func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "esc":
+		// Stop probe stream and return to list view
+		m.stopProbeStream()
+		m.viewMode = ViewList
+	case "up", "k":
+		if m.probeState != nil && m.probeState.scroll > 0 {
+			m.probeState.scroll--
+			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+		}
+	case "down", "j":
+		if m.probeState != nil {
+			logCount := len(m.probeState.logs)
+			visibleRows := m.getProbeVisibleRows()
+			maxScroll := logCount - visibleRows
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if m.probeState.scroll < maxScroll {
+				m.probeState.scroll++
+			}
+			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+		}
+	case "home":
+		if m.probeState != nil {
+			m.probeState.scroll = 0
+			m.probeState.autoScroll = false // Disable auto-scroll when going to top
+		}
+	case "end":
+		if m.probeState != nil {
+			m.probeState.scroll = len(m.probeState.logs)
+			m.probeState.autoScroll = true // Enable auto-scroll when going to bottom
+		}
+	case "pgup":
+		if m.probeState != nil {
+			pageSize := m.getProbeVisibleRows()
+			if m.probeState.scroll > pageSize {
+				m.probeState.scroll -= pageSize
+			} else {
+				m.probeState.scroll = 0
+			}
+			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+		}
+	case "pgdn":
+		if m.probeState != nil {
+			logCount := len(m.probeState.logs)
+			pageSize := m.getProbeVisibleRows()
+			maxScroll := logCount - pageSize
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if m.probeState.scroll+pageSize < maxScroll {
+				m.probeState.scroll += pageSize
+			} else {
+				m.probeState.scroll = maxScroll
+			}
+			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+		}
+	}
+	return m, nil
+}
+
+// updateAutoScroll checks if we're at the bottom and enables/disables auto-scroll accordingly
+func (m *TUIModel) updateAutoScroll() {
+	if m.probeState == nil {
+		return
+	}
+
+	logCount := len(m.probeState.logs)
+	visibleRows := m.getProbeVisibleRows()
+	maxScroll := logCount - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	// Enable auto-scroll only when we're at or near the bottom
+	m.probeState.autoScroll = m.probeState.scroll >= maxScroll
+}
+
+// getProbeVisibleRows calculates visible rows for probe logs
+func (m *TUIModel) getProbeVisibleRows() int {
+	// Reserve space for header, footer, and status
+	return m.height - 6
 }
 
 // RunTUI starts the TUI with the provided socket path

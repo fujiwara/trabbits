@@ -42,15 +42,52 @@ type Proxy struct {
 	readTimeout            time.Duration
 	connectionCloseTimeout time.Duration
 
-	configHash         string      // hash of config used for this proxy
-	upstreamDisconnect chan string // channel to notify upstream disconnection
-	shutdownMessage    string      // message to send when shutting down
-	connectedAt        time.Time   // timestamp when the client connected
-	stats              *ProxyStats // statistics for this proxy
+	configHash         string        // hash of config used for this proxy
+	upstreamDisconnect chan string   // channel to notify upstream disconnection
+	shutdownMessage    string        // message to send when shutting down
+	connectedAt        time.Time     // timestamp when the client connected
+	stats              *ProxyStats   // statistics for this proxy
+	probeChan          chan probeLog // channel to send probe logs
 }
 
 func (p *Proxy) Upstreams() []*Upstream {
 	return p.upstreams
+}
+
+// GetProbeChan returns the probe channel for external access
+func (p *Proxy) GetProbeChan() chan probeLog {
+	return p.probeChan
+}
+
+// sendProbeLog sends a probe log message with structured attributes to the probe channel
+// If the channel is full, it removes the oldest log and sends the new one
+func (p *Proxy) sendProbeLog(message string, attrs ...any) {
+	if p.probeChan == nil {
+		return
+	}
+
+	newLog := probeLog{
+		Timestamp: time.Now(),
+		Message:   message,
+		attrs:     attrs, // Store as slice without conversion
+	}
+
+	select {
+	case p.probeChan <- newLog:
+		// Successfully sent
+	default:
+		// Channel is full, discard one old log and try to send the new one
+		select {
+		case <-p.probeChan: // Remove oldest log
+		default:
+		}
+		// Try to send new log, but don't block if still full (race condition with other goroutines)
+		select {
+		case p.probeChan <- newLog:
+		default:
+			// Still full, drop this log
+		}
+	}
 }
 
 func (p *Proxy) Upstream(i int) *Upstream {
@@ -75,7 +112,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		for _, keyPattern := range us.keyPatterns {
 			if pattern.Match(routingKey, keyPattern) {
 				routed = us
-				us.logger.Debug("matched pattern", "pattern", keyPattern, "routing_key", routingKey)
+				p.sendProbeLog("matched pattern", "pattern", keyPattern, "routing_key", routingKey)
 				break
 			}
 		}
@@ -84,7 +121,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		return routed.GetChannel(id)
 	}
 	us := p.upstreams[0] // default upstream
-	us.logger.Debug("not matched any patterns, using default upstream", "routing_key", routingKey)
+	p.sendProbeLog("not matched any patterns, using default upstream", "routing_key", routingKey)
 	return us.GetChannel(id)
 }
 
@@ -141,7 +178,7 @@ func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstrea
 
 	select {
 	case <-ctx.Done():
-		p.logger.Debug("Upstream monitoring stopped by context", "upstream", upstream.String())
+		p.sendProbeLog("Upstream monitoring stopped by context", "upstream", upstream.String())
 		return
 	case err := <-upstream.NotifyClose():
 		if err != nil {
@@ -359,7 +396,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 	if interval == 0 {
 		interval = uint16(HeartbeatInterval)
 	}
-	p.logger.Debug("start heartbeat", "interval", interval)
+	p.sendProbeLog("start heartbeat", "interval", interval)
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 	for {
@@ -368,7 +405,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
 			return
 		case <-ticker.C:
 			p.mu.Lock()
-			p.logger.Debug("send heartbeat", "proxy", p.id)
+			p.sendProbeLog("send heartbeat", "proxy", p.id)
 			if err := p.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
 				p.mu.Unlock()
 				p.logger.Warn("failed to send heartbeat", "error", err)
@@ -421,7 +458,7 @@ func (p *Proxy) sendConnectionError(err AMQPError) error {
 	p.conn.SetReadDeadline(time.Now().Add(p.connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
 	if _, recvErr := p.recv(0, &msg); recvErr != nil {
-		p.logger.Debug("Failed to read Connection.Close-Ok from client", "error", recvErr)
+		p.sendProbeLog("Failed to read Connection.Close-Ok from client", "error", recvErr)
 	}
 	return nil
 }
@@ -447,9 +484,9 @@ func (p *Proxy) process(ctx context.Context) error {
 	GetMetrics().ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		p.logger.Debug("read method frame", "frame", mf, "type", reflect.TypeOf(mf.Method).String())
+		p.sendProbeLog("read method frame", "type", reflect.TypeOf(mf.Method).String())
 	} else {
-		p.logger.Debug("read frame", "frame", frame, "type", reflect.TypeOf(frame).String())
+		p.sendProbeLog("read frame", "type", reflect.TypeOf(frame).String())
 	}
 	if frame.Channel() == 0 {
 		err = p.dispatch0(ctx, frame)
@@ -519,7 +556,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
-		p.logger.Debug("heartbeat")
+		p.sendProbeLog("received heartbeat from client")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -537,7 +574,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 			return fmt.Errorf("unsupported method: %T", m)
 		}
 	case *amqp091.HeartbeatFrame:
-		p.logger.Debug("heartbeat")
+		p.sendProbeLog("received heartbeat from server")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -548,7 +585,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.logger.Debug("send", "channel", channel, "message", m)
+	p.sendProbeLog("send", "channel", channel, "type", fmt.Sprintf("%T", m))
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
@@ -616,7 +653,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		p.logger.Debug("recv", "channel", channel, "message", m, "type", reflect.TypeOf(m).String())
+		p.sendProbeLog("recv", "channel", channel, "type", reflect.TypeOf(m).String())
 	}()
 
 	for {

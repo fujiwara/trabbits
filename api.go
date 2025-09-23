@@ -117,6 +117,7 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("GET /clients", s.apiGetClientsHandler())
 	mux.HandleFunc("GET /clients/{proxy_id...}", s.apiGetClientHandler())
 	mux.HandleFunc("DELETE /clients/{proxy_id...}", s.apiShutdownClientHandler())
+	mux.HandleFunc("GET /clients/{proxy_id}/probe", s.apiProbeLogHandler())
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -348,5 +349,89 @@ func (s *Server) apiGetClientHandler() http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(clientInfo)
+	})
+}
+
+func (s *Server) apiProbeLogHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract proxy ID from URL path
+		proxyID := r.PathValue("proxy_id")
+		if proxyID == "" {
+			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
+			return
+		}
+
+		// Find the proxy by ID
+		value, found := s.activeProxies.Load(proxyID)
+		if !found {
+			http.Error(w, "Proxy not found", http.StatusNotFound)
+			return
+		}
+
+		entry := value.(*proxyEntry)
+		proxy := entry.proxy
+
+		// Get probe channel
+		probeChan := proxy.GetProbeChan()
+		if probeChan == nil {
+			http.Error(w, "Probe logging not available for this proxy", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Send initial connection message
+		fmt.Fprintf(w, "data: {\"type\":\"connected\",\"proxy_id\":\"%s\"}\n\n", proxyID)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		// Create context for cleanup
+		ctx := r.Context()
+
+		// Start streaming probe logs
+		for {
+			select {
+			case <-ctx.Done():
+				// Client disconnected
+				return
+			case log, ok := <-probeChan:
+				if !ok {
+					// Channel closed, proxy ended
+					fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\"}\n\n")
+					if flusher, ok := w.(http.Flusher); ok {
+						flusher.Flush()
+					}
+					return
+				}
+
+				// Convert probe log to JSON
+				logData := struct {
+					Timestamp time.Time      `json:"timestamp"`
+					Message   string         `json:"message"`
+					Attrs     map[string]any `json:"attrs,omitempty"`
+				}{
+					Timestamp: log.Timestamp,
+					Message:   log.Message,
+					Attrs:     log.AttrsMap(),
+				}
+
+				jsonData, err := json.Marshal(logData)
+				if err != nil {
+					slog.Warn("Failed to marshal probe log", "error", err)
+					continue
+				}
+
+				// Send SSE data
+				fmt.Fprintf(w, "data: %s\n\n", jsonData)
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
+			}
+		}
 	})
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,7 @@ const (
 	ViewList ViewMode = iota
 	ViewDetail
 	ViewConfirm
+	ViewProbe
 )
 
 // TUIModel represents the TUI application state
@@ -27,6 +29,7 @@ type TUIModel struct {
 	selectedID   string
 	clientDetail *types.FullClientInfo
 	confirmState *confirmState
+	probeState   *probeState
 	width        int
 	height       int
 	lastUpdate   time.Time
@@ -43,20 +46,47 @@ type confirmState struct {
 	message  string
 }
 
+type probeState struct {
+	clientID   string
+	logs       []probeLogEntry
+	scroll     int
+	cancelFunc context.CancelFunc
+	ctx        context.Context
+	logChan    <-chan ProbeLogEntry
+	autoScroll bool // whether to auto-scroll to latest logs
+}
+
+type ProbeLogEntry struct {
+	Timestamp time.Time      `json:"timestamp"`
+	Message   string         `json:"message"`
+	Attrs     map[string]any `json:"attrs,omitempty"`
+}
+
+type probeLogEntry = ProbeLogEntry
+
 // APIClient interface for TUI to interact with the trabbits API
 type APIClient interface {
 	GetClients(ctx context.Context) ([]types.ClientInfo, error)
 	GetClientDetail(ctx context.Context, clientID string) (*types.FullClientInfo, error)
 	ShutdownClient(ctx context.Context, clientID, reason string) error
+	StreamProbeLog(ctx context.Context, proxyID string) (<-chan ProbeLogEntry, error)
 }
 
 // Message types for Bubble Tea
 type (
-	tickMsg         struct{}
-	clientsMsg      []types.ClientInfo
-	clientDetailMsg *types.FullClientInfo
-	errorMsg        error
-	successMsg      string
+	tickMsg               struct{}
+	clientsMsg            []types.ClientInfo
+	clientDetailMsg       *types.FullClientInfo
+	errorMsg              error
+	successMsg            string
+	probeLogMsg           probeLogEntry
+	probeEndMsg           struct{}
+	probeStreamStartedMsg struct {
+		clientID   string
+		ctx        context.Context
+		logChan    <-chan ProbeLogEntry
+		cancelFunc context.CancelFunc
+	}
 )
 
 // NewModel creates a new TUI model
@@ -124,6 +154,44 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.successMsg = string(msg)
 		m.successTime = time.Now()
 		return m, nil
+
+	case probeLogMsg:
+		if m.probeState != nil {
+			entry := probeLogEntry(msg)
+			m.probeState.logs = append(m.probeState.logs, entry)
+			// Keep only last 1000 logs to prevent memory issues
+			if len(m.probeState.logs) > 1000 {
+				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-1000:]
+			}
+			// Auto-scroll to bottom only if auto-scroll is enabled
+			if m.probeState.autoScroll {
+				m.probeState.scroll = len(m.probeState.logs)
+			}
+
+			// Continue listening for next log
+			return m, m.listenForProbeLog()
+		}
+		return m, nil
+
+	case probeEndMsg:
+		if m.probeState != nil {
+			m.err = fmt.Errorf("probe stream ended for client %s", m.probeState.clientID)
+			m.errorTime = time.Now()
+		}
+		return m, nil
+
+	case probeStreamStartedMsg:
+		// Initialize probe state and start listening
+		m.probeState = &probeState{
+			clientID:   msg.clientID,
+			logs:       []probeLogEntry{},
+			scroll:     0,
+			cancelFunc: msg.cancelFunc,
+			ctx:        msg.ctx,
+			logChan:    msg.logChan,
+			autoScroll: true, // start with auto-scroll enabled
+		}
+		return m, m.listenForProbeLog()
 	}
 
 	return m, nil
@@ -159,6 +227,54 @@ func (m *TUIModel) shutdownClient(clientID string) tea.Cmd {
 			return errorMsg(err)
 		}
 		return successMsg("Client shutdown initiated successfully")
+	}
+}
+
+// startProbeStream starts probe log streaming for a client
+func (m *TUIModel) startProbeStream(clientID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(m.ctx)
+
+		logChan, err := m.apiClient.StreamProbeLog(ctx, clientID)
+		if err != nil {
+			cancel()
+			return errorMsg(err)
+		}
+
+		// Return a message that will set up the probe state
+		return probeStreamStartedMsg{
+			clientID:   clientID,
+			ctx:        ctx,
+			logChan:    logChan,
+			cancelFunc: cancel,
+		}
+	}
+}
+
+// listenForProbeLog creates a command to listen for the next probe log
+func (m *TUIModel) listenForProbeLog() tea.Cmd {
+	return func() tea.Msg {
+		if m.probeState == nil {
+			return probeEndMsg{}
+		}
+
+		select {
+		case <-m.probeState.ctx.Done():
+			return probeEndMsg{}
+		case log, ok := <-m.probeState.logChan:
+			if !ok {
+				return probeEndMsg{}
+			}
+			return probeLogMsg(log)
+		}
+	}
+}
+
+// stopProbeStream stops the current probe stream
+func (m *TUIModel) stopProbeStream() {
+	if m.probeState != nil && m.probeState.cancelFunc != nil {
+		m.probeState.cancelFunc()
+		m.probeState = nil
 	}
 }
 
