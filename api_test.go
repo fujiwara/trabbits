@@ -942,3 +942,211 @@ func TestAPIShutdownProxy(t *testing.T) {
 		}
 	})
 }
+
+// TestAPIProbeLog tests the probe log streaming functionality via API client
+func TestAPIProbeLog(t *testing.T) {
+	// Start unified server with both AMQP proxy and API
+	cancel, socketPath, client, proxyPort := startUnifiedTestServer(t, "testdata/config.json")
+	defer cancel()
+	defer os.Remove(socketPath)
+
+	t.Run("StreamProbeLogEntries", func(t *testing.T) {
+		// Connect a real AMQP client to generate probe logs
+		conn, err := rabbitmq.DialConfig(
+			fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", proxyPort),
+			rabbitmq.Config{
+				Properties: rabbitmq.Table{
+					"product": "probe-test",
+					"version": "1.0.0",
+				},
+			},
+		)
+		if err != nil {
+			t.Fatalf("Failed to connect to proxy: %v", err)
+		}
+		defer conn.Close()
+
+		// Give connection time to establish
+		time.Sleep(100 * time.Millisecond)
+
+		// Get the proxy ID from connected clients
+		clientsInfo, err := client.GetClients(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to get clients: %v", err)
+		}
+
+		if len(clientsInfo) == 0 {
+			t.Fatal("No clients connected")
+		}
+
+		proxyID := clientsInfo[0].ID
+		t.Logf("Testing probe log for proxy: %s", proxyID)
+
+		// Start streaming probe logs
+		ctx, cancelStream := context.WithTimeout(t.Context(), 3*time.Second)
+		defer cancelStream()
+
+		logChan, err := client.StreamProbeLogEntries(ctx, proxyID)
+		if err != nil {
+			t.Fatalf("Failed to start probe log stream: %v", err)
+		}
+
+		// Create a channel to trigger some AMQP activity
+		ch, err := conn.Channel()
+		if err != nil {
+			t.Fatalf("Failed to create channel: %v", err)
+		}
+		defer ch.Close()
+
+		// Declare a test queue to generate probe logs
+		queueName := "probe-test-queue"
+		_, err = ch.QueueDeclare(
+			queueName,
+			false, // durable
+			true,  // auto-delete
+			false, // exclusive
+			false, // no-wait
+			nil,   // arguments
+		)
+		if err != nil {
+			t.Fatalf("Failed to declare queue: %v", err)
+		}
+
+		// Publish a test message to generate probe logs
+		err = ch.Publish(
+			"",        // exchange
+			queueName, // routing key
+			false,     // mandatory
+			false,     // immediate
+			rabbitmq.Publishing{
+				ContentType: "text/plain",
+				Body:        []byte("Test probe message"),
+			},
+		)
+		if err != nil {
+			t.Fatalf("Failed to publish message: %v", err)
+		}
+
+		// Collect probe logs
+		var logs []types.ProbeLogEntry
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for entry := range logChan {
+				logs = append(logs, entry)
+				t.Logf("Received probe log: %s - %s", entry.ProxyID, entry.Message)
+				// Stop after receiving some logs
+				if len(logs) >= 3 {
+					cancelStream()
+					return
+				}
+			}
+		}()
+
+		// Wait for logs or timeout
+		select {
+		case <-done:
+			t.Logf("Collected %d probe log entries", len(logs))
+		case <-time.After(5 * time.Second):
+			t.Log("Timeout waiting for probe logs")
+		}
+
+		// Verify we received some probe logs
+		if len(logs) == 0 {
+			t.Error("Expected to receive probe log entries, got none")
+		}
+
+		// Verify log structure - all entries should now have valid timestamps
+		// since control messages are filtered out in apiclient
+		for i, log := range logs {
+			t.Logf("Log entry %d: ProxyID=%s, Message=%s, Timestamp=%v",
+				i, log.ProxyID, log.Message, log.Timestamp)
+
+			// All received entries should have valid timestamps
+			if log.Timestamp.IsZero() {
+				t.Errorf("Log entry %d should have a valid timestamp, got zero value", i)
+			}
+
+			// Message should not be empty for valid probe logs
+			if log.Message == "" {
+				t.Errorf("Log entry %d should have a message", i)
+			}
+		}
+
+		// Should have received some valid logs
+		if len(logs) == 0 {
+			t.Error("Should have received at least some probe log entries")
+		}
+	})
+
+	t.Run("StreamProbeLogWithFormat", func(t *testing.T) {
+		// Connect another client for testing formatted output
+		conn, err := rabbitmq.DialConfig(
+			fmt.Sprintf("amqp://admin:admin@127.0.0.1:%d/", proxyPort),
+			rabbitmq.Config{
+				Properties: rabbitmq.Table{
+					"product": "probe-test-formatted",
+					"version": "2.0.0",
+				},
+			},
+		)
+		if err != nil {
+			t.Fatalf("Failed to connect to proxy: %v", err)
+		}
+		defer conn.Close()
+
+		// Give connection time to establish
+		time.Sleep(100 * time.Millisecond)
+
+		// Get the proxy ID
+		clientsInfo, err := client.GetClients(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to get clients: %v", err)
+		}
+
+		var proxyID string
+		for _, c := range clientsInfo {
+			if strings.Contains(c.ClientBanner, "probe-test-formatted") {
+				proxyID = c.ID
+				break
+			}
+		}
+
+		if proxyID == "" {
+			t.Fatal("Could not find test proxy")
+		}
+
+		// Note: StreamProbeLog with format is primarily for CLI output
+		// We'll test that it doesn't error, but actual formatting is CLI-specific
+		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+		defer cancel()
+
+		// This would normally output to stdout, but we're just testing it doesn't error
+		err = client.StreamProbeLog(ctx, proxyID, "json")
+		// Expect context cancellation after timeout
+		if err != nil && !strings.Contains(err.Error(), "context") {
+			t.Errorf("Unexpected error from StreamProbeLog: %v", err)
+		}
+	})
+
+	t.Run("StreamProbeLogNonExistentProxy", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+		defer cancel()
+
+		// Try to stream logs for non-existent proxy
+		logChan, err := client.StreamProbeLogEntries(ctx, "nonexistent-proxy-id")
+		if err != nil {
+			t.Fatalf("StreamProbeLogEntries should not error immediately: %v", err)
+		}
+
+		// Channel should close or timeout without receiving logs
+		logsReceived := 0
+		for range logChan {
+			logsReceived++
+		}
+
+		if logsReceived > 0 {
+			t.Errorf("Should not receive logs for non-existent proxy, got %d", logsReceived)
+		}
+	})
+}

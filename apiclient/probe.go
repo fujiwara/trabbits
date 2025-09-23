@@ -100,12 +100,20 @@ func (c *Client) readProbeLogSSE(ctx context.Context, proxyID string, handler fu
 		} else if line == "" {
 			// Empty line indicates end of event
 			if dataBuffer.Len() > 0 {
+				data := dataBuffer.String()
+
+				// Parse as ProbeLogEntry
 				var entry types.ProbeLogEntry
-				if err := json.Unmarshal([]byte(dataBuffer.String()), &entry); err != nil {
-					slog.Warn("Failed to parse probe log entry", "error", err, "data", dataBuffer.String())
+				if err := json.Unmarshal([]byte(data), &entry); err != nil {
+					slog.Warn("Failed to parse probe log entry", "error", err, "data", data)
 				} else {
-					if err := handler(&entry); err != nil {
-						return err
+					// Skip control messages (timestamp=0 and message="")
+					if entry.Timestamp.IsZero() && entry.Message == "" {
+						slog.Debug("Skipping control message", "data", data)
+					} else {
+						if err := handler(&entry); err != nil {
+							return err
+						}
 					}
 				}
 				dataBuffer.Reset()
