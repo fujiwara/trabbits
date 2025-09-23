@@ -105,11 +105,11 @@ func TestProbeLog(t *testing.T) {
 			t.Error("SendProbeLog blocked when channel was full")
 		}
 
-		// Verify only first message is in the channel
+		// Verify only second message is in the channel (first was removed)
 		select {
 		case log := <-smallChan:
-			if log.Message != "first" {
-				t.Errorf("expected 'first', got '%s'", log.Message)
+			if log.Message != "second" {
+				t.Errorf("expected 'second', got '%s'", log.Message)
 			}
 		default:
 			t.Error("expected one message in channel")
