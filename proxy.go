@@ -54,6 +54,11 @@ func (p *Proxy) Upstreams() []*Upstream {
 	return p.upstreams
 }
 
+// GetProbeChan returns the probe channel for external access
+func (p *Proxy) GetProbeChan() chan probeLog {
+	return p.probeChan
+}
+
 // sendProbeLog sends a probe log message with structured attributes to the probe channel without blocking
 func (p *Proxy) sendProbeLog(message string, attrs ...any) {
 	if p.probeChan == nil {
