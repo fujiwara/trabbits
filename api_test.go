@@ -149,7 +149,6 @@ func TestAPIConfigUpdateIsolated(t *testing.T) {
 	defer cancel()
 	defer os.Remove(socketPath)
 
-
 	// Test 1: Basic PUT/GET cycle
 	t.Run("BasicPutGetConfig", func(t *testing.T) {
 		// GET current config using API client
@@ -301,7 +300,6 @@ local env = std.native('env');
 			t.Fatalf("Failed to write temp file: %v", err)
 		}
 		tmpfile.Close()
-
 
 		// Use API client to put config from Jsonnet file
 		if err := client.PutConfigFromFile(t.Context(), tmpfile.Name()); err != nil {
@@ -1121,11 +1119,25 @@ func TestAPIProbeLog(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 		defer cancel()
 
-		// This would normally output to stdout, but we're just testing it doesn't error
-		err = client.StreamProbeLog(ctx, proxyID, "json")
-		// Expect context cancellation after timeout
-		if err != nil && !strings.Contains(err.Error(), "context") {
-			t.Errorf("Unexpected error from StreamProbeLog: %v", err)
+		// Test StreamProbeLogEntries instead (the underlying API)
+		logChan, err := client.StreamProbeLogEntries(ctx, proxyID)
+		if err != nil {
+			t.Fatalf("StreamProbeLogEntries failed: %v", err)
+		}
+
+		// Read some entries
+		count := 0
+		for entry := range logChan {
+			if entry.Message != "" && !entry.Timestamp.IsZero() {
+				count++
+				if count >= 3 {
+					break
+				}
+			}
+		}
+
+		if count == 0 {
+			t.Error("Expected to receive some probe log entries")
 		}
 	})
 

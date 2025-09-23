@@ -16,17 +16,6 @@ import (
 // Use types.ProbeLogEntry instead of local definition
 type ProbeLogEntry = types.ProbeLogEntry
 
-// StreamProbeLog streams real-time probe logs from the API via SSE for CLI
-func (c *Client) StreamProbeLog(ctx context.Context, proxyID, format string) error {
-	if proxyID == "" {
-		return fmt.Errorf("proxy ID cannot be empty")
-	}
-
-	return c.readProbeLogSSE(ctx, proxyID, func(entry *ProbeLogEntry) error {
-		return c.formatProbeLogEntry(entry, format)
-	})
-}
-
 // StreamProbeLogEntries streams probe logs as structured entries
 func (c *Client) StreamProbeLogEntries(ctx context.Context, proxyID string) (<-chan types.ProbeLogEntry, error) {
 	logChan := make(chan types.ProbeLogEntry, 100)
@@ -123,23 +112,4 @@ func (c *Client) readProbeLogSSE(ctx context.Context, proxyID string, handler fu
 	}
 
 	return scanner.Err()
-}
-
-// formatProbeLogEntry formats and displays a probe log entry
-func (c *Client) formatProbeLogEntry(entry *types.ProbeLogEntry, format string) error {
-	if format == "json" {
-		// Re-marshal to JSON for consistent output
-		data, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
-	} else {
-		// Default text format
-		fmt.Printf("[%s] %s: %s\n",
-			entry.Timestamp.Format("15:04:05.000"),
-			entry.ProxyID,
-			entry.Message)
-	}
-	return nil
 }

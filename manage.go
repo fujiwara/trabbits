@@ -2,6 +2,7 @@ package trabbits
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/fujiwara/trabbits/apiclient"
 	"github.com/fujiwara/trabbits/tui"
+	"github.com/fujiwara/trabbits/types"
 )
 
 func manageConfig(ctx context.Context, opt *CLI) error {
@@ -151,5 +153,34 @@ func manageProxyProbe(ctx context.Context, opt *CLI) error {
 		format = "text"
 	}
 
-	return client.StreamProbeLog(ctx, proxyID, format)
+	logChan, err := client.StreamProbeLogEntries(ctx, proxyID)
+	if err != nil {
+		return err
+	}
+
+	for entry := range logChan {
+		if err := formatProbeLogEntry(&entry, format); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatProbeLogEntry formats and displays a probe log entry
+func formatProbeLogEntry(entry *types.ProbeLogEntry, format string) error {
+	if format == "json" {
+		// Re-marshal to JSON for consistent output
+		data, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+	} else {
+		// Default text format
+		fmt.Printf("[%s] %s: %s\n",
+			entry.Timestamp.Format("15:04:05.000"),
+			entry.ProxyID,
+			entry.Message)
+	}
+	return nil
 }

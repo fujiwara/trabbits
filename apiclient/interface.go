@@ -22,7 +22,6 @@ type APIClient interface {
 	ShutdownClient(ctx context.Context, clientID, reason string) error
 
 	// Probe operations
-	StreamProbeLog(ctx context.Context, proxyID, format string) error
 	StreamProbeLogEntries(ctx context.Context, proxyID string) (<-chan types.ProbeLogEntry, error)
 }
 

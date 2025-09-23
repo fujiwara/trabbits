@@ -60,10 +60,6 @@ func (m *mockAPIClient) ReloadConfig(ctx context.Context) (*config.Config, error
 	return &config.Config{}, nil
 }
 
-func (m *mockAPIClient) StreamProbeLog(ctx context.Context, proxyID, format string) error {
-	return nil
-}
-
 // Ensure mockAPIClient implements apiclient.APIClient
 var _ apiclient.APIClient = (*mockAPIClient)(nil)
 
