@@ -154,7 +154,6 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 	q := m.Queue
 	var wg sync.WaitGroup
 	for _, d := range deliveries {
-		d := d
 		wg.Add(1)
 		go func() {
 			defer recoverFromPanic(p.logger, "consume.goroutine", p.metrics)
@@ -173,6 +172,7 @@ func (p *Proxy) consume(ctx context.Context, id uint16, queue, tag string, d *de
 		case msg, ok := <-d.ch:
 			if !ok {
 				p.sendProbeLog("Basic.Consume closed", "queue", queue)
+				return
 			}
 			p.sendProbeLog("Basic.Deliver", "exchange", msg.Exchange, "routing_key", msg.RoutingKey, "delivery_tag", msg.DeliveryTag)
 			err := p.send(id, &amqp091.BasicDeliver{
