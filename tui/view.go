@@ -25,6 +25,10 @@ var (
 				Foreground(lipgloss.Color("230")).
 				Bold(true)
 
+	selectedStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("238")). // Darker gray for probe log selection
+			Foreground(lipgloss.Color("255"))  // Bright white text
+
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			Margin(1, 0)
@@ -384,6 +388,12 @@ func (m *TUIModel) renderProbeView() string {
 		for i := startIdx; i < endIdx; i++ {
 			log := m.probeState.logs[i]
 			logLine := m.formatProbeLogLine(log)
+
+			// Highlight selected line
+			if i == m.probeState.selectedIdx {
+				logLine = selectedStyle.Render(logLine)
+			}
+
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}

@@ -51,6 +51,7 @@ type probeState struct {
 	clientID       string
 	logs           []probeLogEntry
 	scroll         int
+	selectedIdx    int // Currently selected log index
 	cancelFunc     context.CancelFunc
 	ctx            context.Context
 	logChan        <-chan ProbeLogEntry
@@ -173,6 +174,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Auto-scroll to bottom only if auto-scroll is enabled
 			if m.probeState.autoScroll {
 				m.probeState.scroll = len(m.probeState.logs)
+				m.probeState.selectedIdx = len(m.probeState.logs) - 1 // Select the latest log
 			}
 
 			// Continue listening for next log
@@ -212,13 +214,14 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case probeStreamStartedMsg:
 		// Initialize probe state and start listening
 		m.probeState = &probeState{
-			clientID:   msg.clientID,
-			logs:       []probeLogEntry{},
-			scroll:     0,
-			cancelFunc: msg.cancelFunc,
-			ctx:        msg.ctx,
-			logChan:    msg.logChan,
-			autoScroll: true, // start with auto-scroll enabled
+			clientID:    msg.clientID,
+			logs:        []probeLogEntry{},
+			scroll:      0,
+			selectedIdx: 0,
+			cancelFunc:  msg.cancelFunc,
+			ctx:         msg.ctx,
+			logChan:     msg.logChan,
+			autoScroll:  true, // start with auto-scroll enabled
 		}
 		return m, m.listenForProbeLog()
 
@@ -236,11 +239,16 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			clientID:       msg.clientID,
 			logs:           logs,
 			scroll:         0,
+			selectedIdx:    len(logs) - 1, // Select the last log if there are existing logs
 			cancelFunc:     msg.cancelFunc,
 			ctx:            msg.ctx,
 			logChan:        msg.logChan,
 			autoScroll:     true,
 			reconnectCount: msg.reconnectCount,
+		}
+		// Ensure selectedIdx is not negative
+		if m.probeState.selectedIdx < 0 {
+			m.probeState.selectedIdx = 0
 		}
 		return m, m.listenForProbeLog()
 	}
