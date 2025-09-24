@@ -1,7 +1,6 @@
 package apiclient_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -89,7 +88,7 @@ func TestShutdownClient(t *testing.T) {
 			client := apiclient.New(server.URL)
 
 			// Call ShutdownClient
-			err := client.ShutdownClient(context.Background(), tt.clientID, tt.reason)
+			err := client.ShutdownClient(t.Context(), tt.clientID, tt.reason)
 
 			// Check error expectation
 			if tt.expectError {
@@ -127,7 +126,7 @@ func TestShutdownClient_CorrectMethod(t *testing.T) {
 	client := apiclient.New(server.URL)
 
 	// This should succeed since we're using DELETE method
-	err := client.ShutdownClient(context.Background(), "test-client", "test reason")
+	err := client.ShutdownClient(t.Context(), "test-client", "test reason")
 
 	// Verify no error
 	if err != nil {

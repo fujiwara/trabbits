@@ -29,7 +29,7 @@ func TestDisconnectOutdatedProxies_ZeroProxies(t *testing.T) {
 	// Create proxy with CURRENT config hash (not outdated)
 	proxy := testServer.NewProxy(nil)
 	proxy.SetConfigHash(configHash) // Same hash as current config
-	_, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	testServer.RegisterProxy(proxy, cancel)
 

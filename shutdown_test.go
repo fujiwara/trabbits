@@ -46,7 +46,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 	for i := 0; i < numProxies; i++ {
 		proxy := testServer.NewProxy(nil) // Use nil connection for internal logic testing
-		_, cancel := context.WithCancel(context.Background())
+		_, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		testServer.RegisterProxy(proxy, cancel)
 		proxies = append(proxies, proxy)
@@ -164,12 +164,12 @@ func TestGracefulShutdown_ContextCancellation(t *testing.T) {
 
 	// Create a proxy for internal logic testing
 	proxy := testServer.NewProxy(nil)
-	_, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	testServer.RegisterProxy(proxy, cancel)
 
 	// Create a context that we can cancel
-	ctx, testCancel := context.WithCancel(context.Background())
+	ctx, testCancel := context.WithCancel(t.Context())
 
 	// Create a mock listener
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
