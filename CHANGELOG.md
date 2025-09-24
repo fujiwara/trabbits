@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.0.12](https://github.com/fujiwara/trabbits/compare/v0.0.11...v0.0.12) - 2025-09-24
+- Fix ShutdownClient to use DELETE method instead of POST by @fujiwara in https://github.com/fujiwara/trabbits/pull/72
+
 ## [v0.0.11](https://github.com/fujiwara/trabbits/compare/v0.0.10...v0.0.11) - 2025-09-24
 - return if upstream channel is closed. by @fujiwara in https://github.com/fujiwara/trabbits/pull/69
 - Improve probe log output and TUI experience by @fujiwara in https://github.com/fujiwara/trabbits/pull/71
