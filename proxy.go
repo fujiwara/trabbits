@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -486,9 +485,9 @@ func (p *Proxy) process(ctx context.Context) error {
 	p.metrics.ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		p.sendProbeLog("read method frame", "type", reflect.TypeOf(mf.Method).String())
+		p.sendProbeLog("read method frame", "type", amqp091.TypeName(mf.Method))
 	} else {
-		p.sendProbeLog("read frame", "type", reflect.TypeOf(frame).String())
+		p.sendProbeLog("read frame", "type", amqp091.TypeName(frame))
 	}
 	if frame.Channel() == 0 {
 		err = p.dispatch0(ctx, frame)
@@ -516,7 +515,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			}
 			f.Method = m // replace method with message
 		}
-		methodName := strings.TrimLeft(reflect.TypeOf(f.Method).String(), "*amqp091.")
+		methodName := amqp091.TypeName(f.Method)
 		p.metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
 		// Update proxy-specific statistics
 		if p.stats != nil {
@@ -587,7 +586,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.sendProbeLog("send", "channel", channel, "type", fmt.Sprintf("%T", m))
+	p.sendProbeLog("send", "channel", channel, "type", amqp091.TypeName(m))
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
@@ -655,7 +654,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		p.sendProbeLog("recv", "channel", channel, "type", reflect.TypeOf(m).String())
+		p.sendProbeLog("recv", "channel", channel, "type", amqp091.TypeName(m))
 	}()
 
 	for {

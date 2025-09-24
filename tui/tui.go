@@ -175,55 +175,74 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stopProbeStream()
 		m.viewMode = ViewList
 	case "up", "k":
-		if m.probeState != nil && m.probeState.scroll > 0 {
-			m.probeState.scroll--
-			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			if m.probeState.selectedIdx > 0 {
+				m.probeState.selectedIdx--
+				// Adjust scroll if selected item is above visible area
+				if m.probeState.selectedIdx < m.probeState.scroll {
+					m.probeState.scroll = m.probeState.selectedIdx
+				}
+			}
+			m.probeState.autoScroll = false // Disable auto-scroll on manual navigation
 		}
 	case "down", "j":
-		if m.probeState != nil {
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
 			logCount := len(m.probeState.logs)
-			visibleRows := m.getProbeVisibleRows()
-			maxScroll := logCount - visibleRows
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-			if m.probeState.scroll < maxScroll {
-				m.probeState.scroll++
+			if m.probeState.selectedIdx < logCount-1 {
+				m.probeState.selectedIdx++
+				// Adjust scroll if selected item is below visible area
+				visibleRows := m.getProbeVisibleRows()
+				if m.probeState.selectedIdx >= m.probeState.scroll+visibleRows {
+					m.probeState.scroll = m.probeState.selectedIdx - visibleRows + 1
+				}
 			}
 			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
 		}
 	case "home":
 		if m.probeState != nil {
 			m.probeState.scroll = 0
+			m.probeState.selectedIdx = 0
 			m.probeState.autoScroll = false // Disable auto-scroll when going to top
 		}
 	case "end":
-		if m.probeState != nil {
-			m.probeState.scroll = len(m.probeState.logs)
-			m.probeState.autoScroll = true // Enable auto-scroll when going to bottom
-		}
-	case "pgup":
-		if m.probeState != nil {
-			pageSize := m.getProbeVisibleRows()
-			if m.probeState.scroll > pageSize {
-				m.probeState.scroll -= pageSize
-			} else {
-				m.probeState.scroll = 0
-			}
-			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
-		}
-	case "pgdn":
-		if m.probeState != nil {
-			logCount := len(m.probeState.logs)
-			pageSize := m.getProbeVisibleRows()
-			maxScroll := logCount - pageSize
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			m.probeState.selectedIdx = len(m.probeState.logs) - 1
+			// Adjust scroll to show the last item
+			visibleRows := m.getProbeVisibleRows()
+			maxScroll := len(m.probeState.logs) - visibleRows
 			if maxScroll < 0 {
 				maxScroll = 0
 			}
-			if m.probeState.scroll+pageSize < maxScroll {
-				m.probeState.scroll += pageSize
+			m.probeState.scroll = maxScroll
+			m.probeState.autoScroll = true // Enable auto-scroll when going to bottom
+		}
+	case "pgup":
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			pageSize := m.getProbeVisibleRows()
+			if m.probeState.selectedIdx > pageSize {
+				m.probeState.selectedIdx -= pageSize
 			} else {
-				m.probeState.scroll = maxScroll
+				m.probeState.selectedIdx = 0
+			}
+			// Adjust scroll
+			if m.probeState.selectedIdx < m.probeState.scroll {
+				m.probeState.scroll = m.probeState.selectedIdx
+			}
+			m.probeState.autoScroll = false // Disable auto-scroll when paging up
+		}
+	case "pgdn":
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			logCount := len(m.probeState.logs)
+			pageSize := m.getProbeVisibleRows()
+			if m.probeState.selectedIdx+pageSize < logCount-1 {
+				m.probeState.selectedIdx += pageSize
+			} else {
+				m.probeState.selectedIdx = logCount - 1
+			}
+			// Adjust scroll
+			visibleRows := m.getProbeVisibleRows()
+			if m.probeState.selectedIdx >= m.probeState.scroll+visibleRows {
+				m.probeState.scroll = m.probeState.selectedIdx - visibleRows + 1
 			}
 			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
 		}
