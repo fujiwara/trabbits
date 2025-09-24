@@ -177,10 +177,12 @@ func formatProbeLogEntry(entry *types.ProbeLogEntry, format string) error {
 		fmt.Println(string(data))
 	} else {
 		// Default text format
-		fmt.Printf("[%s] %s: %s\n",
-			entry.Timestamp.Format("15:04:05.000"),
-			entry.ProxyID,
-			entry.Message)
+		attrs, _ := json.Marshal(entry.Attrs)
+		fmt.Printf("%s %s %s\n",
+			entry.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
+			entry.Message,
+			string(attrs),
+		)
 	}
 	return nil
 }
