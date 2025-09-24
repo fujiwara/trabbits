@@ -48,13 +48,14 @@ type confirmState struct {
 }
 
 type probeState struct {
-	clientID   string
-	logs       []probeLogEntry
-	scroll     int
-	cancelFunc context.CancelFunc
-	ctx        context.Context
-	logChan    <-chan ProbeLogEntry
-	autoScroll bool // whether to auto-scroll to latest logs
+	clientID       string
+	logs           []probeLogEntry
+	scroll         int
+	cancelFunc     context.CancelFunc
+	ctx            context.Context
+	logChan        <-chan ProbeLogEntry
+	autoScroll     bool // whether to auto-scroll to latest logs
+	reconnectCount int  // Track reconnection attempts
 }
 
 // Use types.ProbeLogEntry instead of local definition
@@ -79,6 +80,19 @@ type (
 		ctx        context.Context
 		logChan    <-chan types.ProbeLogEntry
 		cancelFunc context.CancelFunc
+	}
+	reconnectProbeMsg struct {
+		clientID       string
+		logs           []probeLogEntry
+		reconnectCount int
+	}
+	probeStreamStartedMsgWithState struct {
+		clientID       string
+		ctx            context.Context
+		logChan        <-chan types.ProbeLogEntry
+		cancelFunc     context.CancelFunc
+		preservedLogs  []probeLogEntry
+		reconnectCount int
 	}
 )
 
@@ -168,8 +182,30 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case probeEndMsg:
 		if m.probeState != nil {
-			m.err = fmt.Errorf("probe stream ended for client %s", m.probeState.clientID)
+			// Probe stream ended, attempt to reconnect
+			clientID := m.probeState.clientID
+			reconnectCount := m.probeState.reconnectCount
+
+			// Limit reconnection attempts
+			if reconnectCount >= 5 {
+				m.err = fmt.Errorf("probe stream ended after %d reconnection attempts", reconnectCount)
+				m.errorTime = time.Now()
+				m.stopProbeStream()
+				return m, nil
+			}
+
+			// Clean up old stream but preserve logs
+			logs := m.probeState.logs
+			m.stopProbeStream()
+
+			// Add a message about reconnecting
+			m.err = fmt.Errorf("probe stream disconnected, reconnecting... (attempt %d/5)", reconnectCount+1)
 			m.errorTime = time.Now()
+
+			// Restart the probe stream with incremented reconnect count after a short delay
+			return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
+				return reconnectProbeMsg{clientID: clientID, logs: logs, reconnectCount: reconnectCount + 1}
+			})
 		}
 		return m, nil
 
@@ -183,6 +219,28 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ctx:        msg.ctx,
 			logChan:    msg.logChan,
 			autoScroll: true, // start with auto-scroll enabled
+		}
+		return m, m.listenForProbeLog()
+
+	case reconnectProbeMsg:
+		// Handle reconnection with preserved logs
+		return m, m.startProbeStreamWithState(msg.clientID, msg.logs, msg.reconnectCount)
+
+	case probeStreamStartedMsgWithState:
+		// Initialize probe state with preserved logs and start listening
+		logs := msg.preservedLogs
+		if logs == nil {
+			logs = []probeLogEntry{}
+		}
+		m.probeState = &probeState{
+			clientID:       msg.clientID,
+			logs:           logs,
+			scroll:         0,
+			cancelFunc:     msg.cancelFunc,
+			ctx:            msg.ctx,
+			logChan:        msg.logChan,
+			autoScroll:     true,
+			reconnectCount: msg.reconnectCount,
 		}
 		return m, m.listenForProbeLog()
 	}
@@ -225,6 +283,11 @@ func (m *TUIModel) shutdownClient(clientID string) tea.Cmd {
 
 // startProbeStream starts probe log streaming for a client
 func (m *TUIModel) startProbeStream(clientID string) tea.Cmd {
+	return m.startProbeStreamWithState(clientID, nil, 0)
+}
+
+// startProbeStreamWithState starts probe log streaming with preserved state
+func (m *TUIModel) startProbeStreamWithState(clientID string, preservedLogs []probeLogEntry, reconnectCount int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithCancel(m.ctx)
 
@@ -234,12 +297,14 @@ func (m *TUIModel) startProbeStream(clientID string) tea.Cmd {
 			return errorMsg(err)
 		}
 
-		// Return a message that will set up the probe state
-		return probeStreamStartedMsg{
-			clientID:   clientID,
-			ctx:        ctx,
-			logChan:    logChan,
-			cancelFunc: cancel,
+		// Set up a modified probeStreamStartedMsg to preserve logs and reconnect count
+		return probeStreamStartedMsgWithState{
+			clientID:       clientID,
+			ctx:            ctx,
+			logChan:        logChan,
+			cancelFunc:     cancel,
+			preservedLogs:  preservedLogs,
+			reconnectCount: reconnectCount,
 		}
 	}
 }
