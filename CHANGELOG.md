@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.11](https://github.com/fujiwara/trabbits/compare/v0.0.10...v0.0.11) - 2025-09-24
+- return if upstream channel is closed. by @fujiwara in https://github.com/fujiwara/trabbits/pull/69
+- Improve probe log output and TUI experience by @fujiwara in https://github.com/fujiwara/trabbits/pull/71
+
 ## [v0.0.10](https://github.com/fujiwara/trabbits/compare/v0.0.9...v0.0.10) - 2025-09-23
 - Refactor metrics system and fix duplicate tracking by @fujiwara in https://github.com/fujiwara/trabbits/pull/66
 - Remove duplicate metrics implementation and unused API client methods by @fujiwara in https://github.com/fujiwara/trabbits/pull/68
