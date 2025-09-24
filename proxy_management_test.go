@@ -30,7 +30,7 @@ func TestProxyRegistration(t *testing.T) {
 	proxy := server.NewProxy(nil)
 
 	// Register proxy with dummy cancel function for testing
-	_, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	server.RegisterProxy(proxy, cancel)
 
@@ -96,13 +96,13 @@ func TestDisconnectOutdatedProxies(t *testing.T) {
 	// Create proxies and manually set different config hashes
 	proxy1 := server.NewProxy(nil)
 	proxy1.SetConfigHash(oldHash) // This proxy has old config
-	_, cancel1 := context.WithCancel(context.Background())
+	_, cancel1 := context.WithCancel(t.Context())
 	defer cancel1()
 	server.RegisterProxy(proxy1, cancel1)
 
 	proxy2 := server.NewProxy(nil)
 	proxy2.SetConfigHash(newHash) // This proxy has new config
-	_, cancel2 := context.WithCancel(context.Background())
+	_, cancel2 := context.WithCancel(t.Context())
 	defer cancel2()
 	server.RegisterProxy(proxy2, cancel2)
 

@@ -1,7 +1,6 @@
 package apiclient
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -77,28 +76,22 @@ func (c *Client) ShutdownClient(ctx context.Context, clientID, reason string) er
 		return fmt.Errorf("client ID cannot be empty")
 	}
 
-	if reason == "" {
-		reason = "shutdown requested"
-	}
-
-	fullURL, err := c.buildURL(path.Join("clients", clientID, "shutdown"))
+	fullURL, err := c.buildURL(path.Join("clients", clientID))
 	if err != nil {
 		return err
 	}
 
-	payload := map[string]string{
-		"reason": reason,
-	}
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	// Add reason as query parameter if provided
+	if reason != "" {
+		query := fullURL.Query()
+		query.Set("reason", reason)
+		fullURL.RawQuery = query.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", fullURL.String(), bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "DELETE", fullURL.String(), nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
 	if err != nil {

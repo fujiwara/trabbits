@@ -49,7 +49,7 @@ func TestConfigUpdateDisconnectsOutdatedProxies(t *testing.T) {
 	// Create a proxy with old config hash for internal logic testing
 	proxy := testServer.NewProxy(nil)
 	proxy.SetConfigHash(oldHash)
-	_, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	testServer.RegisterProxy(proxy, cancel)
 

@@ -16,6 +16,17 @@ type Client struct {
 
 // New creates a new API client that communicates via Unix socket
 func New(socketPath string) *Client {
+	// If socketPath starts with "http://" or "https://", treat it as an HTTP endpoint (for testing)
+	if u, err := url.Parse(socketPath); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		return &Client{
+			endpoint: socketPath,
+			client: &http.Client{
+				Timeout: 30 * time.Second,
+			},
+		}
+	}
+
+	// Otherwise, treat it as a Unix socket path
 	tr := &http.Transport{
 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 			return net.Dial("unix", socketPath)
