@@ -56,7 +56,7 @@ func (c *Client) readProbeLogSSE(ctx context.Context, proxyID string, handler fu
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	resp, err := c.client.Do(req)
+	resp, err := c.streamClient.Do(req)
 	if err != nil {
 		return err
 	}
