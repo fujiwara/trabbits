@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.0.13](https://github.com/fujiwara/trabbits/compare/v0.0.12...v0.0.13) - 2025-09-26
+- Fix timeout issue for streaming probe logs by @fujiwara in https://github.com/fujiwara/trabbits/pull/74
+
 ## [v0.0.12](https://github.com/fujiwara/trabbits/compare/v0.0.11...v0.0.12) - 2025-09-24
 - Fix ShutdownClient to use DELETE method instead of POST by @fujiwara in https://github.com/fujiwara/trabbits/pull/72
 
