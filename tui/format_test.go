@@ -22,9 +22,14 @@ func TestFormatID(t *testing.T) {
 			expected: "abcd1234",
 		},
 		{
+			name:     "exact 10 chars",
+			input:    "abcd123456",
+			expected: "abcd123456",
+		},
+		{
 			name:     "long ID",
 			input:    "abcdefghijklmnop",
-			expected: "abcdef..",
+			expected: "abcdefgh..",
 		},
 	}
 
