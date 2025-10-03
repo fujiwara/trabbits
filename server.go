@@ -510,7 +510,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		srv.Metrics().ClientConnectionErrors.Inc()
 		return
 	}
-	p.logger.Info("handshake completed")
+	p.logger.Debug("handshake completed")
 
 	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(ctx)
@@ -523,7 +523,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		p.logger.Warn("Failed to connect to upstreams", "error", err)
 		return
 	}
-	p.logger.Info("connected to upstreams")
+	p.logger.Debug("connected to upstreams")
 
 	go p.runHeartbeat(subCtx)
 

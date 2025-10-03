@@ -157,7 +157,7 @@ func (u *Upstream) RegisterEmulatedAutoDeleteQueue(queueName string) {
 	defer u.mu.Unlock()
 
 	fn := func(ch *rabbitmq.Channel) {
-		u.logger.Info("deleting queue with emulated auto_delete", "queue", queueName)
+		u.logger.Debug("deleting queue with emulated auto_delete", "queue", queueName)
 		if _, err := ch.QueueDelete(queueName, false, false, false); err != nil {
 			// Check if error is NOT_FOUND (queue already deleted)
 			if amqpErr, ok := err.(*rabbitmq.Error); ok && amqpErr.Code == amqp091.NotFound {
@@ -247,7 +247,7 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 
 	// Check if we should emulate auto_delete for this queue
 	if !queueExisted && u.shouldEmulateAutoDelete(m) {
-		u.logger.Info("registering queue for emulated auto_delete", "queue", q.Name)
+		u.logger.Debug("registering queue for emulated auto_delete", "queue", q.Name)
 		u.RegisterEmulatedAutoDeleteQueue(q.Name)
 	}
 
