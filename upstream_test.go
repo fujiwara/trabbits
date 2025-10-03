@@ -163,6 +163,31 @@ var testUpstreamQueueAttrSuites = []struct {
 			"x-queue-type": "quorum",
 		},
 	},
+	{
+		name: "emulate_auto_delete - override to false",
+		m: &amqp091.QueueDeclare{
+			Queue:      "emulated",
+			Durable:    false,
+			AutoDelete: true, // client wants auto_delete
+			Exclusive:  false,
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable:           ptr(true),
+			AutoDelete:        ptr(false), // override to false
+			EmulateAutoDelete: true,       // enable emulation
+			Arguments: amqp091.Table{
+				"x-queue-type": "quorum",
+			},
+		},
+		queue:      "emulated",
+		durable:    true,
+		autoDelete: false, // overridden to false (but will be emulated)
+		exclusive:  false,
+		args: rabbitmq.Table{
+			"x-queue-type": "quorum",
+		},
+	},
 }
 
 func TestUpstreamQueueAttr(t *testing.T) {
@@ -190,6 +215,90 @@ func TestUpstreamQueueAttr(t *testing.T) {
 			}
 			if diff := cmp.Diff(args, tc.args); diff != "" {
 				t.Errorf("args mismatch: %s", diff)
+			}
+		})
+	}
+}
+
+func TestShouldEmulateAutoDelete(t *testing.T) {
+	tests := []struct {
+		name     string
+		attr     *config.QueueAttributes
+		m        *amqp091.QueueDeclare
+		expected bool
+	}{
+		{
+			name: "emulation enabled, client wants auto_delete, override to false",
+			attr: &config.QueueAttributes{
+				AutoDelete:        ptr(false),
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: true,
+		},
+		{
+			name: "emulation disabled",
+			attr: &config.QueueAttributes{
+				AutoDelete:        ptr(false),
+				EmulateAutoDelete: false,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+		{
+			name: "client doesn't want auto_delete",
+			attr: &config.QueueAttributes{
+				AutoDelete:        ptr(false),
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: false,
+			},
+			expected: false,
+		},
+		{
+			name: "override to true (real auto_delete)",
+			attr: &config.QueueAttributes{
+				AutoDelete:        ptr(true),
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+		{
+			name: "no override (keep client's value)",
+			attr: &config.QueueAttributes{
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+		{
+			name: "nil attr",
+			attr: nil,
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			server := trabbits.NewServer(cfg, "/tmp/test-upstream.sock")
+			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr}, "test:5672", server.Metrics())
+			result := u.ShouldEmulateAutoDelete(tc.m)
+			if result != tc.expected {
+				t.Errorf("expected %t, got %t", tc.expected, result)
 			}
 		})
 	}

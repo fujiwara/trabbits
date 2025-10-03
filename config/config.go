@@ -273,9 +273,10 @@ type Routing struct {
 }
 
 type QueueAttributes struct {
-	Durable    *bool         `yaml:"durable,omitempty" json:"durable,omitempty"`
-	AutoDelete *bool         `yaml:"auto_delete,omitempty" json:"auto_delete,omitempty"`
-	Exclusive  *bool         `yaml:"exclusive,omitempty" json:"exclusive,omitempty"`
-	Arguments  amqp091.Table `yaml:"arguments,omitempty" json:"arguments,omitempty"`
-	TryPassive bool          `yaml:"try_passive,omitempty" json:"try_passive,omitempty"`
+	Durable           *bool         `yaml:"durable,omitempty" json:"durable,omitempty"`
+	AutoDelete        *bool         `yaml:"auto_delete,omitempty" json:"auto_delete,omitempty"`
+	Exclusive         *bool         `yaml:"exclusive,omitempty" json:"exclusive,omitempty"`
+	Arguments         amqp091.Table `yaml:"arguments,omitempty" json:"arguments,omitempty"`
+	TryPassive        bool          `yaml:"try_passive,omitempty" json:"try_passive,omitempty"`
+	EmulateAutoDelete bool          `yaml:"emulate_auto_delete,omitempty" json:"emulate_auto_delete,omitempty"`
 }

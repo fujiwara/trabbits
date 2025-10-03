@@ -140,6 +140,7 @@ trabbit's configuration file is located at `config.json`. The configuration file
                 "auto_delete": false,
                 "exclusive": false,
                 "try_passive": true,
+                "emulate_auto_delete": true,
                 "arguments": {
                     "x-queue-type": "quorum"
                 }
@@ -182,6 +183,7 @@ Each `upstream` has the following fields:
    - `arguments`: A map of arguments for the queue. Arguments are merged with client-provided arguments.
       The keys are strings and the values are any type. If the value is `null`, the argument will be removed from the client's arguments.
    - `try_passive`: (Optional, default: `false`) When set to `true`, trabbits will first attempt a passive queue declare to check if the queue already exists. If the queue exists, it will be used as-is regardless of the configured attributes. If the queue doesn't exist (404 error), trabbits will fall back to creating the queue with the configured attributes. This is useful for avoiding PRECONDITION_FAILED errors when working with existing queues that may have different attributes.
+   - `emulate_auto_delete`: (Optional, default: `false`) When set to `true`, trabbits will emulate auto_delete behavior for durable queues. This is useful for quorum queues which don't support the real auto_delete flag. When a client requests auto_delete=true and you override it to false in the configuration, enabling this option will make trabbits automatically delete the queue when the connection closes. Note: This differs from RabbitMQ's standard auto_delete which deletes when the last consumer disconnects - trabbits emulates per-connection deletion instead.
 
 ### Cluster Connection Behavior
 
