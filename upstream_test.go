@@ -95,6 +95,50 @@ var testUpstreamQueueAttrSuites = []struct {
 			"x-keep":           "me",
 		},
 	},
+	{
+		name: "partial override - keep client auto_delete",
+		m: &amqp091.QueueDeclare{
+			Queue:      "bar",
+			Durable:    false,
+			AutoDelete: true, // client wants auto_delete
+			Exclusive:  false,
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable: ptr(true), // override durable only
+			// AutoDelete is nil, so client's value should be kept
+			Arguments: amqp091.Table{
+				"x-queue-type": "quorum",
+			},
+		},
+		queue:      "bar",
+		durable:    true,  // overridden
+		autoDelete: true,  // kept from client
+		exclusive:  false, // kept from client
+		args: rabbitmq.Table{
+			"x-queue-type": "quorum",
+		},
+	},
+	{
+		name: "partial override - keep client exclusive",
+		m: &amqp091.QueueDeclare{
+			Queue:      "baz",
+			Durable:    false,
+			AutoDelete: false,
+			Exclusive:  true, // client wants exclusive
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable:    ptr(true),
+			AutoDelete: ptr(false),
+			// Exclusive is nil, so client's value should be kept
+		},
+		queue:      "baz",
+		durable:    true,  // overridden
+		autoDelete: false, // overridden
+		exclusive:  true,  // kept from client
+		args:       nil,
+	},
 }
 
 func TestUpstreamQueueAttr(t *testing.T) {

@@ -178,6 +178,9 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 		}
 		arguments := rabbitmq.Table(m.Arguments)
 		if attr.Arguments != nil {
+			if arguments == nil {
+				arguments = rabbitmq.Table{}
+			}
 			for k, v := range attr.Arguments {
 				if v == nil {
 					delete(arguments, k)

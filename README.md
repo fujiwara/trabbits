@@ -175,9 +175,11 @@ Each `upstream` has the following fields:
     The patterns are the same as the RabbitMQ's topic exchange routing key patterns, including wildcard characters `*` and `#`.
 - `queue_attributes`: The attributes of the queue that will be declared on this upstream.
    All of the attributes are optional.
-   The defined attributes will override the request attributes from the client.
-   - `arguments`: A map of arguments for the queue.
-      The keys are strings and the values are any type. If the value is `null`, the argument will be removed.
+   - `durable`: Override the durable flag. If not specified (`null`), the client's value is used.
+   - `auto_delete`: Override the auto_delete flag. If not specified (`null`), the client's value is used.
+   - `exclusive`: Override the exclusive flag. If not specified (`null`), the client's value is used.
+   - `arguments`: A map of arguments for the queue. Arguments are merged with client-provided arguments.
+      The keys are strings and the values are any type. If the value is `null`, the argument will be removed from the client's arguments.
 
 ### Cluster Connection Behavior
 
