@@ -24,6 +24,7 @@ type Upstream struct {
 	logger        *slog.Logger
 	keyPatterns   []string
 	queueAttr     *config.QueueAttributes
+	queueOpts     *config.QueueOptions
 	shutdownFuncs sync.Map
 	destruct      []func(*rabbitmq.Channel)
 	closeChan     chan *rabbitmq.Error
@@ -40,6 +41,7 @@ func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.Ups
 		logger:      logger.With("upstream", conf.Name, "address", address),
 		keyPatterns: conf.Routing.KeyPatterns,
 		queueAttr:   conf.QueueAttributes,
+		queueOpts:   conf.QueueOptions,
 		destruct:    []func(*rabbitmq.Channel){},
 		closeChan:   make(chan *rabbitmq.Error, 1),
 		metrics:     metrics,
@@ -217,7 +219,7 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.QueueDeclare) (rabbitmq.Queue, error) {
 	queueExisted := false
 
-	if u.queueAttr != nil && u.queueAttr.TryPassive {
+	if u.queueOpts != nil && u.queueOpts.TryPassive {
 		// Try passive declare first to check if queue exists
 		u.logger.Debug("trying passive declare", "queue", m.Queue, "upstream", u.String())
 		q, err := ch.QueueDeclare(m.Queue, false, false, false, true, nil)
@@ -255,7 +257,7 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 // shouldEmulateAutoDelete checks if auto_delete emulation should be enabled for this queue
 func (u *Upstream) shouldEmulateAutoDelete(m *amqp091.QueueDeclare) bool {
 	// Check if emulation is enabled in config
-	if u.queueAttr == nil || !u.queueAttr.EmulateAutoDelete {
+	if u.queueOpts == nil || !u.queueOpts.EmulateAutoDelete {
 		return false
 	}
 
@@ -268,7 +270,7 @@ func (u *Upstream) shouldEmulateAutoDelete(m *amqp091.QueueDeclare) bool {
 	// If AutoDelete is nil (not specified), we keep client's value, so no emulation needed
 	// If AutoDelete is true, no emulation needed (real auto_delete)
 	// If AutoDelete is false, we need emulation
-	if u.queueAttr.AutoDelete == nil {
+	if u.queueAttr == nil || u.queueAttr.AutoDelete == nil {
 		return false // No override, client's value is used (real auto_delete)
 	}
 	if *u.queueAttr.AutoDelete {
