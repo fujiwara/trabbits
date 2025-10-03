@@ -19,18 +19,18 @@ var (
 
 // formatID formats a client ID for display
 func formatID(id string) string {
-	if len(id) <= 8 {
+	if len(id) <= 10 {
 		return id
 	}
-	return id[:6] + ".."
+	return id[:8] + ".."
 }
 
 // formatAddress formats a client address for display
 func formatAddress(addr string) string {
-	if len(addr) <= 15 {
+	if len(addr) <= 21 {
 		return addr
 	}
-	return addr[:15]
+	return addr[:21]
 }
 
 // formatStatus formats a client status with color
@@ -113,6 +113,6 @@ func (m *TUIModel) formatClientRow(client types.ClientInfo, selected bool) strin
 	methods := formatNumber(getStatValue(client.Stats, "total_methods"))
 	frames := formatNumber(getStatValue(client.Stats, "total_frames"))
 
-	return fmt.Sprintf("%s %-8s %-8s %-8s %-15s %-8s %-10s %-8s %-8s",
+	return fmt.Sprintf("%s %-10s %-8s %-8s %-21s %-8s %-10s %-8s %-8s",
 		prefix, id, user, vhost, address, status, connected, methods, frames)
 }

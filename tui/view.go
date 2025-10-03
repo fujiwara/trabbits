@@ -117,7 +117,7 @@ func (m *TUIModel) renderTable() string {
 
 	var rows []string
 
-	header := "ID       User     VHost    Address         Status    Connected  Methods  Frames"
+	header := "ID         User     VHost    Address              Status    Connected  Methods  Frames"
 	rows = append(rows, header)
 	rows = append(rows, strings.Repeat("─", len(header)))
 
