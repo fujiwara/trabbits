@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/pattern"
 	"github.com/prometheus/client_golang/prometheus"
@@ -125,4 +126,9 @@ func (p *Proxy) SetProbeChan(ch chan probeLog) {
 // GetAPIProbeLogHandler exports the API probe log handler for testing
 func (s *Server) GetAPIProbeLogHandler() http.HandlerFunc {
 	return s.apiProbeLogHandler()
+}
+
+// ShouldEmulateAutoDelete exports the shouldEmulateAutoDelete method for testing
+func (u *Upstream) ShouldEmulateAutoDelete(m *amqp091.QueueDeclare) bool {
+	return u.shouldEmulateAutoDelete(m)
 }

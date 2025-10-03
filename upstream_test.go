@@ -95,6 +95,97 @@ var testUpstreamQueueAttrSuites = []struct {
 			"x-keep":           "me",
 		},
 	},
+	{
+		name: "partial override - keep client auto_delete",
+		m: &amqp091.QueueDeclare{
+			Queue:      "bar",
+			Durable:    false,
+			AutoDelete: true, // client wants auto_delete
+			Exclusive:  false,
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable: ptr(true), // override durable only
+			// AutoDelete is nil, so client's value should be kept
+			Arguments: amqp091.Table{
+				"x-queue-type": "quorum",
+			},
+		},
+		queue:      "bar",
+		durable:    true,  // overridden
+		autoDelete: true,  // kept from client
+		exclusive:  false, // kept from client
+		args: rabbitmq.Table{
+			"x-queue-type": "quorum",
+		},
+	},
+	{
+		name: "partial override - keep client exclusive",
+		m: &amqp091.QueueDeclare{
+			Queue:      "baz",
+			Durable:    false,
+			AutoDelete: false,
+			Exclusive:  true, // client wants exclusive
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable:    ptr(true),
+			AutoDelete: ptr(false),
+			// Exclusive is nil, so client's value should be kept
+		},
+		queue:      "baz",
+		durable:    true,  // overridden
+		autoDelete: false, // overridden
+		exclusive:  true,  // kept from client
+		args:       nil,
+	},
+	{
+		name: "try_passive enabled - normal declare args",
+		m: &amqp091.QueueDeclare{
+			Queue:      "test",
+			Durable:    false,
+			AutoDelete: true,
+			Exclusive:  false,
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable: ptr(true),
+			Arguments: amqp091.Table{
+				"x-queue-type": "quorum",
+			},
+		},
+		queue:      "test",
+		durable:    true, // overridden for normal declare
+		autoDelete: true, // kept from client
+		exclusive:  false,
+		args: rabbitmq.Table{
+			"x-queue-type": "quorum",
+		},
+	},
+	{
+		name: "emulate_auto_delete - override to false",
+		m: &amqp091.QueueDeclare{
+			Queue:      "emulated",
+			Durable:    false,
+			AutoDelete: true, // client wants auto_delete
+			Exclusive:  false,
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable:    ptr(true),
+			AutoDelete: ptr(false), // override to false
+			Arguments: amqp091.Table{
+				"x-queue-type": "quorum",
+			},
+		},
+		queue:      "emulated",
+		durable:    true,
+		autoDelete: false, // overridden to false (but will be emulated)
+		exclusive:  false,
+		args: rabbitmq.Table{
+			"x-queue-type": "quorum",
+		},
+	},
 }
 
 func TestUpstreamQueueAttr(t *testing.T) {
@@ -122,6 +213,103 @@ func TestUpstreamQueueAttr(t *testing.T) {
 			}
 			if diff := cmp.Diff(args, tc.args); diff != "" {
 				t.Errorf("args mismatch: %s", diff)
+			}
+		})
+	}
+}
+
+func TestShouldEmulateAutoDelete(t *testing.T) {
+	tests := []struct {
+		name     string
+		attr     *config.QueueAttributes
+		opts     *config.QueueOptions
+		m        *amqp091.QueueDeclare
+		expected bool
+	}{
+		{
+			name: "emulation enabled, client wants auto_delete, override to false",
+			attr: &config.QueueAttributes{
+				AutoDelete: ptr(false),
+			},
+			opts: &config.QueueOptions{
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: true,
+		},
+		{
+			name: "emulation disabled",
+			attr: &config.QueueAttributes{
+				AutoDelete: ptr(false),
+			},
+			opts: &config.QueueOptions{
+				EmulateAutoDelete: false,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+		{
+			name: "client doesn't want auto_delete",
+			attr: &config.QueueAttributes{
+				AutoDelete: ptr(false),
+			},
+			opts: &config.QueueOptions{
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: false,
+			},
+			expected: false,
+		},
+		{
+			name: "override to true (real auto_delete)",
+			attr: &config.QueueAttributes{
+				AutoDelete: ptr(true),
+			},
+			opts: &config.QueueOptions{
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+		{
+			name: "no override (keep client's value)",
+			attr: nil,
+			opts: &config.QueueOptions{
+				EmulateAutoDelete: true,
+			},
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+		{
+			name: "nil opts",
+			attr: &config.QueueAttributes{
+				AutoDelete: ptr(false),
+			},
+			opts: nil,
+			m: &amqp091.QueueDeclare{
+				AutoDelete: true,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			server := trabbits.NewServer(cfg, "/tmp/test-upstream.sock")
+			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr, QueueOptions: tc.opts}, "test:5672", server.Metrics())
+			result := u.ShouldEmulateAutoDelete(tc.m)
+			if result != tc.expected {
+				t.Errorf("expected %t, got %t", tc.expected, result)
 			}
 		})
 	}
