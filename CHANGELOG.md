@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.14](https://github.com/fujiwara/trabbits/compare/v0.0.13...v0.0.14) - 2025-10-03
+- Increase TUI column widths for better readability by @fujiwara in https://github.com/fujiwara/trabbits/pull/82
+- Fix queue attributes handling and clarify documentation by @fujiwara in https://github.com/fujiwara/trabbits/pull/84
+- Bump github.com/fujiwara/jsonnet-armed from 0.0.6 to 0.0.12 by @dependabot[bot] in https://github.com/fujiwara/trabbits/pull/76
+
 ## [v0.0.13](https://github.com/fujiwara/trabbits/compare/v0.0.12...v0.0.13) - 2025-09-26
 - Fix timeout issue for streaming probe logs by @fujiwara in https://github.com/fujiwara/trabbits/pull/74
 
