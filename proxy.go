@@ -49,6 +49,13 @@ type Proxy struct {
 	stats              *ProxyStats           // statistics for this proxy
 	probeChan          chan probeLog         // channel to send probe logs
 	metrics            *metricsstore.Metrics // metrics instance for this proxy
+	tuned              tuned                 // negotiated parameters
+}
+
+type tuned struct {
+	channelMax uint16
+	frameMax   uint32
+	heartbeat  uint16
 }
 
 func (p *Proxy) Upstreams() []*Upstream {
@@ -358,9 +365,9 @@ func (p *Proxy) handshake(ctx context.Context) error {
 
 	// Connection.Tune 送信
 	tune := &amqp091.ConnectionTune{
-		ChannelMax: uint16(ChannelMax),
-		FrameMax:   uint32(FrameMax),
-		Heartbeat:  uint16(HeartbeatInterval),
+		ChannelMax: ChannelMax,
+		FrameMax:   FrameMax,
+		Heartbeat:  HeartbeatInterval,
 	}
 	if err := p.send(0, tune); err != nil {
 		return fmt.Errorf("failed to write Connection.Tune: %w", err)
@@ -372,6 +379,15 @@ func (p *Proxy) handshake(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
+	p.logger.Info("Connection.Tune-Ok", "channel_max", tuneOk.ChannelMax, "frame_max", tuneOk.FrameMax, "heartbeat", tuneOk.Heartbeat)
+	if tuneOk.ChannelMax > 0 {
+		p.tuned.channelMax = tuneOk.ChannelMax
+	}
+	if tuneOk.FrameMax > 0 {
+		p.tuned.frameMax = tuneOk.FrameMax
+	}
+	// If heartbeat is 0, heartbeat is disabled
+	p.tuned.heartbeat = tuneOk.Heartbeat
 
 	// Connection.Open 受信
 	open := amqp091.ConnectionOpen{}
@@ -391,14 +407,14 @@ func (p *Proxy) handshake(ctx context.Context) error {
 	return nil
 }
 
-func (p *Proxy) runHeartbeat(ctx context.Context, interval uint16) {
+func (p *Proxy) runHeartbeat(ctx context.Context) {
 	defer recoverFromPanic(p.logger, "runHeartbeat", p.metrics)
-
-	if interval == 0 {
-		interval = uint16(HeartbeatInterval)
+	if p.tuned.heartbeat == 0 {
+		// disable heartbeat
+		return
 	}
-	p.sendProbeLog("start heartbeat", "interval", interval)
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	p.sendProbeLog("start heartbeat", "interval", p.tuned.heartbeat)
+	ticker := time.NewTicker(time.Duration(p.tuned.heartbeat) * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -618,7 +634,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		// The overhead of BodyFrame is 8 bytes
 		offset := 0
 		for offset < len(body) {
-			end := offset + FrameMax - 8
+			end := offset + int(p.tuned.frameMax) - 8
 			if end > len(body) {
 				end = len(body)
 			}

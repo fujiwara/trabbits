@@ -18,7 +18,7 @@ func TestProxyPublishGetRouting(t *testing.T) {
 	defer ch.Close()
 
 	body := strings.Repeat(rand.Text(), 10)
-	if len(body) < trabbits.FrameMax {
+	if len(body) < int(trabbits.FrameMax) {
 		t.Fatal("message is too short")
 	}
 	testID := rand.Text()

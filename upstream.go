@@ -157,14 +157,14 @@ func (u *Upstream) RegisterEmulatedAutoDeleteQueue(queueName string) {
 	defer u.mu.Unlock()
 
 	fn := func(ch *rabbitmq.Channel) {
-		u.logger.Info("deleting queue with emulated auto_delete", "queue", queueName, "upstream", u.String())
+		u.logger.Info("deleting queue with emulated auto_delete", "queue", queueName)
 		if _, err := ch.QueueDelete(queueName, false, false, false); err != nil {
 			// Check if error is NOT_FOUND (queue already deleted)
 			if amqpErr, ok := err.(*rabbitmq.Error); ok && amqpErr.Code == amqp091.NotFound {
-				u.logger.Debug("queue already deleted", "queue", queueName, "upstream", u.String())
+				u.logger.Debug("queue already deleted", "queue", queueName)
 				return
 			}
-			u.logger.Warn("failed to delete emulated auto_delete queue", "queue", queueName, "upstream", u.String(), "error", err)
+			u.logger.Warn("failed to delete emulated auto_delete queue", "queue", queueName, "error", err)
 		}
 	}
 	u.destruct = append(u.destruct, fn)
@@ -184,7 +184,7 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 		// if no queue attributes, respect the message's attributes (excluding noWait)
 		return m.Queue, m.Durable, m.AutoDelete, m.Exclusive, false, rabbitmq.Table(m.Arguments)
 	} else {
-		u.logger.Debug("overriding queue attributes", "queue", m.Queue, "upstream", u.String(), "attributes", *attr)
+		u.logger.Debug("overriding queue attributes", "queue", m.Queue, "attributes", *attr)
 		// override the message's attributes with the upstream's configuration
 		durable := m.Durable
 		if attr.Durable != nil {
@@ -221,17 +221,17 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 
 	if u.queueOpts != nil && u.queueOpts.TryPassive {
 		// Try passive declare first to check if queue exists
-		u.logger.Debug("trying passive declare", "queue", m.Queue, "upstream", u.String())
+		u.logger.Debug("trying passive declare", "queue", m.Queue)
 		q, err := ch.QueueDeclare(m.Queue, false, false, false, true, nil)
 		if err == nil {
-			u.logger.Debug("passive declare succeeded", "queue", m.Queue, "upstream", u.String())
+			u.logger.Debug("passive declare succeeded", "queue", m.Queue)
 			queueExisted = true
 			// Don't register for emulation if queue already existed
 			return q, nil
 		}
 		// Check if error is NOT_FOUND (404)
 		if amqpErr, ok := err.(*rabbitmq.Error); ok && amqpErr.Code == amqp091.NotFound {
-			u.logger.Debug("queue not found, falling back to normal declare", "queue", m.Queue, "upstream", u.String())
+			u.logger.Debug("queue not found, falling back to normal declare", "queue", m.Queue)
 			// Fall through to normal declare
 		} else {
 			// Other errors should be returned
@@ -247,7 +247,7 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 
 	// Check if we should emulate auto_delete for this queue
 	if !queueExisted && u.shouldEmulateAutoDelete(m) {
-		u.logger.Info("registering queue for emulated auto_delete", "queue", q.Name, "upstream", u.String())
+		u.logger.Info("registering queue for emulated auto_delete", "queue", q.Name)
 		u.RegisterEmulatedAutoDeleteQueue(q.Name)
 	}
 

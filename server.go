@@ -34,9 +34,9 @@ import (
 )
 
 var (
-	ChannelMax                    = 1023
-	HeartbeatInterval             = 60
-	FrameMax                      = 128 * 1024
+	ChannelMax                    = uint16(1023)
+	HeartbeatInterval             = uint16(60)
+	FrameMax                      = uint32(128 * 1024)
 	UpstreamDefaultTimeout        = 5 * time.Second
 	DefaultReadTimeout            = 5 * time.Second
 	DefaultConnectionCloseTimeout = 1 * time.Second
@@ -130,6 +130,11 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		stats:                  NewProxyStats(),          // initialize statistics
 		probeChan:              make(chan probeLog, 100), // buffered channel for probe logs
 		metrics:                s.Metrics(),              // metrics instance from server
+		tuned: tuned{
+			channelMax: ChannelMax,
+			frameMax:   FrameMax,
+			heartbeat:  HeartbeatInterval,
+		},
 	}
 	proxy.logger = slog.New(slog.Default().Handler()).With("proxy", id, "client_addr", proxy.ClientAddr())
 	return proxy
@@ -520,7 +525,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	p.logger.Info("connected to upstreams")
 
-	go p.runHeartbeat(subCtx, uint16(HeartbeatInterval))
+	go p.runHeartbeat(subCtx)
 
 	// wait for client frames
 	for {
