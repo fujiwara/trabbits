@@ -217,7 +217,7 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 		Host:   addr,
 		Path:   p.VirtualHost,
 	}
-	p.logger.Info("connect to upstream", "url", safeURLString(*u))
+	p.sendProbeLog("t->u connect", "url", safeURLString(*u))
 	// Copy all client properties and override specific ones
 	upstreamProps := rabbitmq.Table{}
 	for k, v := range props {
@@ -256,7 +256,7 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	for _, addr := range nodesToTry {
 		conn, err := p.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
-			p.logger.Info("Connected to upstream node", "upstream", upstreamName, "address", addr)
+			p.sendProbeLog("t->u connected", "upstream", upstreamName, "address", addr)
 			return conn, addr, nil
 		} else {
 			p.logger.Warn("Failed to connect to upstream node",
@@ -352,13 +352,13 @@ func (p *Proxy) handshake(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse PLAIN auth response: %w", err)
 		}
-		p.logger.Info("PLAIN auth", "user", p.user)
+		p.sendProbeLog("c->t PLAIN auth", "user", p.user)
 	case "AMQPLAIN":
 		p.user, p.password, err = amqp091.ParseAMQPLAINAuthResponse(authRes)
 		if err != nil {
 			return fmt.Errorf("failed to parse AMQPLAIN auth response: %w", err)
 		}
-		p.logger.Info("AMQPLAIN auth", "user", p.user)
+		p.sendProbeLog("c->t AMQPLAIN auth", "user", p.user)
 	default:
 		return fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
@@ -379,7 +379,7 @@ func (p *Proxy) handshake(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
-	p.logger.Info("Connection.Tune-Ok", "channel_max", tuneOk.ChannelMax, "frame_max", tuneOk.FrameMax, "heartbeat", tuneOk.Heartbeat)
+	p.sendProbeLog("c->t Connection.Tune-Ok", "channel_max", tuneOk.ChannelMax, "frame_max", tuneOk.FrameMax, "heartbeat", tuneOk.Heartbeat)
 	if tuneOk.ChannelMax > 0 {
 		p.tuned.channelMax = tuneOk.ChannelMax
 	}
@@ -396,7 +396,7 @@ func (p *Proxy) handshake(ctx context.Context) error {
 		return fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
 	p.VirtualHost = open.VirtualHost
-	p.logger.Info("Connection.Open", "vhost", p.VirtualHost)
+	p.sendProbeLog("c->t Connection.Open", "vhost", p.VirtualHost)
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
@@ -686,8 +686,8 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 
 		switch f := frame.(type) {
 		case *amqp091.HeartbeatFrame:
-			// drop
-
+			p.sendProbeLog("c->t heartbeat received")
+			// nothing to do
 		case *amqp091.HeaderFrame:
 			// start content state
 			header = f
