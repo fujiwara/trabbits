@@ -100,7 +100,7 @@ func (p *Proxy) GetChannels(id uint16) ([]*rabbitmq.Channel, error) {
 	for _, us := range p.upstreams {
 		ch, err := us.GetChannel(id)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get channel %d on upstream %s: %w", id, us.String(), err)
 		}
 		chs = append(chs, ch)
 	}
@@ -143,7 +143,7 @@ func (p *Proxy) ClientAddr() string {
 func (p *Proxy) Close() {
 	for _, us := range p.Upstreams() {
 		if err := us.Close(); err != nil {
-			us.logger.Warn("failed to close upstream", "error", err)
+			us.logger.Warn("failed to close upstream", "error", err, "upstream", us.String())
 		}
 	}
 }
@@ -151,7 +151,7 @@ func (p *Proxy) Close() {
 func (p *Proxy) NewChannel(id uint16) error {
 	for _, us := range p.Upstreams() {
 		if _, err := us.NewChannel(id); err != nil {
-			return fmt.Errorf("failed to create channel: %w", err)
+			return fmt.Errorf("failed to create channel on upstream %s: %w", us.String(), err)
 		}
 	}
 	return nil
@@ -160,7 +160,7 @@ func (p *Proxy) NewChannel(id uint16) error {
 func (p *Proxy) CloseChannel(id uint16) error {
 	for _, us := range p.Upstreams() {
 		if err := us.CloseChannel(id); err != nil {
-			return err
+			return fmt.Errorf("failed to close channel on upstream %s: %w", us.String(), err)
 		}
 	}
 	return nil

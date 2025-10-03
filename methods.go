@@ -60,7 +60,7 @@ func (p *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 		p.sendProbeLog("Queue.Declare on upstream", "upstream", us.String(), "message", m)
 		q, err := us.QueueDeclareWithTryPassive(ch, m)
 		if err != nil {
-			return fmt.Errorf("failed to declare queue on upstream: %w", err)
+			return fmt.Errorf("failed to declare queue on upstream %s: %w", us.String(), err)
 		}
 		p.sendProbeLog("Queue.Declare result", "upstream", us.String(), "result", q)
 		messages += q.Messages
@@ -125,7 +125,7 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		p.sendProbeLog("Basic.Consume on upstream", "upstream", us.String())
 		ch, err := us.GetChannel(id)
 		if err != nil {
-			return fmt.Errorf("failed to get channel: %w", err)
+			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
 		}
 		consume, err := ch.ConsumeWithContext(
 			ctx,
@@ -138,7 +138,7 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 			rabbitmq.Table(m.Arguments),
 		)
 		if err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume on upstream %s: %v", us.String(), err))
 		}
 		d := p.newDelivery(consume, i)
 		deliveries = append(deliveries, d)
@@ -205,11 +205,11 @@ func (p *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 		p.sendProbeLog("Basic.Get on upstream", "upstream", us.String())
 		ch, err := us.GetChannel(id)
 		if err != nil {
-			return fmt.Errorf("failed to get channel: %w", err)
+			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
 		}
 		msg, ok, err := ch.Get(m.Queue, m.NoAck)
 		if err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to get message: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to get message on upstream %s: %v", us.String(), err))
 		}
 		if !ok {
 			continue
@@ -288,7 +288,7 @@ func (p *Proxy) replyBasicCancel(_ context.Context, f *amqp091.MethodFrame, m *a
 		us := p.Upstream(i)
 		p.sendProbeLog("Basic.Cancel on upstream", "upstream", us.String())
 		if err := ch.Cancel(m.ConsumerTag, false); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to cancel consumer: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to cancel consumer on upstream %s: %v", us.String(), err))
 		}
 	}
 	return p.send(id, &amqp091.BasicCancelOk{
@@ -312,7 +312,7 @@ func (p *Proxy) replyQueueDelete(_ context.Context, f *amqp091.MethodFrame, m *a
 			m.IfEmpty,
 			m.NoWait,
 		); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to delete queue: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to delete queue on upstream %s: %v", us.String(), err))
 		}
 	}
 	return p.send(id, &amqp091.QueueDeleteOk{})
@@ -335,7 +335,7 @@ func (p *Proxy) replyQueueBind(_ context.Context, f *amqp091.MethodFrame, m *amq
 			m.NoWait,
 			rabbitmq.Table(m.Arguments),
 		); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to bind queue: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to bind queue on upstream %s: %v", us.String(), err))
 		}
 	}
 	return p.send(id, &amqp091.QueueBindOk{})
@@ -349,7 +349,7 @@ func (p *Proxy) replyQueueUnbind(_ context.Context, f *amqp091.MethodFrame, m *a
 		p.sendProbeLog("Queue.Unbind on upstream", "upstream", us.String())
 		ch, err := us.GetChannel(id)
 		if err != nil {
-			return fmt.Errorf("failed to get channel: %w", err)
+			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
 		}
 		if err := ch.QueueUnbind(
 			m.Queue,
@@ -357,7 +357,7 @@ func (p *Proxy) replyQueueUnbind(_ context.Context, f *amqp091.MethodFrame, m *a
 			m.Exchange,
 			rabbitmq.Table(m.Arguments),
 		); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to unbind queue: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to unbind queue on upstream %s: %v", us.String(), err))
 		}
 	}
 
@@ -379,7 +379,7 @@ func (p *Proxy) replyBasicQos(_ context.Context, f *amqp091.MethodFrame, m *amqp
 			int(m.PrefetchSize),
 			m.Global,
 		); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to set QoS: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to set QoS on upstream %s: %v", us.String(), err))
 		}
 	}
 	return p.send(id, &amqp091.BasicQosOk{})
@@ -404,7 +404,7 @@ func (p *Proxy) replyExchangeDeclare(_ context.Context, f *amqp091.MethodFrame, 
 			false, // no-wait
 			rabbitmq.Table(m.Arguments),
 		); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to declare exchange: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to declare exchange on upstream %s: %v", us.String(), err))
 		}
 	}
 	return p.send(id, &amqp091.ExchangeDeclareOk{})
@@ -422,7 +422,7 @@ func (p *Proxy) replyQueuePurge(_ context.Context, f *amqp091.MethodFrame, m *am
 		p.sendProbeLog("Queue.Purge on upstream", "upstream", us.String())
 		// always wait upstream response
 		if _, err := ch.QueuePurge(m.Queue, true); err != nil {
-			return NewError(amqp091.InternalError, fmt.Sprintf("failed to purge queue: %v", err))
+			return NewError(amqp091.InternalError, fmt.Sprintf("failed to purge queue on upstream %s: %v", us.String(), err))
 		}
 	}
 	return p.send(id, &amqp091.QueuePurgeOk{
