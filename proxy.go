@@ -120,7 +120,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		for _, keyPattern := range us.keyPatterns {
 			if pattern.Match(routingKey, keyPattern) {
 				routed = us
-				p.sendProbeLog("matched pattern", "pattern", keyPattern, "routing_key", routingKey)
+				p.sendProbeLog("t->u matched pattern", "pattern", keyPattern, "routing_key", routingKey)
 				break
 			}
 		}
@@ -129,7 +129,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		return routed.GetChannel(id)
 	}
 	us := p.upstreams[0] // default upstream
-	p.sendProbeLog("not matched any patterns, using default upstream", "routing_key", routingKey)
+	p.sendProbeLog("t->u not matched any patterns, using default upstream", "routing_key", routingKey)
 	return us.GetChannel(id)
 }
 
@@ -186,7 +186,7 @@ func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstrea
 
 	select {
 	case <-ctx.Done():
-		p.sendProbeLog("Upstream monitoring stopped by context", "upstream", upstream.String())
+		p.sendProbeLog("t<-u upstream monitoring stopped by context", "upstream", upstream.String())
 		return
 	case err := <-upstream.NotifyClose():
 		if err != nil {
@@ -413,7 +413,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 		// disable heartbeat
 		return
 	}
-	p.sendProbeLog("start heartbeat", "interval", p.tuned.heartbeat)
+	p.sendProbeLog("c<-t heartbeat started", "interval", p.tuned.heartbeat)
 	ticker := time.NewTicker(time.Duration(p.tuned.heartbeat) * time.Second)
 	defer ticker.Stop()
 	for {
@@ -422,7 +422,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 			return
 		case <-ticker.C:
 			p.mu.Lock()
-			p.sendProbeLog("send heartbeat", "proxy", p.id)
+			p.sendProbeLog("c<-t heartbeat", "proxy", p.id)
 			if err := p.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
 				p.mu.Unlock()
 				p.logger.Warn("failed to send heartbeat", "error", err)
@@ -475,7 +475,7 @@ func (p *Proxy) sendConnectionError(err AMQPError) error {
 	p.conn.SetReadDeadline(time.Now().Add(p.connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
 	if _, recvErr := p.recv(0, &msg); recvErr != nil {
-		p.sendProbeLog("Failed to read Connection.Close-Ok from client", "error", recvErr)
+		p.sendProbeLog("c->t failed to read Connection.Close-Ok", "error", recvErr)
 	}
 	return nil
 }
@@ -501,9 +501,9 @@ func (p *Proxy) process(ctx context.Context) error {
 	p.metrics.ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		p.sendProbeLog("read method frame", "type", amqp091.TypeName(mf.Method))
+		p.sendProbeLog("c->t method", "type", amqp091.TypeName(mf.Method))
 	} else {
-		p.sendProbeLog("read frame", "type", amqp091.TypeName(frame))
+		p.sendProbeLog("c->t frame", "type", amqp091.TypeName(frame))
 	}
 	if frame.Channel() == 0 {
 		err = p.dispatch0(ctx, frame)
@@ -573,7 +573,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
-		p.sendProbeLog("received heartbeat from client")
+		p.sendProbeLog("c->t heartbeat")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -591,7 +591,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 			return fmt.Errorf("unsupported method: %T", m)
 		}
 	case *amqp091.HeartbeatFrame:
-		p.sendProbeLog("received heartbeat from server")
+		p.sendProbeLog("t<-u heartbeat")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -602,7 +602,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.sendProbeLog("send", "channel", channel, "type", amqp091.TypeName(m))
+	p.sendProbeLog("c<-t send", "channel", channel, "type", amqp091.TypeName(m))
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
@@ -670,7 +670,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		p.sendProbeLog("recv", "channel", channel, "type", amqp091.TypeName(m))
+		p.sendProbeLog("c->t recv", "channel", channel, "type", amqp091.TypeName(m))
 	}()
 
 	for {
