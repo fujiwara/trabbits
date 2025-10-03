@@ -113,9 +113,9 @@ var (
 // Export probe log related types and methods for testing
 type ProbeLog = probeLog
 
-// SendProbeLog exports the sendProbeLog method for testing
+// SendProbeLog exports the probeLog method for testing
 func (p *Proxy) SendProbeLog(message string, attrs ...any) {
-	p.sendProbeLog(message, attrs...)
+	p.probeLog(message, attrs...)
 }
 
 // SetProbeChan sets the probe channel for testing

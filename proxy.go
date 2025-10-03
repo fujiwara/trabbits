@@ -67,21 +67,21 @@ func (p *Proxy) GetProbeChan() chan probeLog {
 	return p.probeChan
 }
 
-// sendProbeLog sends a probe log message with structured attributes to the probe channel
+// probeLog sends a probe log message with structured attributes to the probe channel
 // If the channel is full, it removes the oldest log and sends the new one
-func (p *Proxy) sendProbeLog(message string, attrs ...any) {
+func (p *Proxy) probeLog(message string, attrs ...any) {
 	if p.probeChan == nil {
 		return
 	}
 
-	newLog := probeLog{
+	log := probeLog{
 		Timestamp: time.Now(),
 		Message:   message,
 		attrs:     attrs, // Store as slice without conversion
 	}
 
 	select {
-	case p.probeChan <- newLog:
+	case p.probeChan <- log:
 		// Successfully sent
 	default:
 		// Channel is full, discard one old log and try to send the new one
@@ -91,7 +91,7 @@ func (p *Proxy) sendProbeLog(message string, attrs ...any) {
 		}
 		// Try to send new log, but don't block if still full (race condition with other goroutines)
 		select {
-		case p.probeChan <- newLog:
+		case p.probeChan <- log:
 		default:
 			// Still full, drop this log
 		}
@@ -120,7 +120,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		for _, keyPattern := range us.keyPatterns {
 			if pattern.Match(routingKey, keyPattern) {
 				routed = us
-				p.sendProbeLog("t->u matched pattern", "pattern", keyPattern, "routing_key", routingKey)
+				p.probeLog("t->u matched pattern", "pattern", keyPattern, "routing_key", routingKey)
 				break
 			}
 		}
@@ -129,7 +129,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		return routed.GetChannel(id)
 	}
 	us := p.upstreams[0] // default upstream
-	p.sendProbeLog("t->u not matched any patterns, using default upstream", "routing_key", routingKey)
+	p.probeLog("t->u not matched any patterns, using default upstream", "routing_key", routingKey)
 	return us.GetChannel(id)
 }
 
@@ -186,7 +186,7 @@ func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstrea
 
 	select {
 	case <-ctx.Done():
-		p.sendProbeLog("t<-u upstream monitoring stopped by context", "upstream", upstream.String())
+		p.probeLog("t<-u upstream monitoring stopped by context", "upstream", upstream.String())
 		return
 	case err := <-upstream.NotifyClose():
 		if err != nil {
@@ -217,7 +217,7 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 		Host:   addr,
 		Path:   p.VirtualHost,
 	}
-	p.sendProbeLog("t->u connect", "url", safeURLString(*u))
+	p.probeLog("t->u connect", "url", safeURLString(*u))
 	// Copy all client properties and override specific ones
 	upstreamProps := rabbitmq.Table{}
 	for k, v := range props {
@@ -256,7 +256,7 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 	for _, addr := range nodesToTry {
 		conn, err := p.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
-			p.sendProbeLog("t->u connected", "upstream", upstreamName, "address", addr)
+			p.probeLog("t->u connected", "upstream", upstreamName, "address", addr)
 			return conn, addr, nil
 		} else {
 			p.logger.Warn("Failed to connect to upstream node",
@@ -352,13 +352,13 @@ func (p *Proxy) handshake(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse PLAIN auth response: %w", err)
 		}
-		p.sendProbeLog("c->t PLAIN auth", "user", p.user)
+		p.probeLog("c->t PLAIN auth", "user", p.user)
 	case "AMQPLAIN":
 		p.user, p.password, err = amqp091.ParseAMQPLAINAuthResponse(authRes)
 		if err != nil {
 			return fmt.Errorf("failed to parse AMQPLAIN auth response: %w", err)
 		}
-		p.sendProbeLog("c->t AMQPLAIN auth", "user", p.user)
+		p.probeLog("c->t AMQPLAIN auth", "user", p.user)
 	default:
 		return fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
@@ -379,7 +379,7 @@ func (p *Proxy) handshake(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
-	p.sendProbeLog("c->t Connection.Tune-Ok", "channel_max", tuneOk.ChannelMax, "frame_max", tuneOk.FrameMax, "heartbeat", tuneOk.Heartbeat)
+	p.probeLog("c->t Connection.Tune-Ok", "channel_max", tuneOk.ChannelMax, "frame_max", tuneOk.FrameMax, "heartbeat", tuneOk.Heartbeat)
 	if tuneOk.ChannelMax > 0 {
 		p.tuned.channelMax = tuneOk.ChannelMax
 	}
@@ -396,7 +396,7 @@ func (p *Proxy) handshake(ctx context.Context) error {
 		return fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
 	p.VirtualHost = open.VirtualHost
-	p.sendProbeLog("c->t Connection.Open", "vhost", p.VirtualHost)
+	p.probeLog("c->t Connection.Open", "vhost", p.VirtualHost)
 
 	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
@@ -413,7 +413,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 		// disable heartbeat
 		return
 	}
-	p.sendProbeLog("c<-t heartbeat started", "interval", p.tuned.heartbeat)
+	p.probeLog("c<-t heartbeat started", "interval", p.tuned.heartbeat)
 	ticker := time.NewTicker(time.Duration(p.tuned.heartbeat) * time.Second)
 	defer ticker.Stop()
 	for {
@@ -422,7 +422,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 			return
 		case <-ticker.C:
 			p.mu.Lock()
-			p.sendProbeLog("c<-t heartbeat", "proxy", p.id)
+			p.probeLog("c<-t heartbeat", "proxy", p.id)
 			if err := p.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
 				p.mu.Unlock()
 				p.logger.Warn("failed to send heartbeat", "error", err)
@@ -475,7 +475,7 @@ func (p *Proxy) sendConnectionError(err AMQPError) error {
 	p.conn.SetReadDeadline(time.Now().Add(p.connectionCloseTimeout))
 	msg := amqp091.ConnectionCloseOk{}
 	if _, recvErr := p.recv(0, &msg); recvErr != nil {
-		p.sendProbeLog("c->t failed to read Connection.Close-Ok", "error", recvErr)
+		p.probeLog("c->t failed to read Connection.Close-Ok", "error", recvErr)
 	}
 	return nil
 }
@@ -501,9 +501,9 @@ func (p *Proxy) process(ctx context.Context) error {
 	p.metrics.ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
-		p.sendProbeLog("c->t method", "type", amqp091.TypeName(mf.Method))
+		p.probeLog("c->t method", "type", amqp091.TypeName(mf.Method))
 	} else {
-		p.sendProbeLog("c->t frame", "type", amqp091.TypeName(frame))
+		p.probeLog("c->t frame", "type", amqp091.TypeName(frame))
 	}
 	if frame.Channel() == 0 {
 		err = p.dispatch0(ctx, frame)
@@ -573,7 +573,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
 		}
 	case *amqp091.HeartbeatFrame:
-		p.sendProbeLog("c->t heartbeat")
+		p.probeLog("c->t heartbeat")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -591,7 +591,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 			return fmt.Errorf("unsupported method: %T", m)
 		}
 	case *amqp091.HeartbeatFrame:
-		p.sendProbeLog("t<-u heartbeat")
+		p.probeLog("t<-u heartbeat")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)
@@ -602,7 +602,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.sendProbeLog("c<-t send", "channel", channel, "type", amqp091.TypeName(m))
+	p.probeLog("c<-t send", "channel", channel, "type", amqp091.TypeName(m))
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
 		class, _ := msg.ID()
@@ -670,7 +670,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	var header *amqp091.HeaderFrame
 	var body []byte
 	defer func() {
-		p.sendProbeLog("c->t recv", "channel", channel, "type", amqp091.TypeName(m))
+		p.probeLog("c->t recv", "channel", channel, "type", amqp091.TypeName(m))
 	}()
 
 	for {
@@ -686,7 +686,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 
 		switch f := frame.(type) {
 		case *amqp091.HeartbeatFrame:
-			p.sendProbeLog("c->t heartbeat received")
+			p.probeLog("c->t heartbeat received")
 			// nothing to do
 		case *amqp091.HeaderFrame:
 			// start content state
