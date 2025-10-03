@@ -277,4 +277,5 @@ type QueueAttributes struct {
 	AutoDelete *bool         `yaml:"auto_delete,omitempty" json:"auto_delete,omitempty"`
 	Exclusive  *bool         `yaml:"exclusive,omitempty" json:"exclusive,omitempty"`
 	Arguments  amqp091.Table `yaml:"arguments,omitempty" json:"arguments,omitempty"`
+	TryPassive bool          `yaml:"try_passive,omitempty" json:"try_passive,omitempty"`
 }

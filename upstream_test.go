@@ -139,6 +139,30 @@ var testUpstreamQueueAttrSuites = []struct {
 		exclusive:  true,  // kept from client
 		args:       nil,
 	},
+	{
+		name: "try_passive enabled - normal declare args",
+		m: &amqp091.QueueDeclare{
+			Queue:      "test",
+			Durable:    false,
+			AutoDelete: true,
+			Exclusive:  false,
+			Arguments:  nil,
+		},
+		attr: &config.QueueAttributes{
+			Durable:    ptr(true),
+			TryPassive: true, // enable try_passive
+			Arguments: amqp091.Table{
+				"x-queue-type": "quorum",
+			},
+		},
+		queue:      "test",
+		durable:    true, // overridden for normal declare
+		autoDelete: true, // kept from client
+		exclusive:  false,
+		args: rabbitmq.Table{
+			"x-queue-type": "quorum",
+		},
+	},
 }
 
 func TestUpstreamQueueAttr(t *testing.T) {

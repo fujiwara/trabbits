@@ -58,7 +58,7 @@ func (p *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 	for i, ch := range chs {
 		us := p.Upstream(i)
 		p.sendProbeLog("Queue.Declare on upstream", "upstream", us.String(), "message", m)
-		q, err := ch.QueueDeclare(us.QueueDeclareArgs(m))
+		q, err := us.QueueDeclareWithTryPassive(ch, m)
 		if err != nil {
 			return fmt.Errorf("failed to declare queue on upstream: %w", err)
 		}

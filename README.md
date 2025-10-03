@@ -139,6 +139,7 @@ trabbit's configuration file is located at `config.json`. The configuration file
                 "durable": true,
                 "auto_delete": false,
                 "exclusive": false,
+                "try_passive": true,
                 "arguments": {
                     "x-queue-type": "quorum"
                 }
@@ -180,6 +181,7 @@ Each `upstream` has the following fields:
    - `exclusive`: Override the exclusive flag. If not specified (`null`), the client's value is used.
    - `arguments`: A map of arguments for the queue. Arguments are merged with client-provided arguments.
       The keys are strings and the values are any type. If the value is `null`, the argument will be removed from the client's arguments.
+   - `try_passive`: (Optional, default: `false`) When set to `true`, trabbits will first attempt a passive queue declare to check if the queue already exists. If the queue exists, it will be used as-is regardless of the configured attributes. If the queue doesn't exist (404 error), trabbits will fall back to creating the queue with the configured attributes. This is useful for avoiding PRECONDITION_FAILED errors when working with existing queues that may have different attributes.
 
 ### Cluster Connection Behavior
 

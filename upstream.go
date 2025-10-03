@@ -192,3 +192,27 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 		return m.Queue, durable, autoDelete, exclusive, false, arguments
 	}
 }
+
+// QueueDeclareWithTryPassive attempts a passive declare first, then falls back to normal declare if queue doesn't exist
+func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.QueueDeclare) (rabbitmq.Queue, error) {
+	if u.queueAttr != nil && u.queueAttr.TryPassive {
+		// Try passive declare first to check if queue exists
+		u.logger.Debug("trying passive declare", "queue", m.Queue, "upstream", u.String())
+		q, err := ch.QueueDeclare(m.Queue, false, false, false, true, nil)
+		if err == nil {
+			u.logger.Debug("passive declare succeeded", "queue", m.Queue, "upstream", u.String())
+			return q, nil
+		}
+		// Check if error is NOT_FOUND (404)
+		if amqpErr, ok := err.(*rabbitmq.Error); ok && amqpErr.Code == amqp091.NotFound {
+			u.logger.Debug("queue not found, falling back to normal declare", "queue", m.Queue, "upstream", u.String())
+			// Fall through to normal declare
+		} else {
+			// Other errors should be returned
+			return rabbitmq.Queue{}, fmt.Errorf("passive declare failed: %w", err)
+		}
+	}
+
+	// Normal declare with configured attributes
+	return ch.QueueDeclare(u.QueueDeclareArgs(m))
+}
