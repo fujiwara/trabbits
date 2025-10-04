@@ -38,7 +38,8 @@ var (
 	HeartbeatInterval             = uint16(60)
 	FrameMax                      = uint32(128 * 1024)
 	UpstreamDefaultTimeout        = 5 * time.Second
-	DefaultReadTimeout            = 5 * time.Second
+	DefaultHandshakeTimeout       = 5 * time.Second
+	DefaultProcessTimeout         = 5 * time.Minute // Long timeout for process loop (low-frequency clients)
 	DefaultConnectionCloseTimeout = 1 * time.Second
 
 	// Shutdown messages
@@ -126,7 +127,8 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		w:                      amqp091.NewWriter(conn),
 		upstreamDisconnect:     make(chan string, 10), // buffered to avoid blocking
 		configHash:             s.GetConfigHash(),
-		readTimeout:            config.ReadTimeout.ToDuration(),
+		handshakeTimeout:       config.HandshakeTimeout.ToDuration(),
+		processTimeout:         DefaultProcessTimeout,
 		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
 		shutdownMessage:        ShutdownMsgDefault,       // default shutdown message
 		connectedAt:            time.Now(),               // timestamp when the client connected
@@ -493,7 +495,8 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		srv.Metrics().ClientConnections.Dec()
 	}()
 
-	slog.Info("new connection", "client_addr", conn.RemoteAddr().String())
+	slog.Info("new connection", "client_addr", conn.RemoteAddr().String(), "handshake_timeout", srv.config.HandshakeTimeout)
+	conn.SetReadDeadline(time.Now().Add(srv.config.HandshakeTimeout.ToDuration())) // Set read deadline for handshake
 	// AMQP プロトコルヘッダー受信
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
@@ -516,6 +519,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	if err := p.handshake(ctx); err != nil {
 		p.logger.Warn("Failed to handshake", "error", err)
 		srv.Metrics().ClientConnectionErrors.Inc()
+		conn.Close()
 		return
 	}
 	p.logger.Debug("handshake completed")

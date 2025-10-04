@@ -39,7 +39,8 @@ type Proxy struct {
 	user                   string
 	password               string
 	clientProps            amqp091.Table
-	readTimeout            time.Duration
+	handshakeTimeout       time.Duration
+	processTimeout         time.Duration
 	connectionCloseTimeout time.Duration
 
 	configHash         string                // hash of config used for this proxy
@@ -343,7 +344,7 @@ func (p *Proxy) handshake(_ context.Context) error {
 
 	// Connection.Start-Ok 受信（認証情報含む）
 	startOk := amqp091.ConnectionStartOk{}
-	_, err := p.recv(0, &startOk)
+	_, err := p.recvWithTimeout(0, &startOk, p.handshakeTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Start-Ok: %w", err)
 	}
@@ -380,7 +381,7 @@ func (p *Proxy) handshake(_ context.Context) error {
 
 	// Connection.Tune-Ok 受信
 	tuneOk := amqp091.ConnectionTuneOk{}
-	_, err = p.recv(0, &tuneOk)
+	_, err = p.recvWithTimeout(0, &tuneOk, p.handshakeTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Tune-Ok: %w", err)
 	}
@@ -396,7 +397,7 @@ func (p *Proxy) handshake(_ context.Context) error {
 
 	// Connection.Open 受信
 	open := amqp091.ConnectionOpen{}
-	_, err = p.recv(0, &open)
+	_, err = p.recvWithTimeout(0, &open, p.handshakeTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to read Connection.Open: %w", err)
 	}
@@ -507,9 +508,13 @@ func (p *Proxy) sendConnectionError(err AMQPError) error {
 	return nil
 }
 
-func (p *Proxy) readClientFrame() (amqp091.Frame, error) {
-	p.conn.SetReadDeadline(time.Now().Add(p.readTimeout))
+func (p *Proxy) readClientFrameWithTimeout(timeout time.Duration) (amqp091.Frame, error) {
+	p.conn.SetReadDeadline(time.Now().Add(timeout))
 	return p.r.ReadFrame()
+}
+
+func (p *Proxy) readClientFrame() (amqp091.Frame, error) {
+	return p.readClientFrameWithTimeout(p.processTimeout)
 }
 
 func (p *Proxy) process(ctx context.Context) error {
@@ -682,7 +687,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 	return nil
 }
 
-func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
+func (p *Proxy) recvWithTimeout(channel int, m amqp091.Message, timeout time.Duration) (amqp091.Message, error) {
 	var remaining int
 	var header *amqp091.HeaderFrame
 	var body []byte
@@ -691,7 +696,7 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 	}()
 
 	for {
-		frame, err := p.readClientFrame()
+		frame, err := p.readClientFrameWithTimeout(timeout)
 		if err != nil {
 			return nil, fmt.Errorf("frame err, read: %w", err)
 		}
@@ -739,4 +744,8 @@ func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
 			return nil, fmt.Errorf("unexpected frame: %+v", f)
 		}
 	}
+}
+
+func (p *Proxy) recv(channel int, m amqp091.Message) (amqp091.Message, error) {
+	return p.recvWithTimeout(channel, m, p.processTimeout)
 }

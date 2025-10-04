@@ -32,7 +32,7 @@ const (
 // Config represents the configuration of the trabbits proxy.
 type Config struct {
 	Upstreams              []Upstream       `yaml:"upstreams" json:"upstreams"`
-	ReadTimeout            Duration         `yaml:"read_timeout,omitempty" json:"read_timeout,omitempty"`
+	HandshakeTimeout       Duration         `yaml:"handshake_timeout,omitempty" json:"handshake_timeout,omitempty"`
 	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
 	GracefulShutdown       GracefulShutdown `yaml:"graceful_shutdown,omitempty" json:"graceful_shutdown,omitempty"`
 }
@@ -102,8 +102,8 @@ func Load(ctx context.Context, f string) (*Config, error) {
 // SetDefaults sets default values for config fields if not specified
 func (c *Config) SetDefaults() {
 	// Set default timeout values if not specified
-	if c.ReadTimeout == 0 {
-		c.ReadTimeout = Duration(5 * time.Second) // DefaultReadTimeout
+	if c.HandshakeTimeout == 0 {
+		c.HandshakeTimeout = Duration(5 * time.Second) // DefaultHandshakeTimeout
 	}
 	if c.ConnectionCloseTimeout == 0 {
 		c.ConnectionCloseTimeout = Duration(1 * time.Second) // DefaultConnectionCloseTimeout
