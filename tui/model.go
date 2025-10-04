@@ -55,10 +55,11 @@ type TUIModel struct {
 
 // LogEntry represents a log message
 type LogEntry struct {
-	Time    time.Time
-	Level   string
-	Message string
-	Attrs   map[string]any
+	Time     time.Time
+	Level    string
+	Message  string
+	Attrs    map[string]any
+	AttrJSON string // cached JSON string for Attrs (filtered)
 }
 
 type confirmState struct {
@@ -212,9 +213,9 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.probeState != nil {
 			entry := probeLogEntry(msg)
 			m.probeState.logs = append(m.probeState.logs, entry)
-			// Keep only last 1000 logs to prevent memory issues
-			if len(m.probeState.logs) > 1000 {
-				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-1000:]
+			// Keep only last N logs to prevent memory issues
+			if len(m.probeState.logs) > probeLogKeep {
+				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-probeLogKeep:]
 			}
 			// Auto-scroll to bottom only if auto-scroll is enabled
 			if m.probeState.autoScroll {
@@ -331,10 +332,25 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listenForProbeLog()
 
 	case logMsg:
-		// Add log entry to buffer (keep last 100 entries)
-		m.logEntries = append(m.logEntries, LogEntry(msg))
-		if len(m.logEntries) > 100 {
-			m.logEntries = m.logEntries[len(m.logEntries)-100:]
+		// Add log entry to buffer with cached AttrJSON
+		entry := LogEntry(msg)
+		if len(entry.Attrs) > 0 {
+			// Filter out level before caching
+			filtered := make(map[string]any)
+			for k, v := range entry.Attrs {
+				if k != "level" {
+					filtered[k] = v
+				}
+			}
+			if len(filtered) > 0 {
+				if b, err := json.Marshal(filtered); err == nil {
+					entry.AttrJSON = string(b)
+				}
+			}
+		}
+		m.logEntries = append(m.logEntries, entry)
+		if len(m.logEntries) > serverLogKeep {
+			m.logEntries = m.logEntries[len(m.logEntries)-serverLogKeep:]
 		}
 		// Continue listening for logs
 		return m, m.listenForLogs()

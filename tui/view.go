@@ -89,7 +89,7 @@ func (m *TUIModel) renderListView() string {
 	b.WriteString(help)
 
 	// Show error messages
-	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
+	if m.err != nil && time.Since(m.errorTime) < errorToastDuration {
 		errMsg := fmt.Sprintf("Error: %v", m.err)
 		if len(errMsg) > 80 {
 			lines := []string{}
@@ -108,7 +108,7 @@ func (m *TUIModel) renderListView() string {
 	}
 
 	// Show success messages
-	if m.successMsg != "" && time.Since(m.successTime) < 3*time.Second {
+	if m.successMsg != "" && time.Since(m.successTime) < successToastDuration {
 		b.WriteString("\n" + successStyle.Render(m.successMsg))
 	} else if m.successMsg != "" && time.Since(m.successTime) >= 3*time.Second {
 		m.successMsg = ""
@@ -479,13 +479,13 @@ func (m *TUIModel) renderProbeView() string {
 	b.WriteString(helpStyle.Render(helpText))
 
 	// Show error messages
-	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
+	if m.err != nil && time.Since(m.errorTime) < errorToastDuration {
 		errMsg := fmt.Sprintf("Error: %v", m.err)
 		b.WriteString("\n" + errorStyle.Render(errMsg))
 	}
 
 	// Show success messages (short toast)
-	if m.successMsg != "" && time.Since(m.successTime) < 3*time.Second {
+	if m.successMsg != "" && time.Since(m.successTime) < successToastDuration {
 		b.WriteString("\n" + successStyle.Render(m.successMsg))
 	}
 
@@ -658,20 +658,7 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 	// Build the main text first (without styling)
 	mainText := fmt.Sprintf("%s %-5s %s", timestamp, entry.Level, entry.Message)
 
-	var attrStr string
-	if len(entry.Attrs) > 0 {
-		// Create a copy without the "level" key
-		filteredAttrs := make(map[string]any)
-		for k, v := range entry.Attrs {
-			if k != "level" {
-				filteredAttrs[k] = v
-			}
-		}
-		if len(filteredAttrs) > 0 {
-			attrs, _ := json.Marshal(filteredAttrs)
-			attrStr = string(attrs)
-		}
-	}
+	attrStr := entry.AttrJSON
 
 	// Calculate available width for wrapping
 	width := m.width - 2 // -2 for margins
