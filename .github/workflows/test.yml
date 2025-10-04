@@ -74,7 +74,7 @@ jobs:
       - name: test upstreams down and bench upstream up
         run: |
           docker compose -f compose.yml down
-          make -j run-bench-servers &
+          make -j run-servers-for-bench &
 
       - name: bench directly
         run: |
