@@ -13,8 +13,17 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sync"
 	"time"
 )
+
+// bufferPool is a pool of bytes.Buffer for frame serialization.
+// This reduces allocations and GC pressure.
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
 
 func (w *Writer) WriteFrameNoFlush(frame Frame) (err error) {
 	err = frame.Write(w.w)
@@ -34,27 +43,30 @@ func (w *Writer) WriteFrame(frame Frame) (err error) {
 }
 
 func (f *MethodFrame) Write(w io.Writer) (err error) {
-	var payload bytes.Buffer
-
 	if f.Method == nil {
 		return errors.New("malformed frame: missing method")
 	}
 
+	// Get buffer from pool
+	payload := bufferPool.Get().(*bytes.Buffer)
+	payload.Reset()
+	defer bufferPool.Put(payload)
+
 	class, method := f.Method.ID()
 
-	if err = binary.Write(&payload, binary.BigEndian, class); err != nil {
+	if err = binary.Write(payload, binary.BigEndian, class); err != nil {
 		return
 	}
 
-	if err = binary.Write(&payload, binary.BigEndian, method); err != nil {
+	if err = binary.Write(payload, binary.BigEndian, method); err != nil {
 		return
 	}
 
-	if err = f.Method.Write(&payload); err != nil {
+	if err = f.Method.Write(payload); err != nil {
 		return
 	}
 
-	return writeFrame(w, frameMethod, f.ChannelId, payload.Bytes())
+	return writeFrameBuffer(w, frameMethod, f.ChannelId, payload)
 }
 
 // Heartbeat
@@ -72,17 +84,20 @@ func (f *HeartbeatFrame) Write(w io.Writer) (err error) {
 //
 //	short     short    long long       short        remainder...
 func (f *HeaderFrame) Write(w io.Writer) (err error) {
-	var payload bytes.Buffer
+	// Get buffer from pool
+	payload := bufferPool.Get().(*bytes.Buffer)
+	payload.Reset()
+	defer bufferPool.Put(payload)
 
-	if err = binary.Write(&payload, binary.BigEndian, f.ClassId); err != nil {
+	if err = binary.Write(payload, binary.BigEndian, f.ClassId); err != nil {
 		return
 	}
 
-	if err = binary.Write(&payload, binary.BigEndian, f.weight); err != nil {
+	if err = binary.Write(payload, binary.BigEndian, f.weight); err != nil {
 		return
 	}
 
-	if err = binary.Write(&payload, binary.BigEndian, f.Size); err != nil {
+	if err = binary.Write(payload, binary.BigEndian, f.Size); err != nil {
 		return
 	}
 
@@ -131,77 +146,77 @@ func (f *HeaderFrame) Write(w io.Writer) (err error) {
 		mask |= flagAppId
 	}
 
-	if err = binary.Write(&payload, binary.BigEndian, mask); err != nil {
+	if err = binary.Write(payload, binary.BigEndian, mask); err != nil {
 		return
 	}
 
 	if hasProperty(mask, flagContentType) {
-		if err = writeShortstr(&payload, f.Properties.ContentType); err != nil {
+		if err = writeShortstr(payload, f.Properties.ContentType); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagContentEncoding) {
-		if err = writeShortstr(&payload, f.Properties.ContentEncoding); err != nil {
+		if err = writeShortstr(payload, f.Properties.ContentEncoding); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagHeaders) {
-		if err = writeTable(&payload, f.Properties.Headers); err != nil {
+		if err = writeTable(payload, f.Properties.Headers); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagDeliveryMode) {
-		if err = binary.Write(&payload, binary.BigEndian, f.Properties.DeliveryMode); err != nil {
+		if err = binary.Write(payload, binary.BigEndian, f.Properties.DeliveryMode); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagPriority) {
-		if err = binary.Write(&payload, binary.BigEndian, f.Properties.Priority); err != nil {
+		if err = binary.Write(payload, binary.BigEndian, f.Properties.Priority); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagCorrelationId) {
-		if err = writeShortstr(&payload, f.Properties.CorrelationId); err != nil {
+		if err = writeShortstr(payload, f.Properties.CorrelationId); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagReplyTo) {
-		if err = writeShortstr(&payload, f.Properties.ReplyTo); err != nil {
+		if err = writeShortstr(payload, f.Properties.ReplyTo); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagExpiration) {
-		if err = writeShortstr(&payload, f.Properties.Expiration); err != nil {
+		if err = writeShortstr(payload, f.Properties.Expiration); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagMessageId) {
-		if err = writeShortstr(&payload, f.Properties.MessageId); err != nil {
+		if err = writeShortstr(payload, f.Properties.MessageId); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagTimestamp) {
-		if err = binary.Write(&payload, binary.BigEndian, uint64(f.Properties.Timestamp.Unix())); err != nil {
+		if err = binary.Write(payload, binary.BigEndian, uint64(f.Properties.Timestamp.Unix())); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagType) {
-		if err = writeShortstr(&payload, f.Properties.Type); err != nil {
+		if err = writeShortstr(payload, f.Properties.Type); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagUserId) {
-		if err = writeShortstr(&payload, f.Properties.UserId); err != nil {
+		if err = writeShortstr(payload, f.Properties.UserId); err != nil {
 			return
 		}
 	}
 	if hasProperty(mask, flagAppId) {
-		if err = writeShortstr(&payload, f.Properties.AppId); err != nil {
+		if err = writeShortstr(payload, f.Properties.AppId); err != nil {
 			return
 		}
 	}
 
-	return writeFrame(w, frameHeader, f.ChannelId, payload.Bytes())
+	return writeFrameBuffer(w, frameHeader, f.ChannelId, payload)
 }
 
 // Body
@@ -235,6 +250,42 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) error {
 
 	// 1回の Write で送信
 	_, err := w.Write(buf)
+	return err
+}
+
+// writeFrameBuffer writes a frame directly using the payload already in a buffer.
+// This avoids the extra copy of payload bytes that would occur with writeFrame.
+func writeFrameBuffer(w io.Writer, typ uint8, channel uint16, payload *bytes.Buffer) error {
+	payloadBytes := payload.Bytes()
+	size := uint32(len(payloadBytes))
+
+	// Allocate only header + end marker (8 bytes) instead of entire frame
+	// Payload is written directly without copying
+	header := [8]byte{
+		typ,
+		byte(channel >> 8),
+		byte(channel),
+		byte(size >> 24),
+		byte(size >> 16),
+		byte(size >> 8),
+		byte(size),
+		frameEnd,
+	}
+
+	// Write header (7 bytes)
+	if _, err := w.Write(header[:7]); err != nil {
+		return err
+	}
+
+	// Write payload directly from buffer (no copy)
+	if len(payloadBytes) > 0 {
+		if _, err := w.Write(payloadBytes); err != nil {
+			return err
+		}
+	}
+
+	// Write frame end marker
+	_, err := w.Write(header[7:8])
 	return err
 }
 

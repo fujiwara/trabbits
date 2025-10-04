@@ -212,6 +212,25 @@ func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstrea
 	}
 }
 
+// dialWithTCPNoDelay creates a dialer function that enables TCP_NODELAY
+func dialWithTCPNoDelay(timeout time.Duration) func(network, addr string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, timeout)
+		if err != nil {
+			return nil, err
+		}
+
+		// Enable TCP_NODELAY to disable Nagle's algorithm for lower latency
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			if err := tcpConn.SetNoDelay(true); err != nil {
+				slog.Warn("Failed to set TCP_NODELAY on upstream connection", "error", err)
+			}
+		}
+
+		return conn, nil
+	}
+}
+
 func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeout time.Duration) (*rabbitmq.Connection, error) {
 	u := &url.URL{
 		Scheme: "amqp",
@@ -230,7 +249,7 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 
 	cfg := rabbitmq.Config{
 		Properties: upstreamProps,
-		Dial:       rabbitmq.DefaultDial(timeout),
+		Dial:       dialWithTCPNoDelay(timeout),
 	}
 	conn, err := rabbitmq.DialConfig(u.String(), cfg)
 	if err != nil {
