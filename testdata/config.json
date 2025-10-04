@@ -1,5 +1,5 @@
 {
-    "read_timeout": "5s",
+    "handshake_timeout": "1s",
     "connection_close_timeout": "1s",
     "upstreams": [
         {

@@ -106,7 +106,7 @@ trabbit's configuration file is located at `config.json`. The configuration file
 
 ```json
 {
-    "read_timeout": "5s",
+    "handshake_timeout": "5s",
     "connection_close_timeout": "1s",
     "upstreams": [
         {
@@ -228,10 +228,10 @@ If the routing key does not match any patterns, trabbits will use the first upst
 
 These timeout settings control internal connection behavior and typically do not need to be modified:
 
-- `read_timeout`: (Optional) Maximum time to wait for reading data from client connections (default: 5s). Accepts Go duration format (e.g., "5s", "10s").
+- `handshake_timeout`: (Optional) Maximum time to wait for each frame during the AMQP handshake process (Connection.Start-Ok, Connection.Tune-Ok, Connection.Open) from client connections (default: 5s). Accepts Go duration format (e.g., "5s", "10s").
 - `connection_close_timeout`: (Optional) Maximum time to wait for Connection.Close-Ok response during graceful connection shutdown (default: 1s). Accepts Go duration format.
 
-**Note:** These are advanced settings that should only be adjusted if you experience specific timeout-related issues. The default values are suitable for most use cases.
+**Note:** These are advanced settings that should only be adjusted if you experience specific timeout-related issues. The default values are suitable for most use cases. Normal message processing uses a longer fixed timeout (5 minutes) to accommodate low-frequency client communication patterns.
 
 #### Graceful Shutdown Settings
 
