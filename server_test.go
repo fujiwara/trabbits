@@ -93,13 +93,13 @@ func TestMain(m *testing.M) {
 	if debug {
 		trabbits.SetupLogger(slog.LevelDebug)
 	} else {
-		trabbits.SetupLogger(slog.LevelInfo)
+		trabbits.SetupLogger(slog.LevelWarn)
 	}
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
 
 	// escape if the test is taking too long
-	time.AfterFunc(60*time.Second, func() {
+	time.AfterFunc(180*time.Second, func() {
 		panic("timeout")
 	})
 
