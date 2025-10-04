@@ -196,8 +196,14 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Auto-scroll to bottom only if auto-scroll is enabled
 			if m.probeState.autoScroll {
-				m.probeState.scroll = len(m.probeState.logs)
 				m.probeState.selectedIdx = len(m.probeState.logs) - 1 // Select the latest log
+				// Adjust scroll to show the last item
+				visibleRows := m.getProbeVisibleRows()
+				maxScroll := len(m.probeState.logs) - visibleRows
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				m.probeState.scroll = maxScroll
 			}
 
 			// Continue listening for next log

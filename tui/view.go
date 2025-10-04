@@ -449,9 +449,13 @@ func (m *TUIModel) renderProbeView() string {
 
 	// Help text
 	b.WriteString("\n")
-	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page"
-	if m.probeState != nil && !m.probeState.autoScroll {
-		helpText += " • Auto-scroll: OFF (press End to re-enable)"
+	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page • SPACE pause"
+	if m.probeState != nil {
+		if m.probeState.autoScroll {
+			helpText += " • Auto-scroll: ON"
+		} else {
+			helpText += " • Auto-scroll: OFF"
+		}
 	}
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
 

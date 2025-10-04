@@ -217,6 +217,21 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Stop probe stream and return to list view
 		m.stopProbeStream()
 		m.viewMode = ViewList
+	case " ":
+		// Toggle auto-scroll with space key
+		if m.probeState != nil {
+			m.probeState.autoScroll = !m.probeState.autoScroll
+			// If enabling auto-scroll, jump to bottom
+			if m.probeState.autoScroll && len(m.probeState.logs) > 0 {
+				m.probeState.selectedIdx = len(m.probeState.logs) - 1
+				visibleRows := m.getProbeVisibleRows()
+				maxScroll := len(m.probeState.logs) - visibleRows
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				m.probeState.scroll = maxScroll
+			}
+		}
 	case "up", "k":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
 			if m.probeState.selectedIdx > 0 {
