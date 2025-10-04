@@ -102,6 +102,10 @@ func (m *TUIModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleListKeys handles keys in the list view
 func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "g":
+		// Jump to top (Vim-like)
+		m.selectedIdx = 0
+		m.listScroll = 0
 	case "K":
 		// Shutdown client
 		if len(m.clients) > 0 && m.selectedIdx < len(m.clients) {
@@ -149,6 +153,12 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		m.selectedIdx = len(m.clients) - 1
 		m.adjustScrollForSelection()
+	case "G":
+		// Jump to bottom (Vim-like)
+		if len(m.clients) > 0 {
+			m.selectedIdx = len(m.clients) - 1
+			m.adjustScrollForSelection()
+		}
 	case "enter":
 		if len(m.clients) > 0 {
 			m.selectedID = m.clients[m.selectedIdx].ID
@@ -249,6 +259,12 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Stop probe stream and return to list view
 		m.stopProbeStream()
 		m.viewMode = ViewList
+	case "g":
+		if m.probeState != nil {
+			m.probeState.selectedIdx = 0
+			m.probeState.scroll = 0
+			m.probeState.autoScroll = false
+		}
 	case " ":
 		// Toggle auto-scroll with space key
 		if m.probeState != nil {
@@ -323,6 +339,12 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.probeState.scroll = maxScroll
 			m.probeState.autoScroll = true // Enable auto-scroll when going to bottom
 		}
+	case "G":
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			m.probeState.selectedIdx = len(m.probeState.logs) - 1
+			m.probeState.scroll = maxScroll(len(m.probeState.logs), m.getProbeVisibleRows())
+			m.probeState.autoScroll = true
+		}
 	case "pgup":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
 			pageSize := m.getProbeVisibleRows()
@@ -379,6 +401,10 @@ func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q", "esc":
 		m.viewMode = ViewList
 		m.serverLogsScroll = 0
+	case "g":
+		// Jump to top
+		m.serverLogsSelectedIdx = 0
+		m.serverLogsScroll = 0
 	case "up", "k":
 		if len(m.logEntries) > 0 && m.serverLogsSelectedIdx > 0 {
 			m.serverLogsSelectedIdx--
@@ -413,6 +439,17 @@ func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.serverLogsSelectedIdx = len(m.logEntries) - 1
 			m.adjustServerLogsScroll()
 		}
+	case "G":
+		// Jump to bottom
+		if len(m.logEntries) > 0 {
+			m.serverLogsSelectedIdx = len(m.logEntries) - 1
+			m.adjustServerLogsScroll()
+		}
+	case "R":
+		// Reset dropped logs counter
+		m.droppedLogs = 0
+		m.successMsg = "Dropped logs reset"
+		m.successTime = time.Now()
 	}
 	return m, nil
 }

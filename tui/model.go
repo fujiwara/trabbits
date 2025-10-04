@@ -203,9 +203,27 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 
 	case clientsMsg:
+		// Preserve selection by client ID when possible
+		var prevSelectedID string
+		if m.selectedIdx >= 0 && m.selectedIdx < len(m.clients) {
+			prevSelectedID = m.clients[m.selectedIdx].ID
+		}
 		m.clients = []types.ClientInfo(msg)
 		m.lastUpdate = time.Now()
-		if m.selectedIdx >= len(m.clients) && len(m.clients) > 0 {
+		// Try to restore selection to the same client ID
+		if prevSelectedID != "" {
+			restored := false
+			for i, c := range m.clients {
+				if c.ID == prevSelectedID {
+					m.selectedIdx = i
+					restored = true
+					break
+				}
+			}
+			if !restored && len(m.clients) > 0 && m.selectedIdx >= len(m.clients) {
+				m.selectedIdx = len(m.clients) - 1
+			}
+		} else if len(m.clients) > 0 && m.selectedIdx >= len(m.clients) {
 			m.selectedIdx = len(m.clients) - 1
 		}
 		// Ensure selection remains visible and scroll stays in bounds
