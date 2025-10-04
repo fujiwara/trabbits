@@ -564,25 +564,22 @@ func wrapText(text string, width int) []string {
 		start := 0
 		lineWidth := 0
 		lastSpace := -1
-		widthAtLastSpace := 0
-		i := 0
-		for i < len(runes) {
+        i := 0
+        for i < len(runes) {
 			ch := runes[i]
 			if ch == '\n' {
 				out = append(out, string(runes[start:i]))
 				start = i + 1
 				lineWidth = 0
 				lastSpace = -1
-				widthAtLastSpace = 0
-				i++
-				continue
-			}
+                i++
+                continue
+            }
 
 			rw := runewidth.RuneWidth(ch)
-			if ch == ' ' {
-				lastSpace = i
-				widthAtLastSpace = lineWidth
-			}
+            if ch == ' ' {
+                lastSpace = i
+            }
 
 			// If adding this rune would exceed width, wrap
 			if lineWidth+rw > width {
@@ -595,20 +592,18 @@ func wrapText(text string, width int) []string {
 					for j := start; j < i; j++ {
 						lineWidth += runewidth.RuneWidth(runes[j])
 					}
-					lastSpace = -1
-					widthAtLastSpace = 0
-					continue
-				}
-				// No space to break at; hard wrap before this rune
-				if i > start {
-					out = append(out, string(runes[start:i]))
-					start = i
-					lineWidth = 0
-					lastSpace = -1
-					widthAtLastSpace = 0
-					continue
-				}
-			}
+                    lastSpace = -1
+                    continue
+                }
+                // No space to break at; hard wrap before this rune
+                if i > start {
+                    out = append(out, string(runes[start:i]))
+                    start = i
+                    lineWidth = 0
+                    lastSpace = -1
+                    continue
+                }
+            }
 
 			lineWidth += rw
 			i++
