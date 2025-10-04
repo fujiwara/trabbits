@@ -56,11 +56,14 @@ func (m *TUIModel) renderListView() string {
 	var b strings.Builder
 	header := m.renderHeader()
 	table := m.renderTable()
+	logs := m.renderLogPane()
 	help := m.renderHelp()
 
 	b.WriteString(header)
 	b.WriteString("\n\n")
 	b.WriteString(table)
+	b.WriteString("\n")
+	b.WriteString(logs)
 	b.WriteString("\n")
 	b.WriteString(help)
 
@@ -518,6 +521,69 @@ func wrapText(text string, width int) []string {
 		}
 	}
 	return lines
+}
+
+// renderLogPane renders the log pane showing recent logs
+func (m *TUIModel) renderLogPane() string {
+	var b strings.Builder
+	logStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(0, 1)
+
+	var content string
+	if len(m.logEntries) == 0 {
+		content = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("Logs (waiting...)")
+	} else {
+		// Show last 3 log entries
+		displayCount := 3
+		startIdx := len(m.logEntries) - displayCount
+		if startIdx < 0 {
+			startIdx = 0
+		}
+
+		var logLines []string
+		logLines = append(logLines, lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
+		for i := startIdx; i < len(m.logEntries); i++ {
+			entry := m.logEntries[i]
+			logLine := m.formatLogEntry(entry)
+			logLines = append(logLines, logLine)
+		}
+		content = strings.Join(logLines, "\n")
+	}
+
+	b.WriteString(logStyle.Render(content))
+
+	return b.String()
+}
+
+// formatLogEntry formats a log entry for display
+func (m *TUIModel) formatLogEntry(entry LogEntry) string {
+	timestamp := entry.Time.Format("15:04:05")
+
+	// Color by level
+	var levelStyle lipgloss.Style
+	switch entry.Level {
+	case "ERROR":
+		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	case "WARN":
+		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+	case "INFO":
+		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
+	default:
+		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	}
+
+	level := levelStyle.Render(fmt.Sprintf("%-5s", entry.Level))
+
+	// Format attributes
+	attrStr := ""
+	if len(entry.Attrs) > 0 {
+		attrs, _ := json.Marshal(entry.Attrs)
+		attrStr = " " + string(attrs)
+	}
+
+	return fmt.Sprintf("%s %s %s%s", timestamp, level, entry.Message, attrStr)
 }
 
 // adjustScrollForSelection adjusts scroll position to keep selected item visible

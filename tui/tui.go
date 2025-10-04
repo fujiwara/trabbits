@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,6 +13,18 @@ import (
 // Run starts the TUI application
 func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 	model := NewModel(ctx, apiClient)
+
+	// Setup slog handler to send logs to TUI
+	originalHandler := slog.Default().Handler()
+	tuiHandler := NewTUIHandler(model.GetLogChannel(), originalHandler)
+	slog.SetDefault(slog.New(tuiHandler))
+
+	// Restore original handler when TUI exits
+	defer slog.SetDefault(slog.New(originalHandler))
+
+	// Send a test log to verify the log pane is working
+	slog.Info("TUI started", "version", "dev")
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

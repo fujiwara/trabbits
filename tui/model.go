@@ -40,6 +40,16 @@ type TUIModel struct {
 	successTime  time.Time
 	detailScroll int
 	listScroll   int
+	logEntries   []LogEntry // Recent log messages from slog
+	logChan      chan LogEntry
+}
+
+// LogEntry represents a log message
+type LogEntry struct {
+	Time    time.Time
+	Level   string
+	Message string
+	Attrs   map[string]any
 }
 
 type confirmState struct {
@@ -76,6 +86,7 @@ type (
 	successMsg            string
 	probeLogMsg           probeLogEntry
 	probeEndMsg           struct{}
+	logMsg                LogEntry
 	probeStreamStartedMsg struct {
 		clientID   string
 		ctx        context.Context
@@ -99,12 +110,20 @@ type (
 
 // NewModel creates a new TUI model
 func NewModel(ctx context.Context, apiClient apiclient.APIClient) *TUIModel {
+	logChan := make(chan LogEntry, 100)
 	return &TUIModel{
-		ctx:       ctx,
-		apiClient: apiClient,
-		clients:   []types.ClientInfo{},
-		viewMode:  ViewList,
+		ctx:        ctx,
+		apiClient:  apiClient,
+		clients:    []types.ClientInfo{},
+		viewMode:   ViewList,
+		logEntries: []LogEntry{},
+		logChan:    logChan,
 	}
+}
+
+// GetLogChannel returns the log channel for external log writers
+func (m *TUIModel) GetLogChannel() chan<- LogEntry {
+	return m.logChan
 }
 
 // Init initializes the TUI model
@@ -112,6 +131,7 @@ func (m *TUIModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchClients(),
 		tick(),
+		m.listenForLogs(),
 	)
 }
 
@@ -251,6 +271,15 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.probeState.selectedIdx = 0
 		}
 		return m, m.listenForProbeLog()
+
+	case logMsg:
+		// Add log entry to buffer (keep last 100 entries)
+		m.logEntries = append(m.logEntries, LogEntry(msg))
+		if len(m.logEntries) > 100 {
+			m.logEntries = m.logEntries[len(m.logEntries)-100:]
+		}
+		// Continue listening for logs
+		return m, m.listenForLogs()
 	}
 
 	return m, nil
@@ -341,6 +370,21 @@ func (m *TUIModel) stopProbeStream() {
 	if m.probeState != nil && m.probeState.cancelFunc != nil {
 		m.probeState.cancelFunc()
 		m.probeState = nil
+	}
+}
+
+// listenForLogs creates a command to listen for log entries
+func (m *TUIModel) listenForLogs() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case <-m.ctx.Done():
+			return nil
+		case log, ok := <-m.logChan:
+			if !ok {
+				return nil
+			}
+			return logMsg(log)
+		}
 	}
 }
 
