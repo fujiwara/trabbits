@@ -474,6 +474,7 @@ The TUI provides a real-time, top-like interface with the following features:
 - `Home/End`: Jump to first/last client
 - `Enter`: View detailed client information
 - `p`: Start probe log streaming for selected client
+- `l`: View server logs (dedicated full-screen view)
 - `Shift+K`: Shutdown selected client (with confirmation)
 - `r`: Force refresh
 - `q`: Quit
@@ -489,11 +490,27 @@ The TUI provides a real-time, top-like interface with the following features:
 
 **Probe Log View:**
 - Real-time streaming of AMQP protocol events for selected client
-- Shows method calls with structured attributes (routing keys, message properties, etc.)
+- Shows method calls with structured attributes in JSON format (routing keys, message properties, etc.)
 - Scrollable log viewer with auto-scroll behavior
 - Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
-- Auto-scroll automatically disables when scrolling up to view older logs
-- Press `End` to re-enable auto-scroll and jump to latest logs
+- Auto-scroll control: `SPACE` to toggle auto-scroll on/off
+  - Auto-scroll automatically disables when scrolling up to view older logs
+  - Press `SPACE` or `End` to re-enable auto-scroll and jump to latest logs
+  - Current auto-scroll status displayed in help text
+- Save logs to file: `s` to open save dialog
+  - Default filename format: `{client-id}-{timestamp}.log`
+  - Edit file path with `e` key (supports full text editing with cursor navigation)
+  - Logs saved in JSON Lines format for easy processing
+  - ENTER to save, ESC/n to cancel
+- `q/Esc`: Return to main client list
+
+**Server Logs View:**
+- Dedicated full-screen view for reviewing server logs
+- Shows all recent server logs (last 100 entries) with structured attributes in JSON format
+- Scrollable viewer with full navigation support
+- Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
+- Each log entry shows timestamp, level (INFO/DEBUG/ERROR), message, and attributes
+- Useful for monitoring server health and debugging issues
 - `q/Esc`: Return to main client list
 
 **Client Shutdown:**
@@ -506,6 +523,8 @@ The TUI provides a real-time, top-like interface with the following features:
 - **No Terminal Disruption**: Unlike `curl` commands, the TUI doesn't clutter your terminal with JSON output
 - **Real-time Monitoring**: See client connections, disconnections, and activity as it happens
 - **Live Protocol Inspection**: Stream real-time AMQP protocol events and method calls for debugging
+- **Server Log Integration**: View server logs directly in TUI for comprehensive monitoring
+- **Log Persistence**: Save probe logs to file for offline analysis and troubleshooting
 - **Efficient Navigation**: Quickly browse through many clients without manual ID copying
 - **Comprehensive Information**: All client details in an easy-to-read format
 - **Safe Operations**: Confirmation dialogs prevent accidental shutdowns
