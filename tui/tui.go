@@ -12,7 +12,11 @@ import (
 
 // Run starts the TUI application
 func Run(ctx context.Context, apiClient apiclient.APIClient) error {
-	model := NewModel(ctx, apiClient)
+    // Ensure all background operations stop when TUI exits
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel()
+
+    model := NewModel(ctx, apiClient)
 
 	// Start streaming server logs from API
 	go func() {
@@ -23,32 +27,42 @@ func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 		}
 
 		// Forward server logs to TUI log channel
-		for log := range logChan {
-			// Extract level from attrs if present
-			level := "INFO"
-			if log.Attrs != nil {
-				if l, ok := log.Attrs["level"].(string); ok {
-					level = l
-				}
-			}
+        for log := range logChan {
+            // Extract level from attrs if present
+            level := "INFO"
+            if log.Attrs != nil {
+                if l, ok := log.Attrs["level"].(string); ok {
+                    level = l
+                }
+            }
 
-			// Convert ProbeLogEntry to LogEntry
-			select {
-			case model.GetLogChannel() <- LogEntry{
-				Time:    log.Timestamp,
-				Level:   level,
-				Message: log.Message,
-				Attrs:   log.Attrs,
-			}:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+            // Convert ProbeLogEntry to LogEntry
+            entry := LogEntry{
+                Time:    log.Timestamp,
+                Level:   level,
+                Message: log.Message,
+                Attrs:   log.Attrs,
+            }
 
-	p := tea.NewProgram(model, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+            // Non-blocking send to avoid UI stalls; drop if channel is full
+            select {
+            case <-ctx.Done():
+                return
+            default:
+            }
+            select {
+            case model.GetLogChannel() <- entry:
+            case <-ctx.Done():
+                return
+            default:
+                // drop entry to avoid blocking
+            }
+        }
+    }()
+
+    p := tea.NewProgram(model, tea.WithAltScreen())
+    _, err := p.Run()
+    return err
 }
 
 // handleKeyPress handles keyboard input based on current view mode
@@ -473,12 +487,15 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.saveState.cursorPos = 0
 		case tea.KeyEnd:
 			m.saveState.cursorPos = len(m.saveState.filePath)
-		case tea.KeyRunes:
-			// Insert character at cursor
-			char := msg.String()
-			path := m.saveState.filePath
-			m.saveState.filePath = path[:m.saveState.cursorPos] + char + path[m.saveState.cursorPos:]
-			m.saveState.cursorPos += len(char)
+    case tea.KeyRunes:
+        // Insert runes at cursor (basic rune-aware insertion)
+        path := m.saveState.filePath
+        for _, r := range msg.Runes {
+            s := string(r)
+            path = path[:m.saveState.cursorPos] + s + path[m.saveState.cursorPos:]
+            m.saveState.cursorPos += len(s)
+        }
+        m.saveState.filePath = path
 		}
 	} else {
 		// Not editing mode

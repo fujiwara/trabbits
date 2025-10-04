@@ -181,6 +181,8 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedIdx >= len(m.clients) && len(m.clients) > 0 {
 			m.selectedIdx = len(m.clients) - 1
 		}
+		// Ensure selection remains visible and scroll stays in bounds
+		m.adjustScrollForSelection()
 		return m, nil
 
 	case clientDetailMsg:
@@ -230,6 +232,11 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case probeEndMsg:
 		if m.probeState != nil {
+			// If we're no longer in probe view, don't attempt reconnection
+			if m.viewMode != ViewProbe {
+				m.stopProbeStream()
+				return m, nil
+			}
 			// Probe stream ended, attempt to reconnect
 			clientID := m.probeState.clientID
 			reconnectCount := m.probeState.reconnectCount
@@ -272,11 +279,21 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listenForProbeLog()
 
 	case reconnectProbeMsg:
-		// Handle reconnection with preserved logs
+		// Handle reconnection with preserved logs only when still in probe view
+		if m.viewMode != ViewProbe {
+			return m, nil
+		}
 		return m, m.startProbeStreamWithState(msg.clientID, msg.logs, msg.reconnectCount)
 
 	case probeStreamStartedMsgWithState:
 		// Initialize probe state with preserved logs and start listening
+		if m.viewMode != ViewProbe {
+			// View changed while starting; cancel to avoid leak
+			if msg.cancelFunc != nil {
+				msg.cancelFunc()
+			}
+			return m, nil
+		}
 		logs := msg.preservedLogs
 		if logs == nil {
 			logs = []probeLogEntry{}
