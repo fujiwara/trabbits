@@ -1,10 +1,11 @@
 package tui
 
 import (
-	"context"
-	"fmt"
-	"log/slog"
-	"time"
+    "context"
+    "fmt"
+    "log/slog"
+    "os"
+    "time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fujiwara/trabbits/apiclient"
@@ -448,10 +449,10 @@ func RunTUI(ctx context.Context, socketPath string) error {
 
 // handleSaveConfirmKeys handles keys in the save confirmation view
 func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.saveState == nil {
-		m.viewMode = ViewProbe
-		return m, nil
-	}
+    if m.saveState == nil {
+        m.viewMode = ViewProbe
+        return m, nil
+    }
 
 	if m.saveState.editing {
 		// Editing mode
@@ -497,21 +498,33 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
         }
         m.saveState.filePath = path
 		}
-	} else {
-		// Not editing mode
-		switch msg.String() {
-		case "ctrl+c", "esc", "n", "q":
-			// Cancel save
-			m.viewMode = m.saveState.previousView
-			m.saveState = nil
-		case "e":
-			// Start editing
-			m.saveState.editing = true
-		case "enter":
-			// Save file
-			return m, m.saveProbeLogsToFile()
-		}
-	}
+    } else {
+        // Not editing mode
+        switch msg.String() {
+        case "ctrl+c", "esc", "n", "q":
+            // Cancel save
+            m.viewMode = m.saveState.previousView
+            m.saveState = nil
+        case "e":
+            // Start editing
+            m.saveState.editing = true
+            m.saveState.overwriteConfirm = false
+        case "enter":
+            // If file exists and not yet confirmed, ask for overwrite confirmation
+            if m.saveState != nil {
+                path := m.saveState.filePath
+                if !m.saveState.overwriteConfirm {
+                    if _, err := os.Stat(path); err == nil {
+                        // File exists, require explicit confirmation
+                        m.saveState.overwriteConfirm = true
+                        return m, nil
+                    }
+                }
+            }
+            // Proceed to save
+            return m, m.saveProbeLogsToFile()
+        }
+    }
 
-	return m, nil
+    return m, nil
 }

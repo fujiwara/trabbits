@@ -772,7 +772,7 @@ func (m *TUIModel) renderServerLogsView() string {
 
 // renderSaveConfirmView renders the save file confirmation view
 func (m *TUIModel) renderSaveConfirmView() string {
-	var b strings.Builder
+    var b strings.Builder
 
 	b.WriteString(headerStyle.Render("Save Probe Logs to File"))
 	b.WriteString("\n\n")
@@ -799,14 +799,18 @@ func (m *TUIModel) renderSaveConfirmView() string {
 		b.WriteString(fmt.Sprintf("Logs to save: %d entries\n\n", len(m.probeState.logs)))
 	}
 
-	// Help text
-	if m.saveState.editing {
-		helpText := "Type to edit path • ESC to stop editing • ENTER to confirm"
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
-	} else {
-		helpText := "ENTER to save • e to edit path • ESC/n to cancel"
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
-	}
+    // Help text
+    if m.saveState.editing {
+        helpText := "Type to edit path • ESC to stop editing • ENTER to confirm"
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+    } else {
+        helpText := "ENTER to save • e to edit path • ESC/n to cancel"
+        // If an overwrite confirmation is required, adjust messaging
+        if m.saveState.overwriteConfirm {
+            helpText = "File exists: ENTER to overwrite • e edit path • ESC/n cancel"
+        }
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+    }
 
-	return b.String()
+    return b.String()
 }

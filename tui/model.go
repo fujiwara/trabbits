@@ -65,11 +65,12 @@ type confirmState struct {
 }
 
 type saveState struct {
-	clientID     string
-	filePath     string
-	editing      bool
-	cursorPos    int
-	previousView ViewMode
+    clientID     string
+    filePath     string
+    editing      bool
+    cursorPos    int
+    previousView ViewMode
+    overwriteConfirm bool
 }
 
 type probeState struct {
