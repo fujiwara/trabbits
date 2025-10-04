@@ -194,7 +194,7 @@ func TestUpstreamQueueAttr(t *testing.T) {
 			// Create a dummy metrics instance for testing
 			cfg := &config.Config{}
 			server := trabbits.NewServer(cfg, "/tmp/test-upstream.sock")
-			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr}, "test:5672", server.Metrics())
+			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr}, "test:5672", server.Metrics(), nil)
 			queue, durable, autoDelete, exclusive, noWait, args := u.QueueDeclareArgs(tc.m)
 			if queue != tc.queue {
 				t.Errorf("queue name mismatch: %s != %s", queue, tc.queue)
@@ -306,7 +306,7 @@ func TestShouldEmulateAutoDelete(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{}
 			server := trabbits.NewServer(cfg, "/tmp/test-upstream.sock")
-			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr, QueueOptions: tc.opts}, "test:5672", server.Metrics())
+			u := trabbits.NewUpstream(nil, slog.Default(), config.Upstream{QueueAttributes: tc.attr, QueueOptions: tc.opts}, "test:5672", server.Metrics(), nil)
 			result := u.ShouldEmulateAutoDelete(tc.m)
 			if result != tc.expected {
 				t.Errorf("expected %t, got %t", tc.expected, result)

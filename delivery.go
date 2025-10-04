@@ -10,16 +10,18 @@ import (
 )
 
 type delivery struct {
-	ch <-chan rabbitmq.Delivery
-	i  int
-	n  int
+	ch           <-chan rabbitmq.Delivery
+	i            int
+	n            int
+	upstreamName string
 }
 
-func newDelivery(ch <-chan rabbitmq.Delivery, i, n int) *delivery {
+func newDelivery(ch <-chan rabbitmq.Delivery, i, n int, upstreamName string) *delivery {
 	return &delivery{
-		ch: ch,
-		i:  i,
-		n:  n,
+		ch:           ch,
+		i:            i,
+		n:            n,
+		upstreamName: upstreamName,
 	}
 }
 
@@ -48,6 +50,6 @@ func (s *Proxy) GetChannelByDeliveryTag(channelID uint16, tag uint64) (*rabbitmq
 	return chs[index], nil
 }
 
-func (s *Proxy) newDelivery(ch <-chan rabbitmq.Delivery, index int) *delivery {
-	return newDelivery(ch, index, len(s.Upstreams()))
+func (p *Proxy) newDelivery(ch <-chan rabbitmq.Delivery, index int, upstreamName string) *delivery {
+	return newDelivery(ch, index, len(p.Upstreams()), upstreamName)
 }
