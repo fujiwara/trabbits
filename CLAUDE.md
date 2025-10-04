@@ -17,7 +17,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - **Git operations**: Use `git add <file>` for individual files, never use `git add -A` or `git add .`
 
 ### Testing
-- Run tests with: `go test ./...`
+- Run tests with: `go test -race ./...` (always use `-race` flag to detect race conditions early)
 - Test files are located alongside source files as `*_test.go`
 - Test data is in `testdata/` directory
 - Use table-driven tests where appropriate
@@ -25,10 +25,12 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 - Use `mustTestConn(t)` for connecting to test proxy server
 - Test files should use `package trabbits_test` (not `package trabbits`) for consistency with other tests
 - Export functions needed for testing via `export_test.go`
+- **Race detection**: ALWAYS run tests with `-race` flag during development to catch data races early. CI enforces this.
 - **Test isolation**: Always clear active proxies at the beginning of tests that use proxy management to ensure clean test state (use server instance methods or check TestServer != nil)
 - **Mock connections**: When testing with `net.Pipe()` connections, be aware that AMQP protocol operations will fail - design tests accordingly
 - **Async testing**: Use channel-based interfaces for testing asynchronous operations like `DisconnectOutdatedProxies()` to verify completion
 - **Test timeouts**: Configure shorter timeouts for test environment using `export_test.go` to speed up test execution
+- **Thread-safe test utilities**: Use `safeBuffer` (mutex-protected) instead of `bytes.Buffer` when capturing logs in tests to avoid races
 
 ### Build and Run
 - Build: `go build -o trabbits ./cmd/trabbits`
