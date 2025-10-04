@@ -48,6 +48,8 @@ func (m *TUIModel) View() string {
 		return m.renderProbeView()
 	case ViewServerLogs:
 		return m.renderServerLogsView()
+	case ViewSaveConfirm:
+		return m.renderSaveConfirmView()
 	default:
 		return "Unknown view"
 	}
@@ -449,7 +451,7 @@ func (m *TUIModel) renderProbeView() string {
 
 	// Help text
 	b.WriteString("\n")
-	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page • SPACE pause"
+	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page • SPACE pause • s save"
 	if m.probeState != nil {
 		if m.probeState.autoScroll {
 			helpText += " • Auto-scroll: ON"
@@ -764,6 +766,47 @@ func (m *TUIModel) renderServerLogsView() string {
 	b.WriteString("\n")
 	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page"
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+
+	return b.String()
+}
+
+// renderSaveConfirmView renders the save file confirmation view
+func (m *TUIModel) renderSaveConfirmView() string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render("Save Probe Logs to File"))
+	b.WriteString("\n\n")
+
+	if m.saveState == nil {
+		return "Error: save state not initialized"
+	}
+
+	// Show file path with editing capability
+	b.WriteString("File path: ")
+	if m.saveState.editing {
+		// Show cursor when editing
+		before := m.saveState.filePath[:m.saveState.cursorPos]
+		after := m.saveState.filePath[m.saveState.cursorPos:]
+		cursor := lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(lipgloss.Color("0")).Render(" ")
+		b.WriteString(before + cursor + after)
+	} else {
+		b.WriteString(m.saveState.filePath)
+	}
+	b.WriteString("\n\n")
+
+	// Show log count
+	if m.probeState != nil {
+		b.WriteString(fmt.Sprintf("Logs to save: %d entries\n\n", len(m.probeState.logs)))
+	}
+
+	// Help text
+	if m.saveState.editing {
+		helpText := "Type to edit path • ESC to stop editing • ENTER to confirm"
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+	} else {
+		helpText := "ENTER to save • e to edit path • ESC/n to cancel"
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+	}
 
 	return b.String()
 }

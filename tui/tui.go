@@ -75,6 +75,8 @@ func (m *TUIModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleProbeKeys(msg)
 	case ViewServerLogs:
 		return m.handleServerLogsKeys(msg)
+	case ViewSaveConfirm:
+		return m.handleSaveConfirmKeys(msg)
 	}
 
 	return m, nil
@@ -231,6 +233,21 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.probeState.scroll = maxScroll
 			}
+		}
+	case "s":
+		// Save probe logs to file
+		if m.probeState != nil {
+			clientID := m.probeState.clientID
+			timestamp := time.Now().Format("20060102-150405")
+			defaultPath := fmt.Sprintf("%s-%s.log", clientID, timestamp)
+			m.saveState = &saveState{
+				clientID:     clientID,
+				filePath:     defaultPath,
+				editing:      false,
+				cursorPos:    len(defaultPath),
+				previousView: ViewProbe,
+			}
+			m.viewMode = ViewSaveConfirm
 		}
 	case "up", "k":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
@@ -413,4 +430,71 @@ func RunTUI(ctx context.Context, socketPath string) error {
 	// We'll call the main package to create the API client
 	// This will be implemented when we update the CLI
 	return fmt.Errorf("TUI not yet integrated - use Run() with APIClient interface")
+}
+
+// handleSaveConfirmKeys handles keys in the save confirmation view
+func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.saveState == nil {
+		m.viewMode = ViewProbe
+		return m, nil
+	}
+
+	if m.saveState.editing {
+		// Editing mode
+		switch msg.Type {
+		case tea.KeyEsc:
+			// Stop editing
+			m.saveState.editing = false
+		case tea.KeyEnter:
+			// Confirm with current path
+			m.saveState.editing = false
+		case tea.KeyBackspace:
+			// Delete character before cursor
+			if m.saveState.cursorPos > 0 {
+				path := m.saveState.filePath
+				m.saveState.filePath = path[:m.saveState.cursorPos-1] + path[m.saveState.cursorPos:]
+				m.saveState.cursorPos--
+			}
+		case tea.KeyDelete:
+			// Delete character at cursor
+			if m.saveState.cursorPos < len(m.saveState.filePath) {
+				path := m.saveState.filePath
+				m.saveState.filePath = path[:m.saveState.cursorPos] + path[m.saveState.cursorPos+1:]
+			}
+		case tea.KeyLeft:
+			if m.saveState.cursorPos > 0 {
+				m.saveState.cursorPos--
+			}
+		case tea.KeyRight:
+			if m.saveState.cursorPos < len(m.saveState.filePath) {
+				m.saveState.cursorPos++
+			}
+		case tea.KeyHome:
+			m.saveState.cursorPos = 0
+		case tea.KeyEnd:
+			m.saveState.cursorPos = len(m.saveState.filePath)
+		case tea.KeyRunes:
+			// Insert character at cursor
+			char := msg.String()
+			path := m.saveState.filePath
+			m.saveState.filePath = path[:m.saveState.cursorPos] + char + path[m.saveState.cursorPos:]
+			m.saveState.cursorPos += len(char)
+		}
+	} else {
+		// Not editing mode
+		switch msg.String() {
+		case "ctrl+c", "esc", "n", "q":
+			// Cancel save
+			m.viewMode = m.saveState.previousView
+			m.saveState = nil
+		case "e":
+			// Start editing
+			m.saveState.editing = true
+		case "enter":
+			// Save file
+			return m, m.saveProbeLogsToFile()
+		}
+	}
+
+	return m, nil
 }

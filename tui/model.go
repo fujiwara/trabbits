@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +21,7 @@ const (
 	ViewConfirm
 	ViewProbe
 	ViewServerLogs
+	ViewSaveConfirm
 )
 
 // TUIModel represents the TUI application state
@@ -32,6 +35,7 @@ type TUIModel struct {
 	clientDetail          *types.FullClientInfo
 	confirmState          *confirmState
 	probeState            *probeState
+	saveState             *saveState
 	width                 int
 	height                int
 	lastUpdate            time.Time
@@ -58,6 +62,14 @@ type LogEntry struct {
 type confirmState struct {
 	clientID string
 	message  string
+}
+
+type saveState struct {
+	clientID     string
+	filePath     string
+	editing      bool
+	cursorPos    int
+	previousView ViewMode
 }
 
 type probeState struct {
@@ -184,6 +196,11 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case successMsg:
 		m.successMsg = string(msg)
 		m.successTime = time.Now()
+		// If we were in save confirm view, return to previous view
+		if m.viewMode == ViewSaveConfirm && m.saveState != nil {
+			m.viewMode = m.saveState.previousView
+			m.saveState = nil
+		}
 		return m, nil
 
 	case probeLogMsg:
@@ -402,4 +419,33 @@ func tick() tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
 		return tickMsg{}
 	})
+}
+
+// saveProbeLogsToFile saves probe logs to the specified file
+func (m *TUIModel) saveProbeLogsToFile() tea.Cmd {
+	return func() tea.Msg {
+		if m.saveState == nil || m.probeState == nil {
+			return errorMsg(fmt.Errorf("save state or probe state not initialized"))
+		}
+
+		filePath := m.saveState.filePath
+		logs := m.probeState.logs
+
+		// Create file
+		file, err := os.Create(filePath)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to create file: %w", err))
+		}
+		defer file.Close()
+
+		// Write logs as JSON lines
+		encoder := json.NewEncoder(file)
+		for _, log := range logs {
+			if err := encoder.Encode(log); err != nil {
+				return errorMsg(fmt.Errorf("failed to write log: %w", err))
+			}
+		}
+
+		return successMsg(fmt.Sprintf("Saved %d logs to %s", len(logs), filePath))
+	}
 }
