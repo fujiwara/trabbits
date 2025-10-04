@@ -316,6 +316,7 @@ func (p *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config
 			return err
 		}
 		us := NewUpstream(conn, p.logger, c, addr, p.metrics)
+		us.probeLogFunc = p.probeLog // Set probe log function
 		p.upstreams = append(p.upstreams, us)
 
 		// Start monitoring the upstream connection
