@@ -66,7 +66,7 @@ func (f *MethodFrame) Write(w io.Writer) (err error) {
 		return
 	}
 
-	return writeFrame(w, frameMethod, f.ChannelId, payload.Bytes())
+	return writeFrameBuffer(w, frameMethod, f.ChannelId, payload)
 }
 
 // Heartbeat
@@ -216,7 +216,7 @@ func (f *HeaderFrame) Write(w io.Writer) (err error) {
 		}
 	}
 
-	return writeFrame(w, frameHeader, f.ChannelId, payload.Bytes())
+	return writeFrameBuffer(w, frameHeader, f.ChannelId, payload)
 }
 
 // Body
@@ -227,32 +227,66 @@ func (f *BodyFrame) Write(w io.Writer) (err error) {
 	return writeFrame(w, frameBody, f.ChannelId, f.Body)
 }
 
-func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err error) {
-	end := []byte{frameEnd}
-	size := uint(len(payload))
+func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) error {
+	size := uint32(len(payload)) // 型を統一
 
-	_, err = w.Write([]byte{
+	// 必要な容量を事前に確保
+	buf := make([]byte, 7+len(payload)+1)
+
+	// ヘッダー部分をエンコード
+	buf[0] = typ
+	buf[1] = byte(channel >> 8)
+	buf[2] = byte(channel)
+	buf[3] = byte(size >> 24)
+	buf[4] = byte(size >> 16)
+	buf[5] = byte(size >> 8)
+	buf[6] = byte(size)
+
+	// ペイロードをコピー
+	copy(buf[7:], payload)
+
+	// フレームエンドをセット
+	buf[len(buf)-1] = frameEnd
+
+	// 1回の Write で送信
+	_, err := w.Write(buf)
+	return err
+}
+
+// writeFrameBuffer writes a frame directly using the payload already in a buffer.
+// This avoids the extra copy of payload bytes that would occur with writeFrame.
+func writeFrameBuffer(w io.Writer, typ uint8, channel uint16, payload *bytes.Buffer) error {
+	payloadBytes := payload.Bytes()
+	size := uint32(len(payloadBytes))
+
+	// Allocate only header + end marker (8 bytes) instead of entire frame
+	// Payload is written directly without copying
+	header := [8]byte{
 		typ,
-		byte((channel & 0xff00) >> 8),
-		byte((channel & 0x00ff) >> 0),
-		byte((size & 0xff000000) >> 24),
-		byte((size & 0x00ff0000) >> 16),
-		byte((size & 0x0000ff00) >> 8),
-		byte((size & 0x000000ff) >> 0),
-	})
-	if err != nil {
-		return
+		byte(channel >> 8),
+		byte(channel),
+		byte(size >> 24),
+		byte(size >> 16),
+		byte(size >> 8),
+		byte(size),
+		frameEnd,
 	}
 
-	if _, err = w.Write(payload); err != nil {
-		return
+	// Write header (7 bytes)
+	if _, err := w.Write(header[:7]); err != nil {
+		return err
 	}
 
-	if _, err = w.Write(end); err != nil {
-		return
+	// Write payload directly from buffer (no copy)
+	if len(payloadBytes) > 0 {
+		if _, err := w.Write(payloadBytes); err != nil {
+			return err
+		}
 	}
 
-	return
+	// Write frame end marker
+	_, err := w.Write(header[7:8])
+	return err
 }
 
 func writeShortstr(w io.Writer, s string) (err error) {
