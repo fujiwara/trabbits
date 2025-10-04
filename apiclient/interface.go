@@ -23,6 +23,9 @@ type APIClient interface {
 
 	// Probe operations
 	StreamProbeLogEntries(ctx context.Context, proxyID string) (<-chan types.ProbeLogEntry, error)
+
+	// Server log operations
+	StreamServerLogs(ctx context.Context) (<-chan types.ProbeLogEntry, error)
 }
 
 // Ensure that Client implements APIClient

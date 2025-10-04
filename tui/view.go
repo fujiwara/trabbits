@@ -46,6 +46,8 @@ func (m *TUIModel) View() string {
 		return m.renderConfirmView()
 	case ViewProbe:
 		return m.renderProbeView()
+	case ViewServerLogs:
+		return m.renderServerLogsView()
 	default:
 		return "Unknown view"
 	}
@@ -309,21 +311,55 @@ func (m *TUIModel) renderConfirmView() string {
 
 // renderHelp renders the help text
 func (m *TUIModel) renderHelp() string {
-	help := "↑↓/kj navigate • PgUp/PgDn page • Enter info • p probe • Shift+K shutdown • r refresh • q quit"
+	help := "↑↓/kj navigate • PgUp/PgDn page • Enter info • p probe • l logs • Shift+K shutdown • r refresh • q quit"
 	return helpStyle.Render(help)
 }
 
 // getVisibleRows calculates how many client rows can be displayed
 func (m *TUIModel) getVisibleRows() int {
-	// Calculate visible rows: total height - header - help - error/success area - margins
+	// Calculate visible rows: total height - header - help - log pane - error/success area - margins
 	headerLines := 3 // header + spacing
 	helpLines := 2   // help + spacing
+
+	// Calculate log pane lines dynamically
+	logPaneLines := m.estimateLogPaneLines()
+
 	marginLines := 4 // various margins and spacing
-	visibleHeight := m.height - headerLines - helpLines - marginLines
+	visibleHeight := m.height - headerLines - helpLines - logPaneLines - marginLines
 	if visibleHeight < 5 {
 		visibleHeight = 5
 	}
 	return visibleHeight
+}
+
+// estimateLogPaneLines estimates the number of lines the log pane will occupy
+func (m *TUIModel) estimateLogPaneLines() int {
+	if len(m.logEntries) == 0 {
+		return 3 // Border + "Logs (waiting...)" + spacing
+	}
+
+	// Count lines for last 3 log entries
+	displayCount := 3
+	startIdx := len(m.logEntries) - displayCount
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	lineCount := 1       // Title line: "Logs (N total):"
+	width := m.width - 4 // Account for border padding
+	if width <= 0 {
+		width = 80
+	}
+
+	for i := startIdx; i < len(m.logEntries); i++ {
+		entry := m.logEntries[i]
+		// Estimate lines for this entry
+		logText := m.formatLogEntry(entry)
+		// Count newlines in formatted log
+		lineCount += strings.Count(logText, "\n") + 1
+	}
+
+	return lineCount + 4 // + border lines and spacing
 }
 
 // renderProbeView renders the probe log streaming view
@@ -561,6 +597,42 @@ func (m *TUIModel) renderLogPane() string {
 func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 	timestamp := entry.Time.Format("15:04:05")
 
+	// Build the main text first (without styling)
+	mainText := fmt.Sprintf("%s %-5s %s", timestamp, entry.Level, entry.Message)
+
+	var attrStr string
+	if len(entry.Attrs) > 0 {
+		// Create a copy without the "level" key
+		filteredAttrs := make(map[string]any)
+		for k, v := range entry.Attrs {
+			if k != "level" {
+				filteredAttrs[k] = v
+			}
+		}
+		if len(filteredAttrs) > 0 {
+			attrs, _ := json.Marshal(filteredAttrs)
+			attrStr = string(attrs)
+		}
+	}
+
+	// Calculate available width for wrapping
+	width := m.width - 2 // -2 for margins
+	if width <= 0 {
+		width = 80 // default width
+	}
+
+	// Combine and wrap the full text
+	fullText := mainText
+	if attrStr != "" {
+		fullText += " " + attrStr
+	}
+
+	// Wrap to screen width
+	lines := wrapText(fullText, width)
+
+	// Apply styling to the level and attrs portions
+	styledLines := make([]string, len(lines))
+
 	// Color by level
 	var levelStyle lipgloss.Style
 	switch entry.Level {
@@ -574,16 +646,34 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	}
 
-	level := levelStyle.Render(fmt.Sprintf("%-5s", entry.Level))
+	attrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
-	// Format attributes
-	attrStr := ""
-	if len(entry.Attrs) > 0 {
-		attrs, _ := json.Marshal(entry.Attrs)
-		attrStr = " " + string(attrs)
+	for i, line := range lines {
+		if i == 0 {
+			// First line: apply level color to the level part
+			// Format: "HH:MM:SS LEVEL message {attrs...}"
+			// Level is at position 9-13 (after timestamp and space)
+			if len(line) > 14 {
+				styledLine := line[:9] + levelStyle.Render(line[9:14])
+				rest := line[14:]
+				// Find where attrs start (after message)
+				attrStartInLine := len(mainText) - 14 // position relative to after level
+				if attrStr != "" && len(rest) > attrStartInLine {
+					styledLine += rest[:attrStartInLine] + attrStyle.Render(rest[attrStartInLine:])
+				} else {
+					styledLine += rest
+				}
+				styledLines[i] = styledLine
+			} else {
+				styledLines[i] = line
+			}
+		} else {
+			// Continuation lines: style as attrs
+			styledLines[i] = attrStyle.Render(line)
+		}
 	}
 
-	return fmt.Sprintf("%s %s %s%s", timestamp, level, entry.Message, attrStr)
+	return strings.Join(styledLines, "\n")
 }
 
 // adjustScrollForSelection adjusts scroll position to keep selected item visible
@@ -611,4 +701,65 @@ func (m *TUIModel) adjustScrollForSelection() {
 	if m.listScroll > maxScroll {
 		m.listScroll = maxScroll
 	}
+}
+
+// renderServerLogsView renders the server logs view
+func (m *TUIModel) renderServerLogsView() string {
+	var b strings.Builder
+
+	// Header
+	headerText := fmt.Sprintf("Server Logs (%d total)", len(m.logEntries))
+	b.WriteString(headerStyle.Render(headerText))
+	b.WriteString("\n\n")
+
+	// Show logs
+	if len(m.logEntries) == 0 {
+		b.WriteString("No server logs yet...\n")
+	} else {
+		visibleRows := m.getServerLogsVisibleRows()
+		startIdx := m.serverLogsScroll
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		maxScroll := len(m.logEntries) - visibleRows
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if startIdx > maxScroll {
+			startIdx = maxScroll
+		}
+		endIdx := startIdx + visibleRows
+		if endIdx > len(m.logEntries) {
+			endIdx = len(m.logEntries)
+		}
+
+		// Render visible logs
+		for i := startIdx; i < endIdx; i++ {
+			entry := m.logEntries[i]
+			logLine := m.formatLogEntry(entry)
+
+			// Highlight selected line
+			if i == m.serverLogsSelectedIdx {
+				logLine = selectedStyle.Render(logLine)
+			}
+
+			b.WriteString(logLine)
+			b.WriteString("\n")
+		}
+
+		// Add scroll indicator
+		if len(m.logEntries) > visibleRows {
+			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
+				startIdx+1, endIdx, len(m.logEntries))
+			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+			b.WriteString("\n" + scrollStyle.Render(scrollInfo))
+		}
+	}
+
+	// Help text
+	b.WriteString("\n")
+	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page"
+	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+
+	return b.String()
 }

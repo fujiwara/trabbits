@@ -118,6 +118,7 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("GET /clients/{proxy_id...}", s.apiGetClientHandler())
 	mux.HandleFunc("DELETE /clients/{proxy_id...}", s.apiShutdownClientHandler())
 	mux.HandleFunc("GET /clients/{proxy_id}/probe", s.apiProbeLogHandler())
+	mux.HandleFunc("GET /logs", s.apiServerLogsHandler())
 	var srv http.Server
 	// start API server
 	ch := make(chan error)
@@ -423,6 +424,58 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 				jsonData, err := json.Marshal(logData)
 				if err != nil {
 					slog.Warn("Failed to marshal probe log", "error", err)
+					continue
+				}
+
+				// Send SSE data
+				fmt.Fprintf(w, "data: %s\n\n", jsonData)
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) apiServerLogsHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Send initial connection message
+		fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		// Create context for cleanup
+		ctx := r.Context()
+
+		// Generate unique listener ID
+		listenerID := fmt.Sprintf("api-%d", time.Now().UnixNano())
+
+		// Subscribe to log buffer
+		logChan := s.logBuffer.Subscribe(ctx, listenerID)
+
+		// Start streaming server logs
+		for {
+			select {
+			case <-ctx.Done():
+				// Client disconnected
+				return
+			case log, ok := <-logChan:
+				if !ok {
+					// Channel closed
+					return
+				}
+
+				// Send log as JSON (already in ProbeLogEntry format)
+				jsonData, err := json.Marshal(log)
+				if err != nil {
+					slog.Warn("Failed to marshal server log", "error", err)
 					continue
 				}
 

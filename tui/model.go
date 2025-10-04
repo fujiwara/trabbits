@@ -18,30 +18,33 @@ const (
 	ViewDetail
 	ViewConfirm
 	ViewProbe
+	ViewServerLogs
 )
 
 // TUIModel represents the TUI application state
 type TUIModel struct {
-	ctx          context.Context
-	apiClient    apiclient.APIClient
-	clients      []types.ClientInfo
-	selectedIdx  int
-	viewMode     ViewMode
-	selectedID   string
-	clientDetail *types.FullClientInfo
-	confirmState *confirmState
-	probeState   *probeState
-	width        int
-	height       int
-	lastUpdate   time.Time
-	err          error
-	errorTime    time.Time
-	successMsg   string
-	successTime  time.Time
-	detailScroll int
-	listScroll   int
-	logEntries   []LogEntry // Recent log messages from slog
-	logChan      chan LogEntry
+	ctx                   context.Context
+	apiClient             apiclient.APIClient
+	clients               []types.ClientInfo
+	selectedIdx           int
+	viewMode              ViewMode
+	selectedID            string
+	clientDetail          *types.FullClientInfo
+	confirmState          *confirmState
+	probeState            *probeState
+	width                 int
+	height                int
+	lastUpdate            time.Time
+	err                   error
+	errorTime             time.Time
+	successMsg            string
+	successTime           time.Time
+	detailScroll          int
+	listScroll            int
+	logEntries            []LogEntry // Recent log messages from slog
+	logChan               chan LogEntry
+	serverLogsScroll      int // Scroll position for server logs view
+	serverLogsSelectedIdx int // Selected log index in server logs view
 }
 
 // LogEntry represents a log message

@@ -14,16 +14,37 @@ import (
 func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 	model := NewModel(ctx, apiClient)
 
-	// Setup slog handler to send logs to TUI
-	originalHandler := slog.Default().Handler()
-	tuiHandler := NewTUIHandler(model.GetLogChannel(), originalHandler)
-	slog.SetDefault(slog.New(tuiHandler))
+	// Start streaming server logs from API
+	go func() {
+		logChan, err := apiClient.StreamServerLogs(ctx)
+		if err != nil {
+			slog.Error("Failed to start server log stream", "error", err)
+			return
+		}
 
-	// Restore original handler when TUI exits
-	defer slog.SetDefault(slog.New(originalHandler))
+		// Forward server logs to TUI log channel
+		for log := range logChan {
+			// Extract level from attrs if present
+			level := "INFO"
+			if log.Attrs != nil {
+				if l, ok := log.Attrs["level"].(string); ok {
+					level = l
+				}
+			}
 
-	// Send a test log to verify the log pane is working
-	slog.Info("TUI started", "version", "dev")
+			// Convert ProbeLogEntry to LogEntry
+			select {
+			case model.GetLogChannel() <- LogEntry{
+				Time:    log.Timestamp,
+				Level:   level,
+				Message: log.Message,
+				Attrs:   log.Attrs,
+			}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
@@ -52,6 +73,8 @@ func (m *TUIModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKeys(msg)
 	case ViewProbe:
 		return m.handleProbeKeys(msg)
+	case ViewServerLogs:
+		return m.handleServerLogsKeys(msg)
 	}
 
 	return m, nil
@@ -120,6 +143,13 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			clientID := m.clients[m.selectedIdx].ID
 			m.viewMode = ViewProbe
 			return m, m.startProbeStream(clientID)
+		}
+	case "l":
+		// Switch to server logs view
+		m.viewMode = ViewServerLogs
+		// Initialize scroll to bottom
+		if len(m.logEntries) > 0 {
+			m.serverLogsSelectedIdx = len(m.logEntries) - 1
 		}
 	}
 	return m, nil
@@ -284,6 +314,83 @@ func (m *TUIModel) updateAutoScroll() {
 func (m *TUIModel) getProbeVisibleRows() int {
 	// Reserve space for header, footer, and status
 	return m.height - 6
+}
+
+// handleServerLogsKeys handles keys in the server logs view
+func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "esc":
+		m.viewMode = ViewList
+		m.serverLogsScroll = 0
+	case "up", "k":
+		if len(m.logEntries) > 0 && m.serverLogsSelectedIdx > 0 {
+			m.serverLogsSelectedIdx--
+			m.adjustServerLogsScroll()
+		}
+	case "down", "j":
+		if len(m.logEntries) > 0 && m.serverLogsSelectedIdx < len(m.logEntries)-1 {
+			m.serverLogsSelectedIdx++
+			m.adjustServerLogsScroll()
+		}
+	case "pgup":
+		visibleRows := m.getServerLogsVisibleRows()
+		if m.serverLogsSelectedIdx > visibleRows {
+			m.serverLogsSelectedIdx -= visibleRows
+		} else {
+			m.serverLogsSelectedIdx = 0
+		}
+		m.adjustServerLogsScroll()
+	case "pgdn":
+		visibleRows := m.getServerLogsVisibleRows()
+		if m.serverLogsSelectedIdx+visibleRows < len(m.logEntries)-1 {
+			m.serverLogsSelectedIdx += visibleRows
+		} else {
+			m.serverLogsSelectedIdx = len(m.logEntries) - 1
+		}
+		m.adjustServerLogsScroll()
+	case "home":
+		m.serverLogsSelectedIdx = 0
+		m.serverLogsScroll = 0
+	case "end":
+		if len(m.logEntries) > 0 {
+			m.serverLogsSelectedIdx = len(m.logEntries) - 1
+			m.adjustServerLogsScroll()
+		}
+	}
+	return m, nil
+}
+
+// getServerLogsVisibleRows calculates visible rows for server logs view
+func (m *TUIModel) getServerLogsVisibleRows() int {
+	// Reserve space for header, footer, and status
+	return m.height - 6
+}
+
+// adjustServerLogsScroll adjusts scroll position to keep selected log visible
+func (m *TUIModel) adjustServerLogsScroll() {
+	visibleRows := m.getServerLogsVisibleRows()
+
+	// If selected item is above visible area, scroll up
+	if m.serverLogsSelectedIdx < m.serverLogsScroll {
+		m.serverLogsScroll = m.serverLogsSelectedIdx
+	}
+
+	// If selected item is below visible area, scroll down
+	if m.serverLogsSelectedIdx >= m.serverLogsScroll+visibleRows {
+		m.serverLogsScroll = m.serverLogsSelectedIdx - visibleRows + 1
+	}
+
+	// Ensure scroll is within bounds
+	if m.serverLogsScroll < 0 {
+		m.serverLogsScroll = 0
+	}
+	maxScroll := len(m.logEntries) - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.serverLogsScroll > maxScroll {
+		m.serverLogsScroll = maxScroll
+	}
 }
 
 // RunTUI starts the TUI with the provided socket path

@@ -60,6 +60,16 @@ func (m *mockAPIClient) ReloadConfig(ctx context.Context) (*config.Config, error
 	return &config.Config{}, nil
 }
 
+func (m *mockAPIClient) StreamServerLogs(ctx context.Context) (<-chan types.ProbeLogEntry, error) {
+	ch := make(chan types.ProbeLogEntry, 10)
+	// Return empty channel for tests
+	go func() {
+		<-ctx.Done()
+		close(ch)
+	}()
+	return ch, nil
+}
+
 // Ensure mockAPIClient implements apiclient.APIClient
 var _ apiclient.APIClient = (*mockAPIClient)(nil)
 

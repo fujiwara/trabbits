@@ -64,16 +64,19 @@ type Server struct {
 	logger         *slog.Logger
 	apiSocket      string // API socket path
 	metricsStore   *metrics.Store
+	logBuffer      *LogBuffer // Buffer for server logs
 }
 
 // NewServer creates a new Server instance
 func NewServer(config *config.Config, apiSocket string) *Server {
+	logBuffer := NewLogBuffer(200) // Keep last 200 log entries
 	return &Server{
 		config:       config,
 		configHash:   config.Hash(),
 		logger:       slog.Default(),
 		apiSocket:    apiSocket,
 		metricsStore: metrics.NewStore(),
+		logBuffer:    logBuffer,
 	}
 }
 
@@ -316,6 +319,11 @@ func run(ctx context.Context, opt *CLI) error {
 
 	// Create server instance
 	server := NewServer(cfg, opt.APISocket)
+
+	// Setup server log handler to capture logs for API streaming
+	originalHandler := slog.Default().Handler()
+	serverLogHandler := NewServerLogHandler(server.logBuffer, originalHandler)
+	slog.SetDefault(slog.New(serverLogHandler))
 
 	// Write PID file if specified
 	if opt.Run.PidFile != "" {
