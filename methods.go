@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"sync"
 
@@ -202,7 +203,10 @@ func (p *Proxy) replyBasicGet(_ context.Context, f *amqp091.MethodFrame, m *amqp
 	uss := p.Upstreams()
 	p.probeLog("c->t Basic.Get", "message", m)
 	var got bool
-	for i, us := range uss {
+	// Randomize upstream order to avoid always consuming from the first upstream
+	indices := rand.Perm(len(uss))
+	for _, idx := range indices {
+		us := uss[idx]
 		us.probeLog("t->u Basic.Get", "queue", m.Queue)
 		ch, err := us.GetChannel(id)
 		if err != nil {
@@ -217,7 +221,7 @@ func (p *Proxy) replyBasicGet(_ context.Context, f *amqp091.MethodFrame, m *amqp
 		}
 
 		got = true
-		dTag := p.newDelivery(nil, i, us.name).Tag(msg.DeliveryTag)
+		dTag := p.newDelivery(nil, idx, us.name).Tag(msg.DeliveryTag)
 		us.probeLog("t<-u Basic.Get received", "queue", m.Queue, "client_delivery_tag", dTag, "upstream_delivery_tag", msg.DeliveryTag)
 		p.send(id, &amqp091.BasicGetOk{
 			DeliveryTag:  dTag,
