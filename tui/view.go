@@ -12,10 +12,10 @@ import (
 
 // Styles for rendering
 var (
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginBottom(1)
+    headerStyle = lipgloss.NewStyle().
+                    Bold(true).
+                    Foreground(lipgloss.Color("205")).
+                    MarginBottom(1)
 
 	tableStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -30,9 +30,25 @@ var (
 			Background(lipgloss.Color("238")). // Darker gray for probe log selection
 			Foreground(lipgloss.Color("255"))  // Bright white text
 
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Margin(1, 0)
+    helpStyle = lipgloss.NewStyle().
+                    Foreground(lipgloss.Color("241")).
+                    Margin(1, 0)
+
+    // Cached frequently used styles
+    errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+    successStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
+    scrollInfoStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+    statusDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+    debugDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+    attrGreyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+    cursorStyle      = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(lipgloss.Color("0")).Render(" ")
+    logPaneBoxStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1)
+
+    // Log level styles
+    levelErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+    levelWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+    levelInfoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
+    levelDefaultStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 // View renders the current TUI state
@@ -71,14 +87,13 @@ func (m *TUIModel) renderListView() string {
 	b.WriteString("\n")
 	b.WriteString(help)
 
-	// Show error messages
-	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-		errMsg := fmt.Sprintf("Error: %v", m.err)
-		if len(errMsg) > 80 {
-			lines := []string{}
-			for i := 0; i < len(errMsg); i += 80 {
-				end := i + 80
+    // Show error messages
+    if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
+        errMsg := fmt.Sprintf("Error: %v", m.err)
+        if len(errMsg) > 80 {
+            lines := []string{}
+            for i := 0; i < len(errMsg); i += 80 {
+                end := i + 80
 				if end > len(errMsg) {
 					end = len(errMsg)
 				}
@@ -86,18 +101,17 @@ func (m *TUIModel) renderListView() string {
 			}
 			errMsg = strings.Join(lines, "\n")
 		}
-		b.WriteString("\n" + errorStyle.Render(errMsg))
-	} else if m.err != nil && time.Since(m.errorTime) >= 5*time.Second {
-		m.err = nil
-	}
+        b.WriteString("\n" + errorStyle.Render(errMsg))
+    } else if m.err != nil && time.Since(m.errorTime) >= 5*time.Second {
+        m.err = nil
+    }
 
-	// Show success messages
-	if m.successMsg != "" && time.Since(m.successTime) < 3*time.Second {
-		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
-		b.WriteString("\n" + successStyle.Render(m.successMsg))
-	} else if m.successMsg != "" && time.Since(m.successTime) >= 3*time.Second {
-		m.successMsg = ""
-	}
+    // Show success messages
+    if m.successMsg != "" && time.Since(m.successTime) < 3*time.Second {
+        b.WriteString("\n" + successStyle.Render(m.successMsg))
+    } else if m.successMsg != "" && time.Since(m.successTime) >= 3*time.Second {
+        m.successMsg = ""
+    }
 
 	return b.String()
 }
@@ -158,11 +172,10 @@ func (m *TUIModel) renderTable() string {
 			startIdx+1, endIdx, len(m.clients), currentPage, totalPages)
 	}
 
-	result := tableStyle.Render(content)
-	if scrollInfo != "" {
-		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-		result += "\n" + scrollStyle.Render(scrollInfo)
-	}
+    result := tableStyle.Render(content)
+    if scrollInfo != "" {
+        result += "\n" + scrollInfoStyle.Render(scrollInfo)
+    }
 
 	return result
 }
@@ -257,8 +270,8 @@ func (m *TUIModel) renderDetailView() string {
 	}
 
 	b.WriteString("\n")
-	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • p probe • Shift+K shutdown"
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+    helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • p probe • Shift+K shutdown"
+    b.WriteString(helpStyle.Render(helpText))
 
 	// Implement scrolling
 	content := b.String()
@@ -391,7 +404,7 @@ func (m *TUIModel) renderProbeView() string {
 		maxScroll = 0
 	}
 	statusText += fmt.Sprintf(" • Scroll: %d/%d (visible: %d)", m.probeState.scroll, maxScroll, visibleRows)
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(statusText))
+    b.WriteString(statusDimStyle.Render(statusText))
 	b.WriteString("\n\n")
 
 	// Render logs
@@ -405,7 +418,7 @@ func (m *TUIModel) renderProbeView() string {
 			} else {
 				debugText += " • Channel not ready"
 			}
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(debugText))
+            b.WriteString(debugDimStyle.Render(debugText))
 			b.WriteString("\n")
 		}
 	} else {
@@ -444,8 +457,7 @@ func (m *TUIModel) renderProbeView() string {
 		if logCount > visibleRows {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
 				startIdx+1, endIdx, logCount)
-			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-			b.WriteString("\n" + scrollStyle.Render(scrollInfo))
+        b.WriteString("\n" + scrollInfoStyle.Render(scrollInfo))
 		}
 	}
 
@@ -459,13 +471,12 @@ func (m *TUIModel) renderProbeView() string {
 			helpText += " • Auto-scroll: OFF"
 		}
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+    b.WriteString(helpStyle.Render(helpText))
 
 	// Show error messages
 	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-		errMsg := fmt.Sprintf("Error: %v", m.err)
-		b.WriteString("\n" + errorStyle.Render(errMsg))
+        errMsg := fmt.Sprintf("Error: %v", m.err)
+        b.WriteString("\n" + errorStyle.Render(errMsg))
 	}
 
 	return b.String()
@@ -510,21 +521,21 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 		attrStartInFirstLine := len(mainText) + 1 // +1 for space before attrs
 
 		for i, line := range lines {
-			if i == 0 {
-				// First line: style only the attrs part if it fits
-				if len(line) > attrStartInFirstLine {
-					styledLines[i] = line[:attrStartInFirstLine] +
-						lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(line[attrStartInFirstLine:])
-				} else {
-					styledLines[i] = line
-				}
-			} else {
-				// Continuation lines: style the entire line (it's part of attrs)
-				styledLines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(line)
-			}
-		}
-		return strings.Join(styledLines, "\n")
-	}
+            if i == 0 {
+                // First line: style only the attrs part if it fits
+                if len(line) > attrStartInFirstLine {
+                    styledLines[i] = line[:attrStartInFirstLine] +
+                        attrGreyStyle.Render(line[attrStartInFirstLine:])
+                } else {
+                    styledLines[i] = line
+                }
+            } else {
+                // Continuation lines: style the entire line (it's part of attrs)
+                styledLines[i] = attrGreyStyle.Render(line)
+            }
+        }
+        return strings.Join(styledLines, "\n")
+    }
 
 	return strings.Join(lines, "\n")
 }
@@ -567,16 +578,12 @@ func wrapText(text string, width int) []string {
 
 // renderLogPane renders the log pane showing recent logs
 func (m *TUIModel) renderLogPane() string {
-	var b strings.Builder
-	logStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1)
+    var b strings.Builder
 
 	var content string
 	if len(m.logEntries) == 0 {
-		content = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("Logs (waiting...)")
-	} else {
+        content = debugDimStyle.Render("Logs (waiting...)")
+    } else {
 		// Show last 3 log entries
 		displayCount := 3
 		startIdx := len(m.logEntries) - displayCount
@@ -585,7 +592,7 @@ func (m *TUIModel) renderLogPane() string {
 		}
 
 		var logLines []string
-		logLines = append(logLines, lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
+        logLines = append(logLines, debugDimStyle.Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
 		for i := startIdx; i < len(m.logEntries); i++ {
 			entry := m.logEntries[i]
 			logLine := m.formatLogEntry(entry)
@@ -594,7 +601,7 @@ func (m *TUIModel) renderLogPane() string {
 		content = strings.Join(logLines, "\n")
 	}
 
-	b.WriteString(logStyle.Render(content))
+    b.WriteString(logPaneBoxStyle.Render(content))
 
 	return b.String()
 }
@@ -640,19 +647,19 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 	styledLines := make([]string, len(lines))
 
 	// Color by level
-	var levelStyle lipgloss.Style
-	switch entry.Level {
-	case "ERROR":
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-	case "WARN":
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
-	case "INFO":
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
-	default:
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	}
+    var levelStyle lipgloss.Style
+    switch entry.Level {
+    case "ERROR":
+        levelStyle = levelErrorStyle
+    case "WARN":
+        levelStyle = levelWarnStyle
+    case "INFO":
+        levelStyle = levelInfoStyle
+    default:
+        levelStyle = levelDefaultStyle
+    }
 
-	attrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+    attrStyle := attrGreyStyle
 
 	for i, line := range lines {
 		if i == 0 {
