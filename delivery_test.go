@@ -1,6 +1,7 @@
 package trabbits_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/fujiwara/trabbits"
@@ -12,7 +13,7 @@ func TestDelivery(t *testing.T) {
 	for _tag := range 10 {
 		tag := uint64(_tag)
 		for i := range 1 {
-			d := trabbits.NewDelivery(nil, i, n)
+			d := trabbits.NewDelivery(nil, i, n, fmt.Sprintf("upstream-%d", i))
 			clientDeliveryTag := d.Tag(tag)
 			rt, ri := trabbits.RestoreDeliveryTag(clientDeliveryTag, n)
 			if rt != tag || ri != i {

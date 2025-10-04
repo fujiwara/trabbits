@@ -121,7 +121,7 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 		for _, keyPattern := range us.keyPatterns {
 			if pattern.Match(routingKey, keyPattern) {
 				routed = us
-				p.probeLog("t->u matched pattern", "pattern", keyPattern, "routing_key", routingKey)
+				us.probeLog("t->u matched pattern", "pattern", keyPattern, "routing_key", routingKey)
 				break
 			}
 		}
@@ -307,17 +307,16 @@ func (p *Proxy) sortNodesByLeastConnections(nodes []string) []string {
 }
 
 func (p *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config.Upstream, props amqp091.Table) error {
-	for _, c := range upstreamConfigs {
-		timeout := c.Timeout.ToDuration()
+	for _, conf := range upstreamConfigs {
+		timeout := conf.Timeout.ToDuration()
 		if timeout == 0 {
 			timeout = UpstreamDefaultTimeout
 		}
-		conn, addr, err := p.connectToUpstreamServers(c.Name, c.Addresses(), props, timeout)
+		conn, addr, err := p.connectToUpstreamServers(conf.Name, conf.Addresses(), props, timeout)
 		if err != nil {
 			return err
 		}
-		us := NewUpstream(conn, p.logger, c, addr, p.metrics)
-		us.probeLogFunc = p.probeLog // Set probe log function
+		us := p.newUpstream(conn, conf, addr)
 		p.upstreams = append(p.upstreams, us)
 
 		// Start monitoring the upstream connection
@@ -326,7 +325,11 @@ func (p *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config
 	return nil
 }
 
-func (p *Proxy) handshake(ctx context.Context) error {
+func (p *Proxy) newUpstream(conn *rabbitmq.Connection, conf config.Upstream, address string) *Upstream {
+	return NewUpstream(conn, p.logger, conf, address, p.metrics, p.probeLog)
+}
+
+func (p *Proxy) handshake(_ context.Context) error {
 	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
 		VersionMajor: 0,
@@ -557,6 +560,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		p.metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
 		// Update proxy-specific statistics
 		p.stats.IncrementMethod(methodName)
+		p.probeLog("c->t method", "channel", f.Channel(), "type", methodName)
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
 			return p.replyChannelOpen(ctx, f, m)
@@ -611,7 +615,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 			return fmt.Errorf("unsupported method: %T", m)
 		}
 	case *amqp091.HeartbeatFrame:
-		p.probeLog("t<-u heartbeat")
+		p.probeLog("c->t heartbeat received")
 		// drop
 	default:
 		return fmt.Errorf("unsupported frame: %#v", f)

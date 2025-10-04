@@ -15,7 +15,7 @@ import (
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
-func (p *Proxy) replyChannelOpen(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.ChannelOpen) error {
+func (p *Proxy) replyChannelOpen(_ context.Context, f *amqp091.MethodFrame, m *amqp091.ChannelOpen) error {
 	id := f.Channel()
 	p.probeLog("c->t Channel.Open", "channel", id, "message", m)
 
@@ -57,12 +57,12 @@ func (p *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 	var queueName string
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Queue.Declare", "upstream", us.String(), "message", m)
+		us.probeLog("t->u Queue.Declare", "message", m)
 		q, err := us.QueueDeclareWithTryPassive(ch, m)
 		if err != nil {
 			return fmt.Errorf("failed to declare queue on upstream %s: %w", us.String(), err)
 		}
-		p.probeLog("t<-u Queue.Declare result", "upstream", us.String(), "result", q)
+		us.probeLog("t<-u Queue.Declare result", "result", q)
 		messages += q.Messages
 		consumers += q.Consumers
 		if queueName == "" {
@@ -83,11 +83,12 @@ func (p *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 
 func (p *Proxy) replyBasicPublish(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicPublish) error {
 	id := f.Channel()
+	p.probeLog("c->t Basic.Publish", "message", m)
 	ch, err := p.GetChannel(id, m.RoutingKey)
 	if err != nil {
 		return err
 	}
-	p.probeLog("c->t Basic.Publish", "message", m)
+	p.probeLog("t->u Basic.Publish", "message", m)
 	if err := ch.PublishWithContext(
 		ctx,
 		m.Exchange,
@@ -122,7 +123,7 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 	p.probeLog("c->t Basic.Consume", "message", m)
 	deliveries := make([]*delivery, 0, len(uss))
 	for i, us := range uss {
-		p.probeLog("t->u Basic.Consume", "upstream", us.String())
+		us.probeLog("t->u Basic.Consume", "message", m)
 		ch, err := us.GetChannel(id)
 		if err != nil {
 			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
@@ -140,7 +141,7 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 		if err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume on upstream %s: %v", us.String(), err))
 		}
-		d := p.newDelivery(consume, i)
+		d := p.newDelivery(consume, i, us.name)
 		deliveries = append(deliveries, d)
 	}
 
@@ -171,10 +172,10 @@ func (p *Proxy) consume(ctx context.Context, id uint16, queue, tag string, d *de
 			return
 		case msg, ok := <-d.ch:
 			if !ok {
-				p.probeLog("t<-u Basic.Consume closed", "queue", queue)
+				p.probeLog("t<-u Basic.Consume closed", "queue", queue, "upstream", d.upstreamName)
 				return
 			}
-			p.probeLog("t<-u Basic.Deliver", "exchange", msg.Exchange, "routing_key", msg.RoutingKey, "delivery_tag", msg.DeliveryTag)
+			p.probeLog("t<-u Basic.Deliver", "exchange", msg.Exchange, "routing_key", msg.RoutingKey, "delivery_tag", msg.DeliveryTag, "upstream", d.upstreamName)
 			err := p.send(id, &amqp091.BasicDeliver{
 				ConsumerTag: tag,
 				DeliveryTag: d.Tag(msg.DeliveryTag), // rewrite delivery tag
@@ -196,13 +197,13 @@ func (p *Proxy) consume(ctx context.Context, id uint16, queue, tag string, d *de
 	}
 }
 
-func (p *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicGet) error {
+func (p *Proxy) replyBasicGet(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicGet) error {
 	id := f.Channel()
 	uss := p.Upstreams()
 	p.probeLog("c->t Basic.Get", "message", m)
 	var got bool
 	for i, us := range uss {
-		p.probeLog("t->u Basic.Get", "upstream", us.String())
+		us.probeLog("t->u Basic.Get", "queue", m.Queue)
 		ch, err := us.GetChannel(id)
 		if err != nil {
 			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
@@ -216,8 +217,8 @@ func (p *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 		}
 
 		got = true
-		dTag := p.newDelivery(nil, i).Tag(msg.DeliveryTag)
-		p.probeLog("t<-u Basic.Get received", "queue", m.Queue, "client_delivery_tag", dTag, "upstream_delivery_tag", msg.DeliveryTag)
+		dTag := p.newDelivery(nil, i, us.name).Tag(msg.DeliveryTag)
+		us.probeLog("t<-u Basic.Get received", "queue", m.Queue, "client_delivery_tag", dTag, "upstream_delivery_tag", msg.DeliveryTag)
 		p.send(id, &amqp091.BasicGetOk{
 			DeliveryTag:  dTag,
 			Redelivered:  msg.Redelivered,
@@ -239,17 +240,19 @@ func (p *Proxy) replyBasicGet(ctx context.Context, f *amqp091.MethodFrame, m *am
 
 func (p *Proxy) replyBasicAck(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicAck) error {
 	id := f.Channel()
+	p.probeLog("c->t Basic.Ack", "message", m)
 	ch, err := p.GetChannelByDeliveryTag(id, m.DeliveryTag)
 	if err != nil {
 		return err
 	}
 	tag := p.UpstreamDeliveryTag(m.DeliveryTag)
-	p.probeLog("c->t Basic.Ack", "message", m, "upstream_delivery_tag", tag)
+	p.probeLog("t->u Basic.Ack", "message", m, "upstream_delivery_tag", tag)
 	return ch.Ack(tag, m.Multiple)
 }
 
 func (p *Proxy) replyBasicNack(_ context.Context, f *amqp091.MethodFrame, m *amqp091.BasicNack) error {
 	id := f.Channel()
+	p.probeLog("c->t Basic.Nack", "message", m)
 	ch, err := p.GetChannelByDeliveryTag(id, m.DeliveryTag)
 	if err != nil {
 		return err
@@ -286,7 +289,7 @@ func (p *Proxy) replyBasicCancel(_ context.Context, f *amqp091.MethodFrame, m *a
 	p.probeLog("c->t Basic.Cancel", "message", m)
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Basic.Cancel", "upstream", us.String())
+		us.probeLog("t->u Basic.Cancel")
 		if err := ch.Cancel(m.ConsumerTag, false); err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to cancel consumer on upstream %s: %v", us.String(), err))
 		}
@@ -305,14 +308,16 @@ func (p *Proxy) replyQueueDelete(_ context.Context, f *amqp091.MethodFrame, m *a
 	p.probeLog("c->t Queue.Delete", "message", m)
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Queue.Delete", "upstream", us.String())
-		if _, err := ch.QueueDelete(
+		us.probeLog("t->u Queue.Delete", "queue", m.Queue)
+		if n, err := ch.QueueDelete(
 			m.Queue,
 			m.IfUnused,
 			m.IfEmpty,
 			m.NoWait,
 		); err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to delete queue on upstream %s: %v", us.String(), err))
+		} else {
+			us.probeLog("t<-u Queue.Delete", "purged_messages", n)
 		}
 	}
 	return p.send(id, &amqp091.QueueDeleteOk{})
@@ -327,7 +332,7 @@ func (p *Proxy) replyQueueBind(_ context.Context, f *amqp091.MethodFrame, m *amq
 	p.probeLog("c->t Queue.Bind", "message", m)
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Queue.Bind", "upstream", us.String())
+		us.probeLog("t->u Queue.Bind", "queue", m.Queue)
 		if err := ch.QueueBind(
 			m.Queue,
 			m.RoutingKey,
@@ -346,7 +351,7 @@ func (p *Proxy) replyQueueUnbind(_ context.Context, f *amqp091.MethodFrame, m *a
 	uss := p.Upstreams()
 	p.probeLog("c->t Queue.Unbind", "message", m)
 	for _, us := range uss {
-		p.probeLog("t->u Queue.Unbind", "upstream", us.String())
+		us.probeLog("t->u Queue.Unbind", "queue", m.Queue)
 		ch, err := us.GetChannel(id)
 		if err != nil {
 			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
@@ -373,7 +378,7 @@ func (p *Proxy) replyBasicQos(_ context.Context, f *amqp091.MethodFrame, m *amqp
 	p.probeLog("c->t Basic.Qos", "message", m)
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Basic.Qos", "upstream", us.String())
+		us.probeLog("t->u Basic.Qos")
 		if err := ch.Qos(
 			int(m.PrefetchCount),
 			int(m.PrefetchSize),
@@ -394,7 +399,7 @@ func (p *Proxy) replyExchangeDeclare(_ context.Context, f *amqp091.MethodFrame, 
 	p.probeLog("c->t Exchange.Declare", "message", m)
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Exchange.Declare", "upstream", us.String())
+		us.probeLog("t->u Exchange.Declare", "exchange", m.Exchange)
 		if err := ch.ExchangeDeclare(
 			m.Exchange,
 			m.Type,
@@ -419,10 +424,12 @@ func (p *Proxy) replyQueuePurge(_ context.Context, f *amqp091.MethodFrame, m *am
 	p.probeLog("c->t Queue.Purge", "message", m)
 	for i, ch := range chs {
 		us := p.Upstream(i)
-		p.probeLog("t->u Queue.Purge", "upstream", us.String())
+		us.probeLog("t->u Queue.Purge", "queue", m.Queue)
 		// always wait upstream response
-		if _, err := ch.QueuePurge(m.Queue, true); err != nil {
+		if n, err := ch.QueuePurge(m.Queue, true); err != nil {
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to purge queue on upstream %s: %v", us.String(), err))
+		} else {
+			us.probeLog("t<-u Queue.Purge", "purged_messages", n)
 		}
 	}
 	return p.send(id, &amqp091.QueuePurgeOk{
