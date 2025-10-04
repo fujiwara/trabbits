@@ -217,7 +217,7 @@ func TestProxyPublishGet(t *testing.T) {
 	}
 
 	body := strings.Repeat(rand.Text(), 10)
-	if len(body) < trabbits.FrameMax {
+	if len(body) < int(trabbits.FrameMax) {
 		t.Fatal("message is too short")
 	}
 	if err := ch.Publish(
@@ -343,7 +343,7 @@ func TestProxyPublishPurgeGet(t *testing.T) {
 	}
 
 	body := strings.Repeat(rand.Text(), 10)
-	if len(body) < trabbits.FrameMax {
+	if len(body) < int(trabbits.FrameMax) {
 		t.Fatal("message is too short")
 	}
 	if err := ch.Publish(
