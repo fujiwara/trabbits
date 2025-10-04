@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 // Styles for rendering
@@ -33,6 +34,22 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			Margin(1, 0)
+
+	// Cached frequently used styles
+	errorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	successStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
+	scrollInfoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	statusDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	debugDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	attrGreyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	cursorStyle     = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(lipgloss.Color("0")).Render(" ")
+	logPaneBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1)
+
+	// Log level styles
+	levelErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	levelWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+	levelInfoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
+	levelDefaultStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 // View renders the current TUI state
@@ -72,8 +89,7 @@ func (m *TUIModel) renderListView() string {
 	b.WriteString(help)
 
 	// Show error messages
-	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	if m.err != nil && time.Since(m.errorTime) < errorToastDuration {
 		errMsg := fmt.Sprintf("Error: %v", m.err)
 		if len(errMsg) > 80 {
 			lines := []string{}
@@ -92,8 +108,7 @@ func (m *TUIModel) renderListView() string {
 	}
 
 	// Show success messages
-	if m.successMsg != "" && time.Since(m.successTime) < 3*time.Second {
-		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
+	if m.successMsg != "" && time.Since(m.successTime) < successToastDuration {
 		b.WriteString("\n" + successStyle.Render(m.successMsg))
 	} else if m.successMsg != "" && time.Since(m.successTime) >= 3*time.Second {
 		m.successMsg = ""
@@ -113,6 +128,10 @@ func (m *TUIModel) renderHeader() string {
 
 	headerText := fmt.Sprintf("Active Clients: %d  Total: %d  Last Update: %s",
 		activeCount, len(m.clients), m.lastUpdate.Format("15:04:05"))
+	// Show dropped server logs if any
+	if m.droppedLogs > 0 {
+		headerText += fmt.Sprintf("  Dropped logs: %d", m.droppedLogs)
+	}
 
 	return headerStyle.Render(headerText)
 }
@@ -160,8 +179,7 @@ func (m *TUIModel) renderTable() string {
 
 	result := tableStyle.Render(content)
 	if scrollInfo != "" {
-		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-		result += "\n" + scrollStyle.Render(scrollInfo)
+		result += "\n" + scrollInfoStyle.Render(scrollInfo)
 	}
 
 	return result
@@ -258,7 +276,7 @@ func (m *TUIModel) renderDetailView() string {
 
 	b.WriteString("\n")
 	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • p probe • Shift+K shutdown"
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+	b.WriteString(helpStyle.Render(helpText))
 
 	// Implement scrolling
 	content := b.String()
@@ -391,7 +409,7 @@ func (m *TUIModel) renderProbeView() string {
 		maxScroll = 0
 	}
 	statusText += fmt.Sprintf(" • Scroll: %d/%d (visible: %d)", m.probeState.scroll, maxScroll, visibleRows)
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(statusText))
+	b.WriteString(statusDimStyle.Render(statusText))
 	b.WriteString("\n\n")
 
 	// Render logs
@@ -405,7 +423,7 @@ func (m *TUIModel) renderProbeView() string {
 			} else {
 				debugText += " • Channel not ready"
 			}
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(debugText))
+			b.WriteString(debugDimStyle.Render(debugText))
 			b.WriteString("\n")
 		}
 	} else {
@@ -444,8 +462,7 @@ func (m *TUIModel) renderProbeView() string {
 		if logCount > visibleRows {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
 				startIdx+1, endIdx, logCount)
-			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-			b.WriteString("\n" + scrollStyle.Render(scrollInfo))
+			b.WriteString("\n" + scrollInfoStyle.Render(scrollInfo))
 		}
 	}
 
@@ -459,13 +476,17 @@ func (m *TUIModel) renderProbeView() string {
 			helpText += " • Auto-scroll: OFF"
 		}
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
+	b.WriteString(helpStyle.Render(helpText))
 
 	// Show error messages
-	if m.err != nil && time.Since(m.errorTime) < 5*time.Second {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	if m.err != nil && time.Since(m.errorTime) < errorToastDuration {
 		errMsg := fmt.Sprintf("Error: %v", m.err)
 		b.WriteString("\n" + errorStyle.Render(errMsg))
+	}
+
+	// Show success messages (short toast)
+	if m.successMsg != "" && time.Since(m.successTime) < successToastDuration {
+		b.WriteString("\n" + successStyle.Render(m.successMsg))
 	}
 
 	return b.String()
@@ -514,13 +535,13 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 				// First line: style only the attrs part if it fits
 				if len(line) > attrStartInFirstLine {
 					styledLines[i] = line[:attrStartInFirstLine] +
-						lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(line[attrStartInFirstLine:])
+						attrGreyStyle.Render(line[attrStartInFirstLine:])
 				} else {
 					styledLines[i] = line
 				}
 			} else {
 				// Continuation lines: style the entire line (it's part of attrs)
-				styledLines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(line)
+				styledLines[i] = attrGreyStyle.Render(line)
 			}
 		}
 		return strings.Join(styledLines, "\n")
@@ -531,51 +552,82 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 
 // wrapText wraps text to the specified width, returning a slice of lines
 func wrapText(text string, width int) []string {
-	if width <= 0 || len(text) <= width {
+	if width <= 0 {
 		return []string{text}
 	}
 
-	var lines []string
-	for len(text) > 0 {
-		if len(text) <= width {
-			lines = append(lines, text)
-			break
+	// Split by existing newlines and wrap each segment
+	segments := strings.Split(text, "\n")
+	var out []string
+	for _, seg := range segments {
+		if seg == "" {
+			out = append(out, "")
+			continue
 		}
-		// Find a good break point (prefer breaking at spaces)
-		breakPoint := width
-		if breakPoint > len(text) {
-			breakPoint = len(text)
-		}
-		// Look for a space to break at within last 20 chars
-		foundSpace := false
-		for i := breakPoint - 1; i > 0 && i > breakPoint-20; i-- {
-			if text[i] == ' ' {
-				breakPoint = i
-				foundSpace = true
-				break
+
+		runes := []rune(seg)
+		start := 0
+		lineWidth := 0
+		lastSpace := -1
+		i := 0
+		for i < len(runes) {
+			ch := runes[i]
+			if ch == '\n' {
+				out = append(out, string(runes[start:i]))
+				start = i + 1
+				lineWidth = 0
+				lastSpace = -1
+				i++
+				continue
 			}
+
+			rw := runewidth.RuneWidth(ch)
+			if ch == ' ' {
+				lastSpace = i
+			}
+
+			// If adding this rune would exceed width, wrap
+			if lineWidth+rw > width {
+				if lastSpace >= start {
+					// Wrap at last space; next line starts after the space
+					out = append(out, string(runes[start:lastSpace]))
+					start = lastSpace + 1
+					// Reset to after space and recompute width from that position
+					lineWidth = 0
+					for j := start; j < i; j++ {
+						lineWidth += runewidth.RuneWidth(runes[j])
+					}
+					lastSpace = -1
+					continue
+				}
+				// No space to break at; hard wrap before this rune
+				if i > start {
+					out = append(out, string(runes[start:i]))
+					start = i
+					lineWidth = 0
+					lastSpace = -1
+					continue
+				}
+			}
+
+			lineWidth += rw
+			i++
 		}
-		lines = append(lines, text[:breakPoint])
-		text = text[breakPoint:]
-		// Skip leading space on next line only if we broke at a space
-		if foundSpace && len(text) > 0 && text[0] == ' ' {
-			text = text[1:]
+		// Flush remainder
+		if start <= len(runes) {
+			out = append(out, string(runes[start:]))
 		}
 	}
-	return lines
+	return out
 }
 
 // renderLogPane renders the log pane showing recent logs
 func (m *TUIModel) renderLogPane() string {
 	var b strings.Builder
-	logStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1)
 
 	var content string
 	if len(m.logEntries) == 0 {
-		content = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("Logs (waiting...)")
+		content = debugDimStyle.Render("Logs (waiting...)")
 	} else {
 		// Show last 3 log entries
 		displayCount := 3
@@ -585,7 +637,7 @@ func (m *TUIModel) renderLogPane() string {
 		}
 
 		var logLines []string
-		logLines = append(logLines, lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
+		logLines = append(logLines, debugDimStyle.Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
 		for i := startIdx; i < len(m.logEntries); i++ {
 			entry := m.logEntries[i]
 			logLine := m.formatLogEntry(entry)
@@ -594,7 +646,7 @@ func (m *TUIModel) renderLogPane() string {
 		content = strings.Join(logLines, "\n")
 	}
 
-	b.WriteString(logStyle.Render(content))
+	b.WriteString(logPaneBoxStyle.Render(content))
 
 	return b.String()
 }
@@ -606,20 +658,7 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 	// Build the main text first (without styling)
 	mainText := fmt.Sprintf("%s %-5s %s", timestamp, entry.Level, entry.Message)
 
-	var attrStr string
-	if len(entry.Attrs) > 0 {
-		// Create a copy without the "level" key
-		filteredAttrs := make(map[string]any)
-		for k, v := range entry.Attrs {
-			if k != "level" {
-				filteredAttrs[k] = v
-			}
-		}
-		if len(filteredAttrs) > 0 {
-			attrs, _ := json.Marshal(filteredAttrs)
-			attrStr = string(attrs)
-		}
-	}
+	attrStr := entry.AttrJSON
 
 	// Calculate available width for wrapping
 	width := m.width - 2 // -2 for margins
@@ -643,16 +682,16 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 	var levelStyle lipgloss.Style
 	switch entry.Level {
 	case "ERROR":
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+		levelStyle = levelErrorStyle
 	case "WARN":
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+		levelStyle = levelWarnStyle
 	case "INFO":
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
+		levelStyle = levelInfoStyle
 	default:
-		levelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+		levelStyle = levelDefaultStyle
 	}
 
-	attrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	attrStyle := attrGreyStyle
 
 	for i, line := range lines {
 		if i == 0 {
@@ -685,28 +724,16 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 // adjustScrollForSelection adjusts scroll position to keep selected item visible
 func (m *TUIModel) adjustScrollForSelection() {
 	visibleRows := m.getVisibleRows()
-
-	// If selected item is above visible area, scroll up
-	if m.selectedIdx < m.listScroll {
-		m.listScroll = m.selectedIdx
-	}
-
-	// If selected item is below visible area, scroll down
-	if m.selectedIdx >= m.listScroll+visibleRows {
-		m.listScroll = m.selectedIdx - visibleRows + 1
-	}
-
-	// Ensure scroll is within bounds
-	if m.listScroll < 0 {
+	total := len(m.clients)
+	// Clamp selected index to available range
+	if total == 0 {
+		m.selectedIdx = 0
 		m.listScroll = 0
+		return
 	}
-	maxScroll := len(m.clients) - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.listScroll > maxScroll {
-		m.listScroll = maxScroll
-	}
+	m.selectedIdx = clamp(m.selectedIdx, 0, total-1)
+	// Adjust scroll to contain selection and clamp bounds
+	m.listScroll = clampScrollToContain(m.listScroll, m.selectedIdx, visibleRows, total)
 }
 
 // renderServerLogsView renders the server logs view
@@ -715,6 +742,9 @@ func (m *TUIModel) renderServerLogsView() string {
 
 	// Header
 	headerText := fmt.Sprintf("Server Logs (%d total)", len(m.logEntries))
+	if m.droppedLogs > 0 {
+		headerText += fmt.Sprintf(" • dropped %d", m.droppedLogs)
+	}
 	b.WriteString(headerStyle.Render(headerText))
 	b.WriteString("\n\n")
 
@@ -805,6 +835,10 @@ func (m *TUIModel) renderSaveConfirmView() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
 	} else {
 		helpText := "ENTER to save • e to edit path • ESC/n to cancel"
+		// If an overwrite confirmation is required, adjust messaging
+		if m.saveState.overwriteConfirm {
+			helpText = "File exists: ENTER to overwrite • e edit path • ESC/n cancel"
+		}
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,16 +48,18 @@ type TUIModel struct {
 	listScroll            int
 	logEntries            []LogEntry // Recent log messages from slog
 	logChan               chan LogEntry
-	serverLogsScroll      int // Scroll position for server logs view
-	serverLogsSelectedIdx int // Selected log index in server logs view
+	serverLogsScroll      int   // Scroll position for server logs view
+	serverLogsSelectedIdx int   // Selected log index in server logs view
+	droppedLogs           int64 // Number of dropped server log entries (non-blocking send)
 }
 
 // LogEntry represents a log message
 type LogEntry struct {
-	Time    time.Time
-	Level   string
-	Message string
-	Attrs   map[string]any
+	Time     time.Time
+	Level    string
+	Message  string
+	Attrs    map[string]any
+	AttrJSON string // cached JSON string for Attrs (filtered)
 }
 
 type confirmState struct {
@@ -65,11 +68,12 @@ type confirmState struct {
 }
 
 type saveState struct {
-	clientID     string
-	filePath     string
-	editing      bool
-	cursorPos    int
-	previousView ViewMode
+	clientID         string
+	filePath         string
+	editing          bool
+	cursorPos        int
+	previousView     ViewMode
+	overwriteConfirm bool
 }
 
 type probeState struct {
@@ -156,6 +160,29 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Re-clamp scroll/selection for the active view after resize
+		switch m.viewMode {
+		case ViewList:
+			m.adjustScrollForSelection()
+		case ViewServerLogs:
+			visible := m.getServerLogsVisibleRows()
+			total := len(m.logEntries)
+			total = clamp(total, 0, total) // no-op, placeholder for clarity
+			m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, clamp(total-1, -1, total-1))
+			m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visible, total)
+			// Ensure bounds when there are no logs
+			if total == 0 {
+				m.serverLogsSelectedIdx = 0
+				m.serverLogsScroll = 0
+			}
+		case ViewProbe:
+			if m.probeState != nil {
+				visible := m.getProbeVisibleRows()
+				total := len(m.probeState.logs)
+				m.probeState.selectedIdx = clamp(m.probeState.selectedIdx, 0, clamp(total-1, -1, total-1))
+				m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, visible, total)
+			}
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -176,11 +203,31 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 
 	case clientsMsg:
+		// Preserve selection by client ID when possible
+		var prevSelectedID string
+		if m.selectedIdx >= 0 && m.selectedIdx < len(m.clients) {
+			prevSelectedID = m.clients[m.selectedIdx].ID
+		}
 		m.clients = []types.ClientInfo(msg)
 		m.lastUpdate = time.Now()
-		if m.selectedIdx >= len(m.clients) && len(m.clients) > 0 {
+		// Try to restore selection to the same client ID
+		if prevSelectedID != "" {
+			restored := false
+			for i, c := range m.clients {
+				if c.ID == prevSelectedID {
+					m.selectedIdx = i
+					restored = true
+					break
+				}
+			}
+			if !restored && len(m.clients) > 0 && m.selectedIdx >= len(m.clients) {
+				m.selectedIdx = len(m.clients) - 1
+			}
+		} else if len(m.clients) > 0 && m.selectedIdx >= len(m.clients) {
 			m.selectedIdx = len(m.clients) - 1
 		}
+		// Ensure selection remains visible and scroll stays in bounds
+		m.adjustScrollForSelection()
 		return m, nil
 
 	case clientDetailMsg:
@@ -207,20 +254,25 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.probeState != nil {
 			entry := probeLogEntry(msg)
 			m.probeState.logs = append(m.probeState.logs, entry)
-			// Keep only last 1000 logs to prevent memory issues
-			if len(m.probeState.logs) > 1000 {
-				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-1000:]
+			// Keep only last N logs to prevent memory issues
+			if len(m.probeState.logs) > probeLogKeep {
+				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-probeLogKeep:]
 			}
 			// Auto-scroll to bottom only if auto-scroll is enabled
 			if m.probeState.autoScroll {
 				m.probeState.selectedIdx = len(m.probeState.logs) - 1 // Select the latest log
 				// Adjust scroll to show the last item
 				visibleRows := m.getProbeVisibleRows()
-				maxScroll := len(m.probeState.logs) - visibleRows
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
-				m.probeState.scroll = maxScroll
+				total := len(m.probeState.logs)
+				m.probeState.scroll = maxScroll(total, visibleRows)
+			}
+			// When auto-scroll is disabled, still keep scroll within legal bounds
+			if !m.probeState.autoScroll {
+				visible := m.getProbeVisibleRows()
+				total := len(m.probeState.logs)
+				// Keep selectedIdx inside bounds
+				m.probeState.selectedIdx = clamp(m.probeState.selectedIdx, 0, clamp(total-1, -1, total-1))
+				m.probeState.scroll = clamp(m.probeState.scroll, 0, maxScroll(total, visible))
 			}
 
 			// Continue listening for next log
@@ -230,6 +282,11 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case probeEndMsg:
 		if m.probeState != nil {
+			// If we're no longer in probe view, don't attempt reconnection
+			if m.viewMode != ViewProbe {
+				m.stopProbeStream()
+				return m, nil
+			}
 			// Probe stream ended, attempt to reconnect
 			clientID := m.probeState.clientID
 			reconnectCount := m.probeState.reconnectCount
@@ -272,11 +329,21 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listenForProbeLog()
 
 	case reconnectProbeMsg:
-		// Handle reconnection with preserved logs
+		// Handle reconnection with preserved logs only when still in probe view
+		if m.viewMode != ViewProbe {
+			return m, nil
+		}
 		return m, m.startProbeStreamWithState(msg.clientID, msg.logs, msg.reconnectCount)
 
 	case probeStreamStartedMsgWithState:
 		// Initialize probe state with preserved logs and start listening
+		if m.viewMode != ViewProbe {
+			// View changed while starting; cancel to avoid leak
+			if msg.cancelFunc != nil {
+				msg.cancelFunc()
+			}
+			return m, nil
+		}
 		logs := msg.preservedLogs
 		if logs == nil {
 			logs = []probeLogEntry{}
@@ -296,13 +363,47 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.probeState.selectedIdx < 0 {
 			m.probeState.selectedIdx = 0
 		}
+		// If we already have logs, set initial scroll so the last page is visible
+		if len(logs) > 0 {
+			visible := m.getProbeVisibleRows()
+			if visible < 1 {
+				visible = 1
+			}
+			maxScroll := len(logs) - visible
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.probeState.scroll = maxScroll
+		}
 		return m, m.listenForProbeLog()
 
 	case logMsg:
-		// Add log entry to buffer (keep last 100 entries)
-		m.logEntries = append(m.logEntries, LogEntry(msg))
-		if len(m.logEntries) > 100 {
-			m.logEntries = m.logEntries[len(m.logEntries)-100:]
+		// Add log entry to buffer with cached AttrJSON
+		entry := LogEntry(msg)
+		if len(entry.Attrs) > 0 {
+			// Filter out level before caching
+			filtered := make(map[string]any)
+			for k, v := range entry.Attrs {
+				if k != "level" {
+					filtered[k] = v
+				}
+			}
+			if len(filtered) > 0 {
+				if b, err := json.Marshal(filtered); err == nil {
+					entry.AttrJSON = string(b)
+				}
+			}
+		}
+		m.logEntries = append(m.logEntries, entry)
+		if len(m.logEntries) > serverLogKeep {
+			m.logEntries = m.logEntries[len(m.logEntries)-serverLogKeep:]
+		}
+		// If we are in the server logs view, keep selection/scroll within bounds after update
+		if m.viewMode == ViewServerLogs {
+			visible := m.getServerLogsVisibleRows()
+			total := len(m.logEntries)
+			m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, clamp(total-1, -1, total-1))
+			m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visible, total)
 		}
 		// Continue listening for logs
 		return m, m.listenForLogs()
@@ -430,6 +531,13 @@ func (m *TUIModel) saveProbeLogsToFile() tea.Cmd {
 
 		filePath := m.saveState.filePath
 		logs := m.probeState.logs
+
+		// Ensure parent directory exists if specified
+		if dir := filepath.Dir(filePath); dir != "." && dir != "" {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return errorMsg(fmt.Errorf("failed to create directory %s: %w", dir, err))
+			}
+		}
 
 		// Create file
 		file, err := os.Create(filePath)

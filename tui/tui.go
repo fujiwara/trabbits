@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,6 +14,10 @@ import (
 
 // Run starts the TUI application
 func Run(ctx context.Context, apiClient apiclient.APIClient) error {
+	// Ensure all background operations stop when TUI exits
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	model := NewModel(ctx, apiClient)
 
 	// Start streaming server logs from API
@@ -33,15 +39,26 @@ func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 			}
 
 			// Convert ProbeLogEntry to LogEntry
-			select {
-			case model.GetLogChannel() <- LogEntry{
+			entry := LogEntry{
 				Time:    log.Timestamp,
 				Level:   level,
 				Message: log.Message,
 				Attrs:   log.Attrs,
-			}:
+			}
+
+			// Non-blocking send to avoid UI stalls; drop if channel is full
+			select {
 			case <-ctx.Done():
 				return
+			default:
+			}
+			select {
+			case model.GetLogChannel() <- entry:
+			case <-ctx.Done():
+				return
+			default:
+				// drop entry to avoid blocking; count it
+				atomic.AddInt64(&model.droppedLogs, 1)
 			}
 		}
 	}()
@@ -85,6 +102,10 @@ func (m *TUIModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleListKeys handles keys in the list view
 func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "g":
+		// Jump to top (Vim-like)
+		m.selectedIdx = 0
+		m.listScroll = 0
 	case "K":
 		// Shutdown client
 		if len(m.clients) > 0 && m.selectedIdx < len(m.clients) {
@@ -132,6 +153,12 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		m.selectedIdx = len(m.clients) - 1
 		m.adjustScrollForSelection()
+	case "G":
+		// Jump to bottom (Vim-like)
+		if len(m.clients) > 0 {
+			m.selectedIdx = len(m.clients) - 1
+			m.adjustScrollForSelection()
+		}
 	case "enter":
 		if len(m.clients) > 0 {
 			m.selectedID = m.clients[m.selectedIdx].ID
@@ -152,6 +179,19 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Initialize scroll to bottom
 		if len(m.logEntries) > 0 {
 			m.serverLogsSelectedIdx = len(m.logEntries) - 1
+			// Scroll so that the last entry is visible
+			visible := m.getServerLogsVisibleRows()
+			if visible < 1 {
+				visible = 1
+			}
+			maxScroll := len(m.logEntries) - visible
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.serverLogsScroll = maxScroll
+		} else {
+			m.serverLogsSelectedIdx = 0
+			m.serverLogsScroll = 0
 		}
 	}
 	return m, nil
@@ -219,6 +259,12 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Stop probe stream and return to list view
 		m.stopProbeStream()
 		m.viewMode = ViewList
+	case "g":
+		if m.probeState != nil {
+			m.probeState.selectedIdx = 0
+			m.probeState.scroll = 0
+			m.probeState.autoScroll = false
+		}
 	case " ":
 		// Toggle auto-scroll with space key
 		if m.probeState != nil {
@@ -233,6 +279,13 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.probeState.scroll = maxScroll
 			}
+			// Show a short toast indicating the state
+			if m.probeState.autoScroll {
+				m.successMsg = "Auto-scroll: ON"
+			} else {
+				m.successMsg = "Auto-scroll: OFF"
+			}
+			m.successTime = time.Now()
 		}
 	case "s":
 		// Save probe logs to file
@@ -251,26 +304,21 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "up", "k":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			total := len(m.probeState.logs)
 			if m.probeState.selectedIdx > 0 {
 				m.probeState.selectedIdx--
-				// Adjust scroll if selected item is above visible area
-				if m.probeState.selectedIdx < m.probeState.scroll {
-					m.probeState.scroll = m.probeState.selectedIdx
-				}
 			}
+			// Clamp scroll to contain the selection
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), total)
 			m.probeState.autoScroll = false // Disable auto-scroll on manual navigation
 		}
 	case "down", "j":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
-			logCount := len(m.probeState.logs)
-			if m.probeState.selectedIdx < logCount-1 {
+			total := len(m.probeState.logs)
+			if m.probeState.selectedIdx < total-1 {
 				m.probeState.selectedIdx++
-				// Adjust scroll if selected item is below visible area
-				visibleRows := m.getProbeVisibleRows()
-				if m.probeState.selectedIdx >= m.probeState.scroll+visibleRows {
-					m.probeState.scroll = m.probeState.selectedIdx - visibleRows + 1
-				}
 			}
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), total)
 			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
 		}
 	case "home":
@@ -291,6 +339,12 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.probeState.scroll = maxScroll
 			m.probeState.autoScroll = true // Enable auto-scroll when going to bottom
 		}
+	case "G":
+		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			m.probeState.selectedIdx = len(m.probeState.logs) - 1
+			m.probeState.scroll = maxScroll(len(m.probeState.logs), m.getProbeVisibleRows())
+			m.probeState.autoScroll = true
+		}
 	case "pgup":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
 			pageSize := m.getProbeVisibleRows()
@@ -299,10 +353,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.probeState.selectedIdx = 0
 			}
-			// Adjust scroll
-			if m.probeState.selectedIdx < m.probeState.scroll {
-				m.probeState.scroll = m.probeState.selectedIdx
-			}
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), len(m.probeState.logs))
 			m.probeState.autoScroll = false // Disable auto-scroll when paging up
 		}
 	case "pgdn":
@@ -314,11 +365,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.probeState.selectedIdx = logCount - 1
 			}
-			// Adjust scroll
-			visibleRows := m.getProbeVisibleRows()
-			if m.probeState.selectedIdx >= m.probeState.scroll+visibleRows {
-				m.probeState.scroll = m.probeState.selectedIdx - visibleRows + 1
-			}
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), logCount)
 			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
 		}
 	}
@@ -354,6 +401,10 @@ func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q", "esc":
 		m.viewMode = ViewList
 		m.serverLogsScroll = 0
+	case "g":
+		// Jump to top
+		m.serverLogsSelectedIdx = 0
+		m.serverLogsScroll = 0
 	case "up", "k":
 		if len(m.logEntries) > 0 && m.serverLogsSelectedIdx > 0 {
 			m.serverLogsSelectedIdx--
@@ -388,6 +439,17 @@ func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.serverLogsSelectedIdx = len(m.logEntries) - 1
 			m.adjustServerLogsScroll()
 		}
+	case "G":
+		// Jump to bottom
+		if len(m.logEntries) > 0 {
+			m.serverLogsSelectedIdx = len(m.logEntries) - 1
+			m.adjustServerLogsScroll()
+		}
+	case "R":
+		// Reset dropped logs counter
+		m.droppedLogs = 0
+		m.successMsg = "Dropped logs reset"
+		m.successTime = time.Now()
 	}
 	return m, nil
 }
@@ -401,28 +463,14 @@ func (m *TUIModel) getServerLogsVisibleRows() int {
 // adjustServerLogsScroll adjusts scroll position to keep selected log visible
 func (m *TUIModel) adjustServerLogsScroll() {
 	visibleRows := m.getServerLogsVisibleRows()
-
-	// If selected item is above visible area, scroll up
-	if m.serverLogsSelectedIdx < m.serverLogsScroll {
-		m.serverLogsScroll = m.serverLogsSelectedIdx
-	}
-
-	// If selected item is below visible area, scroll down
-	if m.serverLogsSelectedIdx >= m.serverLogsScroll+visibleRows {
-		m.serverLogsScroll = m.serverLogsSelectedIdx - visibleRows + 1
-	}
-
-	// Ensure scroll is within bounds
-	if m.serverLogsScroll < 0 {
+	total := len(m.logEntries)
+	if total == 0 {
+		m.serverLogsSelectedIdx = 0
 		m.serverLogsScroll = 0
+		return
 	}
-	maxScroll := len(m.logEntries) - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.serverLogsScroll > maxScroll {
-		m.serverLogsScroll = maxScroll
-	}
+	m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, total-1)
+	m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visibleRows, total)
 }
 
 // RunTUI starts the TUI with the provided socket path
@@ -474,11 +522,14 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnd:
 			m.saveState.cursorPos = len(m.saveState.filePath)
 		case tea.KeyRunes:
-			// Insert character at cursor
-			char := msg.String()
+			// Insert runes at cursor (basic rune-aware insertion)
 			path := m.saveState.filePath
-			m.saveState.filePath = path[:m.saveState.cursorPos] + char + path[m.saveState.cursorPos:]
-			m.saveState.cursorPos += len(char)
+			for _, r := range msg.Runes {
+				s := string(r)
+				path = path[:m.saveState.cursorPos] + s + path[m.saveState.cursorPos:]
+				m.saveState.cursorPos += len(s)
+			}
+			m.saveState.filePath = path
 		}
 	} else {
 		// Not editing mode
@@ -490,8 +541,20 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "e":
 			// Start editing
 			m.saveState.editing = true
+			m.saveState.overwriteConfirm = false
 		case "enter":
-			// Save file
+			// If file exists and not yet confirmed, ask for overwrite confirmation
+			if m.saveState != nil {
+				path := m.saveState.filePath
+				if !m.saveState.overwriteConfirm {
+					if _, err := os.Stat(path); err == nil {
+						// File exists, require explicit confirmation
+						m.saveState.overwriteConfirm = true
+						return m, nil
+					}
+				}
+			}
+			// Proceed to save
 			return m, m.saveProbeLogsToFile()
 		}
 	}
