@@ -8,10 +8,10 @@ clean:
 	rm -rf trabbits dist/
 
 test:
-	RABBITMQ_HEALTH_PASS=healthpass go test ./... -count=1 --timeout=90s
+	RABBITMQ_HEALTH_PASS=healthpass go test ./... -race -count=1 --timeout=90s
 
 test-coverage:
-	RABBITMQ_HEALTH_PASS=healthpass go test -coverprofile=coverage.out -coverpkg=./... ./... -count=1 --timeout=90s
+	RABBITMQ_HEALTH_PASS=healthpass go test -coverprofile=coverage.out -coverpkg=./... ./... -race -count=1 --timeout=90s
 	go tool cover -html=coverage.out -o coverage.html
 	./scripts/coverage-summary.sh
 

@@ -93,13 +93,13 @@ func TestMain(m *testing.M) {
 	if debug {
 		trabbits.SetupLogger(slog.LevelDebug)
 	} else {
-		trabbits.SetupLogger(slog.LevelInfo)
+		trabbits.SetupLogger(slog.LevelWarn)
 	}
 	handler := slog.Default().Handler()
 	logger = slog.New(handler).With("test", true)
 
 	// escape if the test is taking too long
-	time.AfterFunc(60*time.Second, func() {
+	time.AfterFunc(180*time.Second, func() {
 		panic("timeout")
 	})
 
@@ -271,7 +271,7 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	if q.Name == "" {
 		t.Error("empty queue name")
 	}
-	logger.Info("queue declared (auto naming)", "queue", q.Name)
+	t.Log("queue declared (auto naming)", "queue", q.Name)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -287,13 +287,14 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 			return
 		}
 		msg := <-d
-		logger.Info("message received", "message", msg)
+		t.Log("message received", "message", string(msg.Body))
 		if string(msg.Body) != "hello "+q.Name {
 			t.Errorf("unexpected message: %s", string(msg.Body))
 		}
 		if err := ch.Ack(msg.DeliveryTag, false); err != nil {
 			t.Error(err)
 		}
+		t.Log("message acked")
 	}()
 	// publish the message
 	ch.Publish(
@@ -306,12 +307,15 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 			Body:        []byte("hello " + q.Name),
 		},
 	)
+	t.Log("message published waiting for delivery", "message", "hello "+q.Name)
 	wg.Wait()
-	ch.Close()
+	t.Log("closing connection")
+	// ch.Close()
 	conn.Close()
 
 	time.Sleep(100 * time.Millisecond) // Wait for the temporary queue to be deleted
 
+	t.Log("checking if queue is deleted by new connection", "queue", q.Name)
 	conn2 := mustTestConn(t)
 	defer conn2.Close()
 	ch2 := mustTestChannel(t, conn2)
@@ -319,7 +323,7 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	if _, _, err := ch2.Get(q.Name, true); err == nil {
 		t.Errorf("queue should be deleted")
 	} else {
-		logger.Info("queue deleted", "queue", q.Name, "error", err)
+		t.Log("queue deleted", "queue", q.Name, "error", err)
 	}
 }
 

@@ -58,6 +58,9 @@ func TestAPIProbeLogHandler(t *testing.T) {
 			t.Fatal("timeout waiting for probe log")
 		}
 
+		// Get attrs map once to avoid race with multiple reads
+		attrsMap := log.AttrsMap()
+
 		// Convert to the API format
 		logData := struct {
 			Timestamp time.Time      `json:"timestamp"`
@@ -66,7 +69,7 @@ func TestAPIProbeLogHandler(t *testing.T) {
 		}{
 			Timestamp: log.Timestamp,
 			Message:   log.Message,
-			Attrs:     log.AttrsMap(),
+			Attrs:     attrsMap,
 		}
 
 		jsonData, err := json.Marshal(logData)

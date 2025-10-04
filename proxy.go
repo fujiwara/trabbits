@@ -50,6 +50,7 @@ type Proxy struct {
 	probeChan          chan probeLog         // channel to send probe logs
 	metrics            *metricsstore.Metrics // metrics instance for this proxy
 	tuned              tuned                 // negotiated parameters
+	heartbeatTimer     *time.Timer           // timer for heartbeat
 }
 
 type tuned struct {
@@ -408,22 +409,44 @@ func (p *Proxy) handshake(ctx context.Context) error {
 	return nil
 }
 
-func (p *Proxy) runHeartbeat(ctx context.Context) {
-	defer recoverFromPanic(p.logger, "runHeartbeat", p.metrics)
+// initHeartbeatTimer initializes the heartbeat timer based on negotiated parameters.
+// Must be called before starting runHeartbeat goroutine.
+func (p *Proxy) initHeartbeatTimer() {
 	if p.tuned.heartbeat == 0 {
-		// disable heartbeat
+		// heartbeat disabled
 		return
 	}
+	interval := time.Duration(p.tuned.heartbeat) * time.Second
+	p.heartbeatTimer = time.NewTimer(interval)
+}
+
+// resetHeartbeatTimer resets the heartbeat timer to prevent sending heartbeat when traffic is active.
+// This method must be called with p.mu locked.
+func (p *Proxy) resetHeartbeatTimer() {
+	if p.heartbeatTimer != nil {
+		interval := time.Duration(p.tuned.heartbeat) * time.Second
+		p.heartbeatTimer.Reset(interval)
+	}
+}
+
+func (p *Proxy) runHeartbeat(ctx context.Context) {
+	defer recoverFromPanic(p.logger, "runHeartbeat", p.metrics)
+	if p.heartbeatTimer == nil {
+		// heartbeat disabled
+		return
+	}
+	defer p.heartbeatTimer.Stop()
+
 	p.probeLog("c<-t heartbeat started", "interval", p.tuned.heartbeat)
-	ticker := time.NewTicker(time.Duration(p.tuned.heartbeat) * time.Second)
-	defer ticker.Stop()
+	interval := time.Duration(p.tuned.heartbeat) * time.Second
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			p.mu.Lock()
+		case <-p.heartbeatTimer.C:
 			p.probeLog("c<-t heartbeat", "proxy", p.id)
+			p.mu.Lock()
 			if err := p.w.WriteFrame(&amqp091.HeartbeatFrame{}); err != nil {
 				p.mu.Unlock()
 				p.logger.Warn("failed to send heartbeat", "error", err)
@@ -431,9 +454,9 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 				return
 			}
 			// Count heartbeat frame
-			if p.stats != nil {
-				p.stats.IncrementSentFrames()
-			}
+			p.stats.IncrementSentFrames()
+			// Reset timer for next heartbeat after this send
+			p.heartbeatTimer.Reset(interval)
 			p.mu.Unlock()
 		}
 	}
@@ -496,9 +519,7 @@ func (p *Proxy) process(ctx context.Context) error {
 	}
 
 	// Update frame statistics
-	if p.stats != nil {
-		p.stats.IncrementReceivedFrames()
-	}
+	p.stats.IncrementReceivedFrames()
 	p.metrics.ClientReceivedFrames.Inc()
 
 	if mf, ok := frame.(*amqp091.MethodFrame); ok {
@@ -535,9 +556,7 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 		methodName := amqp091.TypeName(f.Method)
 		p.metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
 		// Update proxy-specific statistics
-		if p.stats != nil {
-			p.stats.IncrementMethod(methodName)
-		}
+		p.stats.IncrementMethod(methodName)
 		switch m := f.Method.(type) {
 		case *amqp091.ChannelOpen:
 			return p.replyChannelOpen(ctx, f, m)
@@ -603,6 +622,7 @@ func (p *Proxy) dispatch0(ctx context.Context, frame amqp091.Frame) error {
 func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer p.resetHeartbeatTimer()
 	p.probeLog("c<-t send", "channel", channel, "type", amqp091.TypeName(m))
 	if msg, ok := m.(amqp091.MessageWithContent); ok {
 		props, body := msg.GetContent()
@@ -614,9 +634,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
 		p.metrics.ClientSentFrames.Inc()
-		if p.stats != nil {
-			p.stats.IncrementSentFrames()
-		}
+		p.stats.IncrementSentFrames()
 
 		if err := p.w.WriteFrameNoFlush(&amqp091.HeaderFrame{
 			ChannelId:  uint16(channel),
@@ -627,9 +645,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			return fmt.Errorf("failed to write HeaderFrame: %w", err)
 		}
 		p.metrics.ClientSentFrames.Inc()
-		if p.stats != nil {
-			p.stats.IncrementSentFrames()
-		}
+		p.stats.IncrementSentFrames()
 
 		// split body frame is it is too large (>= FrameMax)
 		// The overhead of BodyFrame is 8 bytes
@@ -647,9 +663,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			}
 			offset = end
 			p.metrics.ClientSentFrames.Inc()
-			if p.stats != nil {
-				p.stats.IncrementSentFrames()
-			}
+			p.stats.IncrementSentFrames()
 		}
 	} else {
 		if err := p.w.WriteFrame(&amqp091.MethodFrame{
@@ -659,9 +673,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 			return fmt.Errorf("failed to write MethodFrame: %w", err)
 		}
 		p.metrics.ClientSentFrames.Inc()
-		if p.stats != nil {
-			p.stats.IncrementSentFrames()
-		}
+		p.stats.IncrementSentFrames()
 	}
 	return nil
 }

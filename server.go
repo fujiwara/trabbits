@@ -533,6 +533,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	p.logger.Debug("connected to upstreams")
 
+	p.initHeartbeatTimer()
 	go p.runHeartbeat(subCtx)
 
 	// wait for client frames

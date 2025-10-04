@@ -8,8 +8,8 @@ jobs:
     strategy:
       matrix:
         go:
-          - '1.24'
-          - '1.25'
+          - "1.24"
+          - "1.25"
     name: Build
     runs-on: ubuntu-latest
 
@@ -35,12 +35,6 @@ jobs:
       - name: test
         run: |
           make test-coverage
-
-      - name: test rabbitmq directly
-        run: |
-          make test
-        env:
-          TEST_RABBITMQ: t
 
       - name: Display coverage
         run: |
@@ -72,6 +66,10 @@ jobs:
             coverage.out
             coverage.html
             coverage_summary.md
+
+      - name: test rabbitmq directly
+        run: |
+          make test TEST_RABBITMQ=t
 
       - name: test upstreams down and bench upstream up
         run: |
