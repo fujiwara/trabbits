@@ -1,15 +1,16 @@
 package tui
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"time"
+    "context"
+    "encoding/json"
+    "fmt"
+    "os"
+    "path/filepath"
+    "time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/fujiwara/trabbits/apiclient"
-	"github.com/fujiwara/trabbits/types"
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/fujiwara/trabbits/apiclient"
+    "github.com/fujiwara/trabbits/types"
 )
 
 // ViewMode represents the current view state
@@ -442,20 +443,27 @@ func tick() tea.Cmd {
 
 // saveProbeLogsToFile saves probe logs to the specified file
 func (m *TUIModel) saveProbeLogsToFile() tea.Cmd {
-	return func() tea.Msg {
-		if m.saveState == nil || m.probeState == nil {
-			return errorMsg(fmt.Errorf("save state or probe state not initialized"))
-		}
+    return func() tea.Msg {
+        if m.saveState == nil || m.probeState == nil {
+            return errorMsg(fmt.Errorf("save state or probe state not initialized"))
+        }
 
-		filePath := m.saveState.filePath
-		logs := m.probeState.logs
+        filePath := m.saveState.filePath
+        logs := m.probeState.logs
 
-		// Create file
-		file, err := os.Create(filePath)
-		if err != nil {
-			return errorMsg(fmt.Errorf("failed to create file: %w", err))
-		}
-		defer file.Close()
+        // Ensure parent directory exists if specified
+        if dir := filepath.Dir(filePath); dir != "." && dir != "" {
+            if err := os.MkdirAll(dir, 0o755); err != nil {
+                return errorMsg(fmt.Errorf("failed to create directory %s: %w", dir, err))
+            }
+        }
+
+        // Create file
+        file, err := os.Create(filePath)
+        if err != nil {
+            return errorMsg(fmt.Errorf("failed to create file: %w", err))
+        }
+        defer file.Close()
 
 		// Write logs as JSON lines
 		encoder := json.NewEncoder(file)
