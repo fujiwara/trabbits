@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -430,33 +431,93 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 	timestamp := log.Timestamp.Format("15:04:05.000")
 	message := log.Message
 
-	// Build attributes string with consistent ordering
-	var attrs []string
+	// Build the main text first (without styling)
+	mainText := fmt.Sprintf("%s %s", timestamp, message)
+
+	var attrStr string
 	if len(log.Attrs) > 0 {
-		// Sort keys to ensure consistent display order
-		var keys []string
-		for k := range log.Attrs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		for _, k := range keys {
-			attrs = append(attrs, fmt.Sprintf("%s=%v", k, log.Attrs[k]))
+		// Marshal attrs to JSON for consistent display with CLI
+		attrs, err := json.Marshal(log.Attrs)
+		if err == nil {
+			attrStr = string(attrs)
 		}
 	}
 
-	// Combine parts
-	result := fmt.Sprintf("%s %s", timestamp, message)
-	if len(attrs) > 0 {
-		attrStr := strings.Join(attrs, " ")
-		// Truncate attributes if too long
-		if len(attrStr) > 100 {
-			attrStr = attrStr[:97] + "..."
-		}
-		result += " " + lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(attrStr)
+	// Calculate available width for wrapping
+	width := m.width - 2 // -2 for margins
+	if width <= 0 {
+		width = 80 // default width
 	}
 
-	return result
+	// Combine and wrap the full text
+	fullText := mainText
+	if attrStr != "" {
+		fullText += " " + attrStr
+	}
+
+	// Wrap to screen width
+	lines := wrapText(fullText, width)
+
+	// Apply styling to the attrs portion of the first line and subsequent wrapped lines
+	// For simplicity, apply grey color to everything after the message on each line
+	if attrStr != "" {
+		styledLines := make([]string, len(lines))
+		attrStartInFirstLine := len(mainText) + 1 // +1 for space before attrs
+
+		for i, line := range lines {
+			if i == 0 {
+				// First line: style only the attrs part if it fits
+				if len(line) > attrStartInFirstLine {
+					styledLines[i] = line[:attrStartInFirstLine] +
+						lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(line[attrStartInFirstLine:])
+				} else {
+					styledLines[i] = line
+				}
+			} else {
+				// Continuation lines: style the entire line (it's part of attrs)
+				styledLines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(line)
+			}
+		}
+		return strings.Join(styledLines, "\n")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// wrapText wraps text to the specified width, returning a slice of lines
+func wrapText(text string, width int) []string {
+	if width <= 0 || len(text) <= width {
+		return []string{text}
+	}
+
+	var lines []string
+	for len(text) > 0 {
+		if len(text) <= width {
+			lines = append(lines, text)
+			break
+		}
+		// Find a good break point (prefer breaking at spaces)
+		breakPoint := width
+		if breakPoint > len(text) {
+			breakPoint = len(text)
+		}
+		// Look for a space to break at within last 20 chars
+		foundSpace := false
+		for i := breakPoint - 1; i > 0 && i > breakPoint-20; i-- {
+			if text[i] == ' ' {
+				breakPoint = i
+				foundSpace = true
+				break
+			}
+		}
+		lines = append(lines, text[:breakPoint])
+		text = text[breakPoint:]
+		// Skip leading space on next line only if we broke at a space
+		if foundSpace && len(text) > 0 && text[0] == ' ' {
+			text = text[1:]
+		}
+	}
+	return lines
 }
 
 // adjustScrollForSelection adjusts scroll position to keep selected item visible
