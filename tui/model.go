@@ -47,8 +47,9 @@ type TUIModel struct {
 	listScroll            int
 	logEntries            []LogEntry // Recent log messages from slog
 	logChan               chan LogEntry
-	serverLogsScroll      int // Scroll position for server logs view
-	serverLogsSelectedIdx int // Selected log index in server logs view
+	serverLogsScroll      int   // Scroll position for server logs view
+	serverLogsSelectedIdx int   // Selected log index in server logs view
+	droppedLogs           int64 // Number of dropped server log entries (non-blocking send)
 }
 
 // LogEntry represents a log message
@@ -65,12 +66,12 @@ type confirmState struct {
 }
 
 type saveState struct {
-    clientID     string
-    filePath     string
-    editing      bool
-    cursorPos    int
-    previousView ViewMode
-    overwriteConfirm bool
+	clientID         string
+	filePath         string
+	editing          bool
+	cursorPos        int
+	previousView     ViewMode
+	overwriteConfirm bool
 }
 
 type probeState struct {

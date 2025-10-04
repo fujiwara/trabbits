@@ -1,11 +1,12 @@
 package tui
 
 import (
-    "context"
-    "fmt"
-    "log/slog"
-    "os"
-    "time"
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"sync/atomic"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fujiwara/trabbits/apiclient"
@@ -13,11 +14,11 @@ import (
 
 // Run starts the TUI application
 func Run(ctx context.Context, apiClient apiclient.APIClient) error {
-    // Ensure all background operations stop when TUI exits
-    ctx, cancel := context.WithCancel(ctx)
-    defer cancel()
+	// Ensure all background operations stop when TUI exits
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-    model := NewModel(ctx, apiClient)
+	model := NewModel(ctx, apiClient)
 
 	// Start streaming server logs from API
 	go func() {
@@ -28,42 +29,43 @@ func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 		}
 
 		// Forward server logs to TUI log channel
-        for log := range logChan {
-            // Extract level from attrs if present
-            level := "INFO"
-            if log.Attrs != nil {
-                if l, ok := log.Attrs["level"].(string); ok {
-                    level = l
-                }
-            }
+		for log := range logChan {
+			// Extract level from attrs if present
+			level := "INFO"
+			if log.Attrs != nil {
+				if l, ok := log.Attrs["level"].(string); ok {
+					level = l
+				}
+			}
 
-            // Convert ProbeLogEntry to LogEntry
-            entry := LogEntry{
-                Time:    log.Timestamp,
-                Level:   level,
-                Message: log.Message,
-                Attrs:   log.Attrs,
-            }
+			// Convert ProbeLogEntry to LogEntry
+			entry := LogEntry{
+				Time:    log.Timestamp,
+				Level:   level,
+				Message: log.Message,
+				Attrs:   log.Attrs,
+			}
 
-            // Non-blocking send to avoid UI stalls; drop if channel is full
-            select {
-            case <-ctx.Done():
-                return
-            default:
-            }
-            select {
-            case model.GetLogChannel() <- entry:
-            case <-ctx.Done():
-                return
-            default:
-                // drop entry to avoid blocking
-            }
-        }
-    }()
+			// Non-blocking send to avoid UI stalls; drop if channel is full
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			select {
+			case model.GetLogChannel() <- entry:
+			case <-ctx.Done():
+				return
+			default:
+				// drop entry to avoid blocking; count it
+				atomic.AddInt64(&model.droppedLogs, 1)
+			}
+		}
+	}()
 
-    p := tea.NewProgram(model, tea.WithAltScreen())
-    _, err := p.Run()
-    return err
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
 
 // handleKeyPress handles keyboard input based on current view mode
@@ -449,10 +451,10 @@ func RunTUI(ctx context.Context, socketPath string) error {
 
 // handleSaveConfirmKeys handles keys in the save confirmation view
 func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-    if m.saveState == nil {
-        m.viewMode = ViewProbe
-        return m, nil
-    }
+	if m.saveState == nil {
+		m.viewMode = ViewProbe
+		return m, nil
+	}
 
 	if m.saveState.editing {
 		// Editing mode
@@ -488,43 +490,43 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.saveState.cursorPos = 0
 		case tea.KeyEnd:
 			m.saveState.cursorPos = len(m.saveState.filePath)
-    case tea.KeyRunes:
-        // Insert runes at cursor (basic rune-aware insertion)
-        path := m.saveState.filePath
-        for _, r := range msg.Runes {
-            s := string(r)
-            path = path[:m.saveState.cursorPos] + s + path[m.saveState.cursorPos:]
-            m.saveState.cursorPos += len(s)
-        }
-        m.saveState.filePath = path
+		case tea.KeyRunes:
+			// Insert runes at cursor (basic rune-aware insertion)
+			path := m.saveState.filePath
+			for _, r := range msg.Runes {
+				s := string(r)
+				path = path[:m.saveState.cursorPos] + s + path[m.saveState.cursorPos:]
+				m.saveState.cursorPos += len(s)
+			}
+			m.saveState.filePath = path
 		}
-    } else {
-        // Not editing mode
-        switch msg.String() {
-        case "ctrl+c", "esc", "n", "q":
-            // Cancel save
-            m.viewMode = m.saveState.previousView
-            m.saveState = nil
-        case "e":
-            // Start editing
-            m.saveState.editing = true
-            m.saveState.overwriteConfirm = false
-        case "enter":
-            // If file exists and not yet confirmed, ask for overwrite confirmation
-            if m.saveState != nil {
-                path := m.saveState.filePath
-                if !m.saveState.overwriteConfirm {
-                    if _, err := os.Stat(path); err == nil {
-                        // File exists, require explicit confirmation
-                        m.saveState.overwriteConfirm = true
-                        return m, nil
-                    }
-                }
-            }
-            // Proceed to save
-            return m, m.saveProbeLogsToFile()
-        }
-    }
+	} else {
+		// Not editing mode
+		switch msg.String() {
+		case "ctrl+c", "esc", "n", "q":
+			// Cancel save
+			m.viewMode = m.saveState.previousView
+			m.saveState = nil
+		case "e":
+			// Start editing
+			m.saveState.editing = true
+			m.saveState.overwriteConfirm = false
+		case "enter":
+			// If file exists and not yet confirmed, ask for overwrite confirmation
+			if m.saveState != nil {
+				path := m.saveState.filePath
+				if !m.saveState.overwriteConfirm {
+					if _, err := os.Stat(path); err == nil {
+						// File exists, require explicit confirmation
+						m.saveState.overwriteConfirm = true
+						return m, nil
+					}
+				}
+			}
+			// Proceed to save
+			return m, m.saveProbeLogsToFile()
+		}
+	}
 
-    return m, nil
+	return m, nil
 }

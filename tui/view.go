@@ -128,6 +128,10 @@ func (m *TUIModel) renderHeader() string {
 
 	headerText := fmt.Sprintf("Active Clients: %d  Total: %d  Last Update: %s",
 		activeCount, len(m.clients), m.lastUpdate.Format("15:04:05"))
+	// Show dropped server logs if any
+	if m.droppedLogs > 0 {
+		headerText += fmt.Sprintf("  Dropped logs: %d", m.droppedLogs)
+	}
 
 	return headerStyle.Render(headerText)
 }
@@ -763,6 +767,9 @@ func (m *TUIModel) renderServerLogsView() string {
 
 	// Header
 	headerText := fmt.Sprintf("Server Logs (%d total)", len(m.logEntries))
+	if m.droppedLogs > 0 {
+		headerText += fmt.Sprintf(" • dropped %d", m.droppedLogs)
+	}
 	b.WriteString(headerStyle.Render(headerText))
 	b.WriteString("\n\n")
 
