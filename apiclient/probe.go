@@ -113,3 +113,97 @@ func (c *Client) readProbeLogSSE(ctx context.Context, proxyID string, handler fu
 
 	return scanner.Err()
 }
+
+// StreamServerLogs streams server logs as structured entries
+func (c *Client) StreamServerLogs(ctx context.Context) (<-chan types.ProbeLogEntry, error) {
+	logChan := make(chan types.ProbeLogEntry, 100)
+	slog.Debug("StreamServerLogs starting")
+
+	go func() {
+		defer close(logChan)
+		defer slog.Debug("StreamServerLogs finished")
+
+		err := c.readServerLogSSE(ctx, func(entry *types.ProbeLogEntry) error {
+			select {
+			case logChan <- *entry:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+
+		if err != nil && ctx.Err() == nil {
+			slog.Error("StreamServerLogs error", "error", err)
+		}
+	}()
+
+	return logChan, nil
+}
+
+// readServerLogSSE reads SSE stream and calls handler for each server log entry
+func (c *Client) readServerLogSSE(ctx context.Context, handler func(*types.ProbeLogEntry) error) error {
+	fullURL, err := c.buildURL("logs")
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	resp, err := c.streamClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to stream server logs: %s - %s", resp.Status, string(body))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	var dataBuffer strings.Builder
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			dataBuffer.WriteString(data)
+		} else if line == "" {
+			// Empty line indicates end of event
+			if dataBuffer.Len() > 0 {
+				data := dataBuffer.String()
+
+				// Parse as ProbeLogEntry
+				var entry types.ProbeLogEntry
+				if err := json.Unmarshal([]byte(data), &entry); err != nil {
+					slog.Warn("Failed to parse server log entry", "error", err, "data", data)
+				} else {
+					// Skip control messages (timestamp=0 and message="")
+					if entry.Timestamp.IsZero() && entry.Message == "" {
+						slog.Debug("Skipping control message", "data", data)
+					} else {
+						if err := handler(&entry); err != nil {
+							return err
+						}
+					}
+				}
+				dataBuffer.Reset()
+			}
+		}
+		// Ignore other SSE fields like "event:", "id:", "retry:"
+	}
+
+	return scanner.Err()
+}

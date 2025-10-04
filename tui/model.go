@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,33 +20,56 @@ const (
 	ViewDetail
 	ViewConfirm
 	ViewProbe
+	ViewServerLogs
+	ViewSaveConfirm
 )
 
 // TUIModel represents the TUI application state
 type TUIModel struct {
-	ctx          context.Context
-	apiClient    apiclient.APIClient
-	clients      []types.ClientInfo
-	selectedIdx  int
-	viewMode     ViewMode
-	selectedID   string
-	clientDetail *types.FullClientInfo
-	confirmState *confirmState
-	probeState   *probeState
-	width        int
-	height       int
-	lastUpdate   time.Time
-	err          error
-	errorTime    time.Time
-	successMsg   string
-	successTime  time.Time
-	detailScroll int
-	listScroll   int
+	ctx                   context.Context
+	apiClient             apiclient.APIClient
+	clients               []types.ClientInfo
+	selectedIdx           int
+	viewMode              ViewMode
+	selectedID            string
+	clientDetail          *types.FullClientInfo
+	confirmState          *confirmState
+	probeState            *probeState
+	saveState             *saveState
+	width                 int
+	height                int
+	lastUpdate            time.Time
+	err                   error
+	errorTime             time.Time
+	successMsg            string
+	successTime           time.Time
+	detailScroll          int
+	listScroll            int
+	logEntries            []LogEntry // Recent log messages from slog
+	logChan               chan LogEntry
+	serverLogsScroll      int // Scroll position for server logs view
+	serverLogsSelectedIdx int // Selected log index in server logs view
+}
+
+// LogEntry represents a log message
+type LogEntry struct {
+	Time    time.Time
+	Level   string
+	Message string
+	Attrs   map[string]any
 }
 
 type confirmState struct {
 	clientID string
 	message  string
+}
+
+type saveState struct {
+	clientID     string
+	filePath     string
+	editing      bool
+	cursorPos    int
+	previousView ViewMode
 }
 
 type probeState struct {
@@ -76,6 +101,7 @@ type (
 	successMsg            string
 	probeLogMsg           probeLogEntry
 	probeEndMsg           struct{}
+	logMsg                LogEntry
 	probeStreamStartedMsg struct {
 		clientID   string
 		ctx        context.Context
@@ -99,12 +125,20 @@ type (
 
 // NewModel creates a new TUI model
 func NewModel(ctx context.Context, apiClient apiclient.APIClient) *TUIModel {
+	logChan := make(chan LogEntry, 100)
 	return &TUIModel{
-		ctx:       ctx,
-		apiClient: apiClient,
-		clients:   []types.ClientInfo{},
-		viewMode:  ViewList,
+		ctx:        ctx,
+		apiClient:  apiClient,
+		clients:    []types.ClientInfo{},
+		viewMode:   ViewList,
+		logEntries: []LogEntry{},
+		logChan:    logChan,
 	}
+}
+
+// GetLogChannel returns the log channel for external log writers
+func (m *TUIModel) GetLogChannel() chan<- LogEntry {
+	return m.logChan
 }
 
 // Init initializes the TUI model
@@ -112,6 +146,7 @@ func (m *TUIModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchClients(),
 		tick(),
+		m.listenForLogs(),
 	)
 }
 
@@ -161,6 +196,11 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case successMsg:
 		m.successMsg = string(msg)
 		m.successTime = time.Now()
+		// If we were in save confirm view, return to previous view
+		if m.viewMode == ViewSaveConfirm && m.saveState != nil {
+			m.viewMode = m.saveState.previousView
+			m.saveState = nil
+		}
 		return m, nil
 
 	case probeLogMsg:
@@ -173,8 +213,14 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Auto-scroll to bottom only if auto-scroll is enabled
 			if m.probeState.autoScroll {
-				m.probeState.scroll = len(m.probeState.logs)
 				m.probeState.selectedIdx = len(m.probeState.logs) - 1 // Select the latest log
+				// Adjust scroll to show the last item
+				visibleRows := m.getProbeVisibleRows()
+				maxScroll := len(m.probeState.logs) - visibleRows
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				m.probeState.scroll = maxScroll
 			}
 
 			// Continue listening for next log
@@ -251,6 +297,15 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.probeState.selectedIdx = 0
 		}
 		return m, m.listenForProbeLog()
+
+	case logMsg:
+		// Add log entry to buffer (keep last 100 entries)
+		m.logEntries = append(m.logEntries, LogEntry(msg))
+		if len(m.logEntries) > 100 {
+			m.logEntries = m.logEntries[len(m.logEntries)-100:]
+		}
+		// Continue listening for logs
+		return m, m.listenForLogs()
 	}
 
 	return m, nil
@@ -344,9 +399,53 @@ func (m *TUIModel) stopProbeStream() {
 	}
 }
 
+// listenForLogs creates a command to listen for log entries
+func (m *TUIModel) listenForLogs() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case <-m.ctx.Done():
+			return nil
+		case log, ok := <-m.logChan:
+			if !ok {
+				return nil
+			}
+			return logMsg(log)
+		}
+	}
+}
+
 // tick creates a tick message for periodic updates
 func tick() tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
 		return tickMsg{}
 	})
+}
+
+// saveProbeLogsToFile saves probe logs to the specified file
+func (m *TUIModel) saveProbeLogsToFile() tea.Cmd {
+	return func() tea.Msg {
+		if m.saveState == nil || m.probeState == nil {
+			return errorMsg(fmt.Errorf("save state or probe state not initialized"))
+		}
+
+		filePath := m.saveState.filePath
+		logs := m.probeState.logs
+
+		// Create file
+		file, err := os.Create(filePath)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to create file: %w", err))
+		}
+		defer file.Close()
+
+		// Write logs as JSON lines
+		encoder := json.NewEncoder(file)
+		for _, log := range logs {
+			if err := encoder.Encode(log); err != nil {
+				return errorMsg(fmt.Errorf("failed to write log: %w", err))
+			}
+		}
+
+		return successMsg(fmt.Sprintf("Saved %d logs to %s", len(logs), filePath))
+	}
 }
