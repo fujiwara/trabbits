@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.15](https://github.com/fujiwara/trabbits/compare/v0.0.14...v0.0.15) - 2025-10-04
+- add 'on upstream' into log messages. by @fujiwara in https://github.com/fujiwara/trabbits/pull/85
+- Implement AMQP Connection.Tune negotiation and improve probe logs by @fujiwara in https://github.com/fujiwara/trabbits/pull/87
+- Enhance TUI with improved probe log display and server log streaming by @fujiwara in https://github.com/fujiwara/trabbits/pull/88
+- Improve heartbeat timing to send only when idle by @fujiwara in https://github.com/fujiwara/trabbits/pull/89
+- Improve probe logging and fix upstream message consumption balance by @fujiwara in https://github.com/fujiwara/trabbits/pull/90
+- Rename ReadTimeout to HandshakeTimeout and separate process timeout by @fujiwara in https://github.com/fujiwara/trabbits/pull/91
+- Optimize AMQP frame serialization with buffer pooling by @fujiwara in https://github.com/fujiwara/trabbits/pull/92
+- tui: UX and quality improvements by @fujiwara in https://github.com/fujiwara/trabbits/pull/93
+
 ## [v0.0.14](https://github.com/fujiwara/trabbits/compare/v0.0.13...v0.0.14) - 2025-10-03
 - Increase TUI column widths for better readability by @fujiwara in https://github.com/fujiwara/trabbits/pull/82
 - Fix queue attributes handling and clarify documentation by @fujiwara in https://github.com/fujiwara/trabbits/pull/84

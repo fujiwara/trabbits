@@ -3,4 +3,4 @@
 
 package trabbits
 
-var Version = "v0.0.14"
+var Version = "v0.0.15"
