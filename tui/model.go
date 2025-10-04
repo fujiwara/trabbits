@@ -160,6 +160,29 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Re-clamp scroll/selection for the active view after resize
+		switch m.viewMode {
+		case ViewList:
+			m.adjustScrollForSelection()
+		case ViewServerLogs:
+			visible := m.getServerLogsVisibleRows()
+			total := len(m.logEntries)
+			total = clamp(total, 0, total) // no-op, placeholder for clarity
+			m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, clamp(total-1, -1, total-1))
+			m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visible, total)
+			// Ensure bounds when there are no logs
+			if total == 0 {
+				m.serverLogsSelectedIdx = 0
+				m.serverLogsScroll = 0
+			}
+		case ViewProbe:
+			if m.probeState != nil {
+				visible := m.getProbeVisibleRows()
+				total := len(m.probeState.logs)
+				m.probeState.selectedIdx = clamp(m.probeState.selectedIdx, 0, clamp(total-1, -1, total-1))
+				m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, visible, total)
+			}
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -222,11 +245,16 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.probeState.selectedIdx = len(m.probeState.logs) - 1 // Select the latest log
 				// Adjust scroll to show the last item
 				visibleRows := m.getProbeVisibleRows()
-				maxScroll := len(m.probeState.logs) - visibleRows
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
-				m.probeState.scroll = maxScroll
+				total := len(m.probeState.logs)
+				m.probeState.scroll = maxScroll(total, visibleRows)
+			}
+			// When auto-scroll is disabled, still keep scroll within legal bounds
+			if !m.probeState.autoScroll {
+				visible := m.getProbeVisibleRows()
+				total := len(m.probeState.logs)
+				// Keep selectedIdx inside bounds
+				m.probeState.selectedIdx = clamp(m.probeState.selectedIdx, 0, clamp(total-1, -1, total-1))
+				m.probeState.scroll = clamp(m.probeState.scroll, 0, maxScroll(total, visible))
 			}
 
 			// Continue listening for next log
@@ -351,6 +379,13 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logEntries = append(m.logEntries, entry)
 		if len(m.logEntries) > serverLogKeep {
 			m.logEntries = m.logEntries[len(m.logEntries)-serverLogKeep:]
+		}
+		// If we are in the server logs view, keep selection/scroll within bounds after update
+		if m.viewMode == ViewServerLogs {
+			visible := m.getServerLogsVisibleRows()
+			total := len(m.logEntries)
+			m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, clamp(total-1, -1, total-1))
+			m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visible, total)
 		}
 		// Continue listening for logs
 		return m, m.listenForLogs()
