@@ -24,15 +24,16 @@ dist:
 gen:
 	go run spec/gen.go < spec/amqp0-9-1.stripped.extended.xml | gofmt > amqp091/spec091.go
 
-_run-bench-rabbitmq:
+_run-rabbitmq-for-bench:
 	docker run -t --network=host --env RABBITMQ_DEFAULT_USER=admin --env RABBITMQ_DEFAULT_PASS=admin --cpus=1 mirror.gcr.io/rabbitmq:3.12-management
 
-_run-bench-trabbits: trabbits
+_run-trabbits-for-bench: trabbits
 	ENABLE_PPROF=true ./trabbits run --config <(echo '{"upstreams":[{"name":"single","address":"127.0.0.1:5672"}]}') --port 6672
 
-run-bench-servers: _run-bench-rabbitmq _run-bench-trabbits
+run-servers-for-bench: _run-rabbitmq-for-bench _run-trabbits-for-bench
 
 run-bench-pprof:
+	$(MAKE) run-bench-trabbits &
 	go tool pprof -seconds 30 -http=localhost:1080 http://localhost:6060/debug/pprof/profile
 
 run-bench-trabbits:
