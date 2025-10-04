@@ -163,26 +163,26 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewProbe
 			return m, m.startProbeStream(clientID)
 		}
-    case "l":
-        // Switch to server logs view
-        m.viewMode = ViewServerLogs
-        // Initialize scroll to bottom
-        if len(m.logEntries) > 0 {
-            m.serverLogsSelectedIdx = len(m.logEntries) - 1
-            // Scroll so that the last entry is visible
-            visible := m.getServerLogsVisibleRows()
-            if visible < 1 {
-                visible = 1
-            }
-            maxScroll := len(m.logEntries) - visible
-            if maxScroll < 0 {
-                maxScroll = 0
-            }
-            m.serverLogsScroll = maxScroll
-        } else {
-            m.serverLogsSelectedIdx = 0
-            m.serverLogsScroll = 0
-        }
+	case "l":
+		// Switch to server logs view
+		m.viewMode = ViewServerLogs
+		// Initialize scroll to bottom
+		if len(m.logEntries) > 0 {
+			m.serverLogsSelectedIdx = len(m.logEntries) - 1
+			// Scroll so that the last entry is visible
+			visible := m.getServerLogsVisibleRows()
+			if visible < 1 {
+				visible = 1
+			}
+			maxScroll := len(m.logEntries) - visible
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.serverLogsScroll = maxScroll
+		} else {
+			m.serverLogsSelectedIdx = 0
+			m.serverLogsScroll = 0
+		}
 	}
 	return m, nil
 }
@@ -263,6 +263,13 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.probeState.scroll = maxScroll
 			}
+			// Show a short toast indicating the state
+			if m.probeState.autoScroll {
+				m.successMsg = "Auto-scroll: ON"
+			} else {
+				m.successMsg = "Auto-scroll: OFF"
+			}
+			m.successTime = time.Now()
 		}
 	case "s":
 		// Save probe logs to file
