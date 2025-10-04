@@ -6,6 +6,7 @@ package health
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/url"
 	"runtime/debug"
 	"sync"
@@ -14,6 +15,25 @@ import (
 	"github.com/fujiwara/trabbits/config"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
+
+// dialWithTCPNoDelay creates a dialer function that enables TCP_NODELAY
+func dialWithTCPNoDelay(timeout time.Duration) func(network, addr string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, timeout)
+		if err != nil {
+			return nil, err
+		}
+
+		// Enable TCP_NODELAY to disable Nagle's algorithm for lower latency
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			if err := tcpConn.SetNoDelay(true); err != nil {
+				slog.Warn("Failed to set TCP_NODELAY on health check connection", "error", err)
+			}
+		}
+
+		return conn, nil
+	}
+}
 
 // recoverFromPanic recovers from panic and logs the details
 func recoverFromPanic(logger *slog.Logger, functionName string) {
@@ -340,7 +360,7 @@ func (m *Manager) checkNode(node *NodeStatus, failFast bool) {
 	}
 
 	cfg := rabbitmq.Config{
-		Dial: rabbitmq.DefaultDial(m.config.Timeout),
+		Dial: dialWithTCPNoDelay(m.config.Timeout),
 	}
 
 	conn, err := rabbitmq.DialConfig(u.String(), cfg)

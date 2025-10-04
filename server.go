@@ -436,6 +436,14 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 			slog.Warn("Failed to accept connection", "error", err)
 			continue
 		}
+
+		// Enable TCP_NODELAY to disable Nagle's algorithm for lower latency
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			if err := tcpConn.SetNoDelay(true); err != nil {
+				slog.Warn("Failed to set TCP_NODELAY", "error", err)
+			}
+		}
+
 		go srv.handleConnection(ctx, conn)
 	}
 }
