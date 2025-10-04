@@ -724,28 +724,16 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 // adjustScrollForSelection adjusts scroll position to keep selected item visible
 func (m *TUIModel) adjustScrollForSelection() {
 	visibleRows := m.getVisibleRows()
-
-	// If selected item is above visible area, scroll up
-	if m.selectedIdx < m.listScroll {
-		m.listScroll = m.selectedIdx
-	}
-
-	// If selected item is below visible area, scroll down
-	if m.selectedIdx >= m.listScroll+visibleRows {
-		m.listScroll = m.selectedIdx - visibleRows + 1
-	}
-
-	// Ensure scroll is within bounds
-	if m.listScroll < 0 {
+	total := len(m.clients)
+	// Clamp selected index to available range
+	if total == 0 {
+		m.selectedIdx = 0
 		m.listScroll = 0
+		return
 	}
-	maxScroll := len(m.clients) - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.listScroll > maxScroll {
-		m.listScroll = maxScroll
-	}
+	m.selectedIdx = clamp(m.selectedIdx, 0, total-1)
+	// Adjust scroll to contain selection and clamp bounds
+	m.listScroll = clampScrollToContain(m.listScroll, m.selectedIdx, visibleRows, total)
 }
 
 // renderServerLogsView renders the server logs view

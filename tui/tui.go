@@ -288,26 +288,21 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "up", "k":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
+			total := len(m.probeState.logs)
 			if m.probeState.selectedIdx > 0 {
 				m.probeState.selectedIdx--
-				// Adjust scroll if selected item is above visible area
-				if m.probeState.selectedIdx < m.probeState.scroll {
-					m.probeState.scroll = m.probeState.selectedIdx
-				}
 			}
+			// Clamp scroll to contain the selection
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), total)
 			m.probeState.autoScroll = false // Disable auto-scroll on manual navigation
 		}
 	case "down", "j":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
-			logCount := len(m.probeState.logs)
-			if m.probeState.selectedIdx < logCount-1 {
+			total := len(m.probeState.logs)
+			if m.probeState.selectedIdx < total-1 {
 				m.probeState.selectedIdx++
-				// Adjust scroll if selected item is below visible area
-				visibleRows := m.getProbeVisibleRows()
-				if m.probeState.selectedIdx >= m.probeState.scroll+visibleRows {
-					m.probeState.scroll = m.probeState.selectedIdx - visibleRows + 1
-				}
 			}
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), total)
 			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
 		}
 	case "home":
@@ -336,10 +331,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.probeState.selectedIdx = 0
 			}
-			// Adjust scroll
-			if m.probeState.selectedIdx < m.probeState.scroll {
-				m.probeState.scroll = m.probeState.selectedIdx
-			}
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), len(m.probeState.logs))
 			m.probeState.autoScroll = false // Disable auto-scroll when paging up
 		}
 	case "pgdn":
@@ -351,11 +343,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.probeState.selectedIdx = logCount - 1
 			}
-			// Adjust scroll
-			visibleRows := m.getProbeVisibleRows()
-			if m.probeState.selectedIdx >= m.probeState.scroll+visibleRows {
-				m.probeState.scroll = m.probeState.selectedIdx - visibleRows + 1
-			}
+			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), logCount)
 			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
 		}
 	}
@@ -438,28 +426,14 @@ func (m *TUIModel) getServerLogsVisibleRows() int {
 // adjustServerLogsScroll adjusts scroll position to keep selected log visible
 func (m *TUIModel) adjustServerLogsScroll() {
 	visibleRows := m.getServerLogsVisibleRows()
-
-	// If selected item is above visible area, scroll up
-	if m.serverLogsSelectedIdx < m.serverLogsScroll {
-		m.serverLogsScroll = m.serverLogsSelectedIdx
-	}
-
-	// If selected item is below visible area, scroll down
-	if m.serverLogsSelectedIdx >= m.serverLogsScroll+visibleRows {
-		m.serverLogsScroll = m.serverLogsSelectedIdx - visibleRows + 1
-	}
-
-	// Ensure scroll is within bounds
-	if m.serverLogsScroll < 0 {
+	total := len(m.logEntries)
+	if total == 0 {
+		m.serverLogsSelectedIdx = 0
 		m.serverLogsScroll = 0
+		return
 	}
-	maxScroll := len(m.logEntries) - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.serverLogsScroll > maxScroll {
-		m.serverLogsScroll = maxScroll
-	}
+	m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, total-1)
+	m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visibleRows, total)
 }
 
 // RunTUI starts the TUI with the provided socket path
