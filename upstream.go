@@ -206,16 +206,22 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 		if attr.Exclusive != nil {
 			exclusive = *attr.Exclusive
 		}
-		arguments := rabbitmq.Table(m.Arguments)
-		if attr.Arguments != nil {
-			if arguments == nil {
-				arguments = rabbitmq.Table{}
-			}
-			for k, v := range attr.Arguments {
-				if v == nil {
-					delete(arguments, k)
-				} else {
+		// Create a new map to avoid modifying the original m.Arguments
+		var arguments rabbitmq.Table
+		if m.Arguments != nil || attr.Arguments != nil {
+			arguments = rabbitmq.Table{}
+			if m.Arguments != nil {
+				for k, v := range m.Arguments {
 					arguments[k] = v
+				}
+			}
+			if attr.Arguments != nil {
+				for k, v := range attr.Arguments {
+					if v == nil {
+						delete(arguments, k)
+					} else {
+						arguments[k] = v
+					}
 				}
 			}
 		}
