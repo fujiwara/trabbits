@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,11 +17,29 @@ import (
 	"github.com/fujiwara/trabbits/config"
 )
 
+// safeBuffer is a thread-safe wrapper around bytes.Buffer
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (n int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
 func TestGracefulShutdown(t *testing.T) {
 	// Note: Don't use t.Parallel() here to avoid log handler conflicts
 
 	// Capture log output for verification
-	var logOutput bytes.Buffer
+	var logOutput safeBuffer
 	originalLogger := slog.Default()
 	defer slog.SetDefault(originalLogger) // Restore original logger
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, &slog.HandlerOptions{
@@ -143,7 +162,7 @@ func TestGracefulShutdown_ContextCancellation(t *testing.T) {
 	// Note: Don't use t.Parallel() here to avoid log handler conflicts
 
 	// Capture log output for verification
-	var logOutput bytes.Buffer
+	var logOutput safeBuffer
 	originalLogger := slog.Default()
 	defer slog.SetDefault(originalLogger) // Restore original logger
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, &slog.HandlerOptions{
