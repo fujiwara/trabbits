@@ -123,12 +123,14 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 
 	p.probeLog("c->t Basic.Consume", "message", m)
 	deliveries := make([]*delivery, 0, len(uss))
+	upstreamChannels := make(map[*Upstream]*rabbitmq.Channel, len(uss))
 	for i, us := range uss {
 		us.probeLog("t->u Basic.Consume", "message", m)
 		ch, err := us.GetChannel(id)
 		if err != nil {
 			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
 		}
+		upstreamChannels[us] = ch
 		consume, err := ch.ConsumeWithContext(
 			ctx,
 			m.Queue,
@@ -154,14 +156,26 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 
 	tag := m.ConsumerTag
 	q := m.Queue
-	var wg sync.WaitGroup
+
+	// cleanup all consumers on upstreams when one of goroutines exits
+	cleanupOnce := sync.Once{}
+	cleanupFunc := func() {
+		for us, ch := range upstreamChannels {
+			p.probeLog("t->u Basic.Cancel", "queue", q, "consumer_tag", tag, "upstream", us.name)
+			ch.Cancel(tag, false) // ignore error
+		}
+		p.probeLog("c<-t Basic.Cancel", "queue", q, "consumer_tag", tag)
+		p.send(id, &amqp091.BasicCancel{
+			ConsumerTag: tag,
+		})
+	}
+	// start goroutines to consume from all upstreams
 	for _, d := range deliveries {
-		wg.Add(1)
-		go func() {
+		go func(d *delivery) {
 			defer recoverFromPanic(p.logger, "consume.goroutine", p.metrics)
-			defer wg.Done()
+			defer cleanupOnce.Do(cleanupFunc)
 			p.consume(ctx, id, q, tag, d)
-		}()
+		}(d)
 	}
 	return nil
 }
