@@ -392,7 +392,14 @@ func (m *TUIModel) updateAutoScroll() {
 // getProbeVisibleRows calculates visible rows for probe logs
 func (m *TUIModel) getProbeVisibleRows() int {
 	// Reserve space for header, footer, and status
-	return m.height - 6
+	// Header: title (2 lines), status (2 lines)
+	// Footer: help (2 lines), error/success (2 lines)
+	reserved := 8
+	visible := m.height - reserved
+	if visible < 5 {
+		visible = 5
+	}
+	return visible
 }
 
 // handleServerLogsKeys handles keys in the server logs view

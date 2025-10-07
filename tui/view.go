@@ -395,20 +395,13 @@ func (m *TUIModel) renderProbeView() string {
 	b.WriteString(headerStyle.Render(headerText))
 	b.WriteString("\n\n")
 
-	// Show log count
+	// Show log count (keep it short to avoid wrapping)
 	logCount := len(m.probeState.logs)
-	statusText := fmt.Sprintf("Total logs: %d", logCount)
+	statusText := fmt.Sprintf("Logs: %d", logCount)
 	if logCount > 0 {
 		latest := m.probeState.logs[logCount-1]
-		statusText += fmt.Sprintf(" • Latest: %s", latest.Timestamp.Format("15:04:05.000"))
+		statusText += fmt.Sprintf(" • Latest: %s", latest.Timestamp.Format("15:04:05"))
 	}
-	// Debug: Show scroll position
-	visibleRows := m.getProbeVisibleRows()
-	maxScroll := logCount - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	statusText += fmt.Sprintf(" • Scroll: %d/%d (visible: %d)", m.probeState.scroll, maxScroll, visibleRows)
 	b.WriteString(statusDimStyle.Render(statusText))
 	b.WriteString("\n\n")
 
