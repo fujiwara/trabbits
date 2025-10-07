@@ -427,39 +427,139 @@ func (m *TUIModel) renderProbeView() string {
 			b.WriteString("\n")
 		}
 	} else {
-		visibleRows := m.getProbeVisibleRows()
+		maxDisplayLines := m.getProbeVisibleRows()
 		startIdx := m.probeState.scroll
 		if startIdx < 0 {
 			startIdx = 0
 		}
-		maxScroll := logCount - visibleRows
-		if maxScroll < 0 {
-			maxScroll = 0
+		if startIdx >= logCount {
+			startIdx = logCount - 1
 		}
-		if startIdx > maxScroll {
-			startIdx = maxScroll
-		}
-		endIdx := startIdx + visibleRows
-		if endIdx > logCount {
-			endIdx = logCount
+		if startIdx < 0 {
+			startIdx = 0
 		}
 
-		// Render visible logs
-		for i := startIdx; i < endIdx; i++ {
+		// Calculate how many log entries we can display within maxDisplayLines
+		// while ensuring the selected entry is visible
+		selectedIdx := m.probeState.selectedIdx
+		if selectedIdx < 0 {
+			selectedIdx = 0
+		}
+		if selectedIdx >= logCount {
+			selectedIdx = logCount - 1
+		}
+
+		// If selected is before startIdx, adjust startIdx to show selected
+		if selectedIdx < startIdx {
+			startIdx = selectedIdx
+		}
+
+		// Render logs from startIdx, counting actual display lines
+		var renderedLogs []string
+		var renderedIndices []int
+		displayLines := 0
+		endIdx := startIdx
+
+		for i := startIdx; i < logCount && displayLines < maxDisplayLines; i++ {
 			log := m.probeState.logs[i]
 			logLine := m.formatProbeLogLine(log)
+			lineCount := strings.Count(logLine, "\n") + 1
 
-			// Highlight selected line
-			if i == m.probeState.selectedIdx {
+			// If adding this entry would exceed available space, stop unless it's the selected entry
+			if displayLines+lineCount > maxDisplayLines && i != selectedIdx {
+				// If we haven't reached the selected entry yet, we need to adjust
+				if selectedIdx > i {
+					// Skip this entry and continue to reach selected
+					continue
+				}
+				break
+			}
+
+			// Highlight selected entry
+			if i == selectedIdx {
 				logLine = selectedStyle.Render(logLine)
 			}
 
+			renderedLogs = append(renderedLogs, logLine)
+			renderedIndices = append(renderedIndices, i)
+			displayLines += lineCount
+			endIdx = i + 1
+		}
+
+		// If we didn't render the selected entry, adjust startIdx and retry
+		selectedRendered := false
+		for _, idx := range renderedIndices {
+			if idx == selectedIdx {
+				selectedRendered = true
+				break
+			}
+		}
+
+		if !selectedRendered && selectedIdx < logCount {
+			// Start from selected entry and render backwards/forwards to fill screen
+			renderedLogs = []string{}
+			renderedIndices = []int{}
+			displayLines = 0
+
+			// First, render the selected entry
+			log := m.probeState.logs[selectedIdx]
+			logLine := m.formatProbeLogLine(log)
+			logLine = selectedStyle.Render(logLine)
+			lineCount := strings.Count(logLine, "\n") + 1
+
+			renderedLogs = append(renderedLogs, logLine)
+			renderedIndices = append(renderedIndices, selectedIdx)
+			displayLines += lineCount
+
+			// Try to add entries after selected
+			for i := selectedIdx + 1; i < logCount && displayLines < maxDisplayLines; i++ {
+				log := m.probeState.logs[i]
+				logLine := m.formatProbeLogLine(log)
+				lineCount := strings.Count(logLine, "\n") + 1
+
+				if displayLines+lineCount > maxDisplayLines {
+					break
+				}
+
+				renderedLogs = append(renderedLogs, logLine)
+				renderedIndices = append(renderedIndices, i)
+				displayLines += lineCount
+			}
+
+			// Try to add entries before selected
+			var beforeLogs []string
+			var beforeIndices []int
+			for i := selectedIdx - 1; i >= 0 && displayLines < maxDisplayLines; i-- {
+				log := m.probeState.logs[i]
+				logLine := m.formatProbeLogLine(log)
+				lineCount := strings.Count(logLine, "\n") + 1
+
+				if displayLines+lineCount > maxDisplayLines {
+					break
+				}
+
+				beforeLogs = append([]string{logLine}, beforeLogs...)
+				beforeIndices = append([]int{i}, beforeIndices...)
+				displayLines += lineCount
+			}
+
+			renderedLogs = append(beforeLogs, renderedLogs...)
+			renderedIndices = append(beforeIndices, renderedIndices...)
+
+			if len(renderedIndices) > 0 {
+				startIdx = renderedIndices[0]
+				endIdx = renderedIndices[len(renderedIndices)-1] + 1
+			}
+		}
+
+		// Write rendered logs
+		for _, logLine := range renderedLogs {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
 		// Add scroll indicator
-		if logCount > visibleRows {
+		if logCount > len(renderedIndices) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
 				startIdx+1, endIdx, logCount)
 			b.WriteString("\n" + scrollInfoStyle.Render(scrollInfo))
