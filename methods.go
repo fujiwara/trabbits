@@ -10,7 +10,6 @@ import (
 	"io"
 	"math/rand/v2"
 	"os"
-	"sync"
 
 	"github.com/fujiwara/trabbits/amqp091"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
@@ -118,19 +117,17 @@ func (p *Proxy) replyBasicPublish(ctx context.Context, f *amqp091.MethodFrame, m
 }
 
 func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicConsume) error {
-	id := f.Channel()
+	channelID := f.Channel()
 	uss := p.Upstreams()
 
 	p.probeLog("c->t Basic.Consume", "message", m)
-	deliveries := make([]*delivery, 0, len(uss))
-	upstreamChannels := make(map[*Upstream]*rabbitmq.Channel, len(uss))
+	deliveries := make(map[*Upstream]*delivery, len(uss))
 	for i, us := range uss {
 		us.probeLog("t->u Basic.Consume", "message", m)
-		ch, err := us.GetChannel(id)
+		ch, err := us.GetChannel(channelID)
 		if err != nil {
 			return fmt.Errorf("failed to get channel on upstream %s: %w", us.String(), err)
 		}
-		upstreamChannels[us] = ch
 		consume, err := ch.ConsumeWithContext(
 			ctx,
 			m.Queue,
@@ -145,10 +142,10 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 			return NewError(amqp091.InternalError, fmt.Sprintf("failed to consume on upstream %s: %v", us.String(), err))
 		}
 		d := p.newDelivery(consume, i, us.name)
-		deliveries = append(deliveries, d)
+		deliveries[us] = d
 	}
 
-	if err := p.send(id, &amqp091.BasicConsumeOk{
+	if err := p.send(channelID, &amqp091.BasicConsumeOk{
 		ConsumerTag: m.ConsumerTag,
 	}); err != nil {
 		return NewError(amqp091.InternalError, fmt.Sprintf("failed to send Basic.ConsumeOk: %v", err))
@@ -157,41 +154,30 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 	tag := m.ConsumerTag
 	q := m.Queue
 
-	// cleanup all consumers on upstreams when one of goroutines exits
-	cleanupOnce := sync.Once{}
-	cleanupFunc := func() {
-		for us, ch := range upstreamChannels {
-			p.probeLog("t->u Basic.Cancel", "queue", q, "consumer_tag", tag, "upstream", us.name)
-			ch.Cancel(tag, false) // ignore error
-		}
-		p.probeLog("c<-t Basic.Cancel", "queue", q, "consumer_tag", tag)
-		p.send(id, &amqp091.BasicCancel{
-			ConsumerTag: tag,
-		})
-	}
 	// start goroutines to consume from all upstreams
-	for _, d := range deliveries {
-		go func(d *delivery) {
+	ctx2, cancel := context.WithCancel(ctx)
+	for us, d := range deliveries {
+		go func(us *Upstream, d *delivery) {
 			defer recoverFromPanic(p.logger, "consume.goroutine", p.metrics)
-			defer cleanupOnce.Do(cleanupFunc)
-			p.consume(ctx, id, q, tag, d)
-		}(d)
+			defer cancel() // cancel all consumers on exit of any
+			p.consume(ctx2, us, channelID, q, tag, d)
+		}(us, d)
 	}
 	return nil
 }
 
-func (p *Proxy) consume(ctx context.Context, id uint16, queue, tag string, d *delivery) {
+func (p *Proxy) consume(ctx context.Context, us *Upstream, channelID uint16, queue, tag string, d *delivery) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case msg, ok := <-d.ch:
 			if !ok {
-				p.probeLog("t<-u Basic.Consume closed", "queue", queue, "upstream", d.upstreamName)
+				us.probeLog("t<-u Basic.Consume closed", "queue", queue, "upstream", d.upstreamName)
 				return
 			}
-			p.probeLog("t<-u Basic.Deliver", "exchange", msg.Exchange, "routing_key", msg.RoutingKey, "delivery_tag", msg.DeliveryTag, "upstream", d.upstreamName)
-			err := p.send(id, &amqp091.BasicDeliver{
+			us.probeLog("t<-u Basic.Deliver", "exchange", msg.Exchange, "routing_key", msg.RoutingKey, "delivery_tag", msg.DeliveryTag, "upstream", d.upstreamName)
+			err := p.send(channelID, &amqp091.BasicDeliver{
 				ConsumerTag: tag,
 				DeliveryTag: d.Tag(msg.DeliveryTag), // rewrite delivery tag
 				Redelivered: msg.Redelivered,
