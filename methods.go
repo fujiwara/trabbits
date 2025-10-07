@@ -170,6 +170,7 @@ func (p *Proxy) consume(ctx context.Context, us *Upstream, channelID uint16, que
 	for {
 		select {
 		case <-ctx.Done():
+			us.probeLog("t<-u Basic.Consume canceled", "queue", queue, "upstream", d.upstreamName, "error", ctx.Err())
 			return
 		case msg, ok := <-d.ch:
 			if !ok {
