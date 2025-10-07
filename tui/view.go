@@ -551,6 +551,7 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 }
 
 // wrapText wraps text to the specified width, returning a slice of lines
+// Text is wrapped at the right edge regardless of character type (no word wrapping)
 func wrapText(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
@@ -568,53 +569,23 @@ func wrapText(text string, width int) []string {
 		runes := []rune(seg)
 		start := 0
 		lineWidth := 0
-		lastSpace := -1
-		i := 0
-		for i < len(runes) {
+
+		for i := 0; i < len(runes); i++ {
 			ch := runes[i]
-			if ch == '\n' {
-				out = append(out, string(runes[start:i]))
-				start = i + 1
-				lineWidth = 0
-				lastSpace = -1
-				i++
-				continue
-			}
-
 			rw := runewidth.RuneWidth(ch)
-			if ch == ' ' {
-				lastSpace = i
-			}
 
-			// If adding this rune would exceed width, wrap
+			// If adding this rune would exceed width, wrap here
 			if lineWidth+rw > width {
-				if lastSpace >= start {
-					// Wrap at last space; next line starts after the space
-					out = append(out, string(runes[start:lastSpace]))
-					start = lastSpace + 1
-					// Reset to after space and recompute width from that position
-					lineWidth = 0
-					for j := start; j < i; j++ {
-						lineWidth += runewidth.RuneWidth(runes[j])
-					}
-					lastSpace = -1
-					continue
-				}
-				// No space to break at; hard wrap before this rune
-				if i > start {
-					out = append(out, string(runes[start:i]))
-					start = i
-					lineWidth = 0
-					lastSpace = -1
-					continue
-				}
+				out = append(out, string(runes[start:i]))
+				start = i
+				lineWidth = 0
 			}
 
 			lineWidth += rw
-			i++
 		}
+
 		// Flush remainder
-		if start <= len(runes) {
+		if start < len(runes) {
 			out = append(out, string(runes[start:]))
 		}
 	}
