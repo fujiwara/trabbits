@@ -189,18 +189,15 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyPress(msg)
 
 	case tickMsg:
-		if time.Since(m.lastUpdate) > 2*time.Second {
-			// Always fetch clients list
-			cmds := []tea.Cmd{m.fetchClients(), tick()}
+		// Always fetch clients list on every tick (every 2 seconds)
+		cmds := []tea.Cmd{m.fetchClients(), tick()}
 
-			// If in detail view, also fetch updated client detail
-			if m.viewMode == ViewDetail && m.clientDetail != nil {
-				cmds = append(cmds, m.fetchClientDetail(m.clientDetail.ID))
-			}
-
-			return m, tea.Batch(cmds...)
+		// If in detail view, also fetch updated client detail
+		if m.viewMode == ViewDetail && m.clientDetail != nil {
+			cmds = append(cmds, m.fetchClientDetail(m.clientDetail.ID))
 		}
-		return m, tick()
+
+		return m, tea.Batch(cmds...)
 
 	case clientsMsg:
 		// Preserve selection by client ID when possible

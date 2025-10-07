@@ -374,7 +374,7 @@ func (m *TUIModel) estimateLogPaneLines() int {
 	for i := startIdx; i < len(m.logEntries); i++ {
 		entry := m.logEntries[i]
 		// Estimate lines for this entry
-		logText := m.formatLogEntry(entry)
+		logText := m.formatLogEntry(entry, false)
 		// Count newlines in formatted log
 		lineCount += strings.Count(logText, "\n") + 1
 	}
@@ -395,20 +395,13 @@ func (m *TUIModel) renderProbeView() string {
 	b.WriteString(headerStyle.Render(headerText))
 	b.WriteString("\n\n")
 
-	// Show log count
+	// Show log count (keep it short to avoid wrapping)
 	logCount := len(m.probeState.logs)
-	statusText := fmt.Sprintf("Total logs: %d", logCount)
+	statusText := fmt.Sprintf("Logs: %d", logCount)
 	if logCount > 0 {
 		latest := m.probeState.logs[logCount-1]
-		statusText += fmt.Sprintf(" • Latest: %s", latest.Timestamp.Format("15:04:05.000"))
+		statusText += fmt.Sprintf(" • Latest: %s", latest.Timestamp.Format("15:04:05"))
 	}
-	// Debug: Show scroll position
-	visibleRows := m.getProbeVisibleRows()
-	maxScroll := logCount - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	statusText += fmt.Sprintf(" • Scroll: %d/%d (visible: %d)", m.probeState.scroll, maxScroll, visibleRows)
 	b.WriteString(statusDimStyle.Render(statusText))
 	b.WriteString("\n\n")
 
@@ -427,41 +420,34 @@ func (m *TUIModel) renderProbeView() string {
 			b.WriteString("\n")
 		}
 	} else {
-		visibleRows := m.getProbeVisibleRows()
-		startIdx := m.probeState.scroll
-		if startIdx < 0 {
-			startIdx = 0
-		}
-		maxScroll := logCount - visibleRows
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		if startIdx > maxScroll {
-			startIdx = maxScroll
-		}
-		endIdx := startIdx + visibleRows
-		if endIdx > logCount {
-			endIdx = logCount
-		}
+		maxDisplayLines := m.getProbeVisibleRows()
 
-		// Render visible logs
-		for i := startIdx; i < endIdx; i++ {
-			log := m.probeState.logs[i]
-			logLine := m.formatProbeLogLine(log)
+		// Use common rendering function
+		result := renderLogsWithWrapping(
+			logCount,
+			maxDisplayLines,
+			m.probeState.scroll,
+			m.probeState.selectedIdx,
+			func(idx int, isSelected bool) string {
+				log := m.probeState.logs[idx]
+				logLine := m.formatProbeLogLine(log)
+				if isSelected {
+					logLine = selectedStyle.Render(logLine)
+				}
+				return logLine
+			},
+		)
 
-			// Highlight selected line
-			if i == m.probeState.selectedIdx {
-				logLine = selectedStyle.Render(logLine)
-			}
-
+		// Write rendered logs
+		for _, logLine := range result.renderedLines {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
 		// Add scroll indicator
-		if logCount > visibleRows {
+		if logCount > len(result.renderedLines) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
-				startIdx+1, endIdx, logCount)
+				result.startIdx+1, result.endIdx, logCount)
 			b.WriteString("\n" + scrollInfoStyle.Render(scrollInfo))
 		}
 	}
@@ -550,7 +536,153 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderResult holds the result of rendering logs with line wrapping
+type renderResult struct {
+	renderedLines []string // formatted and styled log lines ready to display
+	startIdx      int      // first log entry index in the result
+	endIdx        int      // last log entry index + 1 in the result
+}
+
+// renderLogsWithWrapping renders log entries accounting for line wrapping,
+// ensuring the selected entry is always visible within maxDisplayLines.
+// formatFunc should return the formatted (and optionally styled) log line for a given index.
+func renderLogsWithWrapping(
+	logCount int,
+	maxDisplayLines int,
+	scrollPos int,
+	selectedIdx int,
+	formatFunc func(idx int, isSelected bool) string,
+) renderResult {
+	if logCount == 0 {
+		return renderResult{}
+	}
+
+	// Clamp inputs
+	startIdx := scrollPos
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if startIdx >= logCount {
+		startIdx = logCount - 1
+	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	if selectedIdx < 0 {
+		selectedIdx = 0
+	}
+	if selectedIdx >= logCount {
+		selectedIdx = logCount - 1
+	}
+
+	// If selected is before startIdx, adjust startIdx to show selected
+	if selectedIdx < startIdx {
+		startIdx = selectedIdx
+	}
+
+	// Render logs from startIdx, counting actual display lines
+	var renderedLines []string
+	var renderedIndices []int
+	displayLines := 0
+	endIdx := startIdx
+
+	for i := startIdx; i < logCount && displayLines < maxDisplayLines; i++ {
+		logLine := formatFunc(i, false)
+		lineCount := strings.Count(logLine, "\n") + 1
+
+		// If adding this entry would exceed available space, stop unless it's the selected entry
+		if displayLines+lineCount > maxDisplayLines && i != selectedIdx {
+			// If we haven't reached the selected entry yet, we need to adjust
+			if selectedIdx > i {
+				// Skip this entry and continue to reach selected
+				continue
+			}
+			break
+		}
+
+		// Re-format with selection styling if this is the selected entry
+		if i == selectedIdx {
+			logLine = formatFunc(i, true)
+		}
+
+		renderedLines = append(renderedLines, logLine)
+		renderedIndices = append(renderedIndices, i)
+		displayLines += lineCount
+		endIdx = i + 1
+	}
+
+	// If we didn't render the selected entry, adjust startIdx and retry
+	selectedRendered := false
+	for _, idx := range renderedIndices {
+		if idx == selectedIdx {
+			selectedRendered = true
+			break
+		}
+	}
+
+	if !selectedRendered && selectedIdx < logCount {
+		// Start from selected entry and render backwards/forwards to fill screen
+		renderedLines = []string{}
+		renderedIndices = []int{}
+		displayLines = 0
+
+		// First, render the selected entry
+		logLine := formatFunc(selectedIdx, true)
+		lineCount := strings.Count(logLine, "\n") + 1
+
+		renderedLines = append(renderedLines, logLine)
+		renderedIndices = append(renderedIndices, selectedIdx)
+		displayLines += lineCount
+
+		// Try to add entries after selected
+		for i := selectedIdx + 1; i < logCount && displayLines < maxDisplayLines; i++ {
+			logLine := formatFunc(i, false)
+			lineCount := strings.Count(logLine, "\n") + 1
+
+			if displayLines+lineCount > maxDisplayLines {
+				break
+			}
+
+			renderedLines = append(renderedLines, logLine)
+			renderedIndices = append(renderedIndices, i)
+			displayLines += lineCount
+		}
+
+		// Try to add entries before selected
+		var beforeLines []string
+		var beforeIndices []int
+		for i := selectedIdx - 1; i >= 0 && displayLines < maxDisplayLines; i-- {
+			logLine := formatFunc(i, false)
+			lineCount := strings.Count(logLine, "\n") + 1
+
+			if displayLines+lineCount > maxDisplayLines {
+				break
+			}
+
+			beforeLines = append([]string{logLine}, beforeLines...)
+			beforeIndices = append([]int{i}, beforeIndices...)
+			displayLines += lineCount
+		}
+
+		renderedLines = append(beforeLines, renderedLines...)
+		renderedIndices = append(beforeIndices, renderedIndices...)
+
+		if len(renderedIndices) > 0 {
+			startIdx = renderedIndices[0]
+			endIdx = renderedIndices[len(renderedIndices)-1] + 1
+		}
+	}
+
+	return renderResult{
+		renderedLines: renderedLines,
+		startIdx:      startIdx,
+		endIdx:        endIdx,
+	}
+}
+
 // wrapText wraps text to the specified width, returning a slice of lines
+// Text is wrapped at the right edge regardless of character type (no word wrapping)
 func wrapText(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
@@ -568,53 +700,23 @@ func wrapText(text string, width int) []string {
 		runes := []rune(seg)
 		start := 0
 		lineWidth := 0
-		lastSpace := -1
-		i := 0
-		for i < len(runes) {
+
+		for i := 0; i < len(runes); i++ {
 			ch := runes[i]
-			if ch == '\n' {
-				out = append(out, string(runes[start:i]))
-				start = i + 1
-				lineWidth = 0
-				lastSpace = -1
-				i++
-				continue
-			}
-
 			rw := runewidth.RuneWidth(ch)
-			if ch == ' ' {
-				lastSpace = i
-			}
 
-			// If adding this rune would exceed width, wrap
+			// If adding this rune would exceed width, wrap here
 			if lineWidth+rw > width {
-				if lastSpace >= start {
-					// Wrap at last space; next line starts after the space
-					out = append(out, string(runes[start:lastSpace]))
-					start = lastSpace + 1
-					// Reset to after space and recompute width from that position
-					lineWidth = 0
-					for j := start; j < i; j++ {
-						lineWidth += runewidth.RuneWidth(runes[j])
-					}
-					lastSpace = -1
-					continue
-				}
-				// No space to break at; hard wrap before this rune
-				if i > start {
-					out = append(out, string(runes[start:i]))
-					start = i
-					lineWidth = 0
-					lastSpace = -1
-					continue
-				}
+				out = append(out, string(runes[start:i]))
+				start = i
+				lineWidth = 0
 			}
 
 			lineWidth += rw
-			i++
 		}
+
 		// Flush remainder
-		if start <= len(runes) {
+		if start < len(runes) {
 			out = append(out, string(runes[start:]))
 		}
 	}
@@ -640,7 +742,7 @@ func (m *TUIModel) renderLogPane() string {
 		logLines = append(logLines, debugDimStyle.Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
 		for i := startIdx; i < len(m.logEntries); i++ {
 			entry := m.logEntries[i]
-			logLine := m.formatLogEntry(entry)
+			logLine := m.formatLogEntry(entry, false)
 			logLines = append(logLines, logLine)
 		}
 		content = strings.Join(logLines, "\n")
@@ -652,7 +754,7 @@ func (m *TUIModel) renderLogPane() string {
 }
 
 // formatLogEntry formats a log entry for display
-func (m *TUIModel) formatLogEntry(entry LogEntry) string {
+func (m *TUIModel) formatLogEntry(entry LogEntry, isSelected bool) string {
 	timestamp := entry.Time.Format("15:04:05")
 
 	// Build the main text first (without styling)
@@ -693,24 +795,48 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 
 	attrStyle := attrGreyStyle
 
+	// If selected, apply selection background to all styles
+	if isSelected {
+		levelStyle = levelStyle.Inherit(selectedStyle)
+		attrStyle = attrStyle.Inherit(selectedStyle)
+	}
+
 	for i, line := range lines {
 		if i == 0 {
 			// First line: apply level color to the level part
 			// Format: "HH:MM:SS LEVEL message {attrs...}"
 			// Level is at position 9-13 (after timestamp and space)
 			if len(line) > 14 {
-				styledLine := line[:9] + levelStyle.Render(line[9:14])
+				timestampPart := line[:9]
+				if isSelected {
+					timestampPart = selectedStyle.Render(timestampPart)
+				}
+				levelPart := levelStyle.Render(line[9:14])
 				rest := line[14:]
 				// Find where attrs start (after message)
 				attrStartInLine := len(mainText) - 14 // position relative to after level
+				var restStyled string
 				if attrStr != "" && len(rest) > attrStartInLine {
-					styledLine += rest[:attrStartInLine] + attrStyle.Render(rest[attrStartInLine:])
+					messagePart := rest[:attrStartInLine]
+					attrPart := rest[attrStartInLine:]
+					if isSelected {
+						messagePart = selectedStyle.Render(messagePart)
+					}
+					restStyled = messagePart + attrStyle.Render(attrPart)
 				} else {
-					styledLine += rest
+					if isSelected {
+						restStyled = selectedStyle.Render(rest)
+					} else {
+						restStyled = rest
+					}
 				}
-				styledLines[i] = styledLine
+				styledLines[i] = timestampPart + levelPart + restStyled
 			} else {
-				styledLines[i] = line
+				if isSelected {
+					styledLines[i] = selectedStyle.Render(line)
+				} else {
+					styledLines[i] = line
+				}
 			}
 		} else {
 			// Continuation lines: style as attrs
@@ -752,41 +878,31 @@ func (m *TUIModel) renderServerLogsView() string {
 	if len(m.logEntries) == 0 {
 		b.WriteString("No server logs yet...\n")
 	} else {
-		visibleRows := m.getServerLogsVisibleRows()
-		startIdx := m.serverLogsScroll
-		if startIdx < 0 {
-			startIdx = 0
-		}
-		maxScroll := len(m.logEntries) - visibleRows
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		if startIdx > maxScroll {
-			startIdx = maxScroll
-		}
-		endIdx := startIdx + visibleRows
-		if endIdx > len(m.logEntries) {
-			endIdx = len(m.logEntries)
-		}
+		logCount := len(m.logEntries)
+		maxDisplayLines := m.getServerLogsVisibleRows()
 
-		// Render visible logs
-		for i := startIdx; i < endIdx; i++ {
-			entry := m.logEntries[i]
-			logLine := m.formatLogEntry(entry)
+		// Use common rendering function
+		result := renderLogsWithWrapping(
+			logCount,
+			maxDisplayLines,
+			m.serverLogsScroll,
+			m.serverLogsSelectedIdx,
+			func(idx int, isSelected bool) string {
+				entry := m.logEntries[idx]
+				return m.formatLogEntry(entry, isSelected)
+			},
+		)
 
-			// Highlight selected line
-			if i == m.serverLogsSelectedIdx {
-				logLine = selectedStyle.Render(logLine)
-			}
-
+		// Write rendered logs
+		for _, logLine := range result.renderedLines {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
 		// Add scroll indicator
-		if len(m.logEntries) > visibleRows {
+		if logCount > len(result.renderedLines) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
-				startIdx+1, endIdx, len(m.logEntries))
+				result.startIdx+1, result.endIdx, logCount)
 			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 			b.WriteString("\n" + scrollStyle.Render(scrollInfo))
 		}
