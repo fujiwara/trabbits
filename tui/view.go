@@ -428,140 +428,33 @@ func (m *TUIModel) renderProbeView() string {
 		}
 	} else {
 		maxDisplayLines := m.getProbeVisibleRows()
-		startIdx := m.probeState.scroll
-		if startIdx < 0 {
-			startIdx = 0
-		}
-		if startIdx >= logCount {
-			startIdx = logCount - 1
-		}
-		if startIdx < 0 {
-			startIdx = 0
-		}
 
-		// Calculate how many log entries we can display within maxDisplayLines
-		// while ensuring the selected entry is visible
-		selectedIdx := m.probeState.selectedIdx
-		if selectedIdx < 0 {
-			selectedIdx = 0
-		}
-		if selectedIdx >= logCount {
-			selectedIdx = logCount - 1
-		}
-
-		// If selected is before startIdx, adjust startIdx to show selected
-		if selectedIdx < startIdx {
-			startIdx = selectedIdx
-		}
-
-		// Render logs from startIdx, counting actual display lines
-		var renderedLogs []string
-		var renderedIndices []int
-		displayLines := 0
-		endIdx := startIdx
-
-		for i := startIdx; i < logCount && displayLines < maxDisplayLines; i++ {
-			log := m.probeState.logs[i]
-			logLine := m.formatProbeLogLine(log)
-			lineCount := strings.Count(logLine, "\n") + 1
-
-			// If adding this entry would exceed available space, stop unless it's the selected entry
-			if displayLines+lineCount > maxDisplayLines && i != selectedIdx {
-				// If we haven't reached the selected entry yet, we need to adjust
-				if selectedIdx > i {
-					// Skip this entry and continue to reach selected
-					continue
-				}
-				break
-			}
-
-			// Highlight selected entry
-			if i == selectedIdx {
-				logLine = selectedStyle.Render(logLine)
-			}
-
-			renderedLogs = append(renderedLogs, logLine)
-			renderedIndices = append(renderedIndices, i)
-			displayLines += lineCount
-			endIdx = i + 1
-		}
-
-		// If we didn't render the selected entry, adjust startIdx and retry
-		selectedRendered := false
-		for _, idx := range renderedIndices {
-			if idx == selectedIdx {
-				selectedRendered = true
-				break
-			}
-		}
-
-		if !selectedRendered && selectedIdx < logCount {
-			// Start from selected entry and render backwards/forwards to fill screen
-			renderedLogs = []string{}
-			renderedIndices = []int{}
-			displayLines = 0
-
-			// First, render the selected entry
-			log := m.probeState.logs[selectedIdx]
-			logLine := m.formatProbeLogLine(log)
-			logLine = selectedStyle.Render(logLine)
-			lineCount := strings.Count(logLine, "\n") + 1
-
-			renderedLogs = append(renderedLogs, logLine)
-			renderedIndices = append(renderedIndices, selectedIdx)
-			displayLines += lineCount
-
-			// Try to add entries after selected
-			for i := selectedIdx + 1; i < logCount && displayLines < maxDisplayLines; i++ {
-				log := m.probeState.logs[i]
+		// Use common rendering function
+		result := renderLogsWithWrapping(
+			logCount,
+			maxDisplayLines,
+			m.probeState.scroll,
+			m.probeState.selectedIdx,
+			func(idx int, isSelected bool) string {
+				log := m.probeState.logs[idx]
 				logLine := m.formatProbeLogLine(log)
-				lineCount := strings.Count(logLine, "\n") + 1
-
-				if displayLines+lineCount > maxDisplayLines {
-					break
+				if isSelected {
+					logLine = selectedStyle.Render(logLine)
 				}
-
-				renderedLogs = append(renderedLogs, logLine)
-				renderedIndices = append(renderedIndices, i)
-				displayLines += lineCount
-			}
-
-			// Try to add entries before selected
-			var beforeLogs []string
-			var beforeIndices []int
-			for i := selectedIdx - 1; i >= 0 && displayLines < maxDisplayLines; i-- {
-				log := m.probeState.logs[i]
-				logLine := m.formatProbeLogLine(log)
-				lineCount := strings.Count(logLine, "\n") + 1
-
-				if displayLines+lineCount > maxDisplayLines {
-					break
-				}
-
-				beforeLogs = append([]string{logLine}, beforeLogs...)
-				beforeIndices = append([]int{i}, beforeIndices...)
-				displayLines += lineCount
-			}
-
-			renderedLogs = append(beforeLogs, renderedLogs...)
-			renderedIndices = append(beforeIndices, renderedIndices...)
-
-			if len(renderedIndices) > 0 {
-				startIdx = renderedIndices[0]
-				endIdx = renderedIndices[len(renderedIndices)-1] + 1
-			}
-		}
+				return logLine
+			},
+		)
 
 		// Write rendered logs
-		for _, logLine := range renderedLogs {
+		for _, logLine := range result.renderedLines {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
 		// Add scroll indicator
-		if logCount > len(renderedIndices) {
+		if logCount > len(result.renderedLines) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
-				startIdx+1, endIdx, logCount)
+				result.startIdx+1, result.endIdx, logCount)
 			b.WriteString("\n" + scrollInfoStyle.Render(scrollInfo))
 		}
 	}
@@ -648,6 +541,151 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderResult holds the result of rendering logs with line wrapping
+type renderResult struct {
+	renderedLines []string // formatted and styled log lines ready to display
+	startIdx      int      // first log entry index in the result
+	endIdx        int      // last log entry index + 1 in the result
+}
+
+// renderLogsWithWrapping renders log entries accounting for line wrapping,
+// ensuring the selected entry is always visible within maxDisplayLines.
+// formatFunc should return the formatted (and optionally styled) log line for a given index.
+func renderLogsWithWrapping(
+	logCount int,
+	maxDisplayLines int,
+	scrollPos int,
+	selectedIdx int,
+	formatFunc func(idx int, isSelected bool) string,
+) renderResult {
+	if logCount == 0 {
+		return renderResult{}
+	}
+
+	// Clamp inputs
+	startIdx := scrollPos
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if startIdx >= logCount {
+		startIdx = logCount - 1
+	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	if selectedIdx < 0 {
+		selectedIdx = 0
+	}
+	if selectedIdx >= logCount {
+		selectedIdx = logCount - 1
+	}
+
+	// If selected is before startIdx, adjust startIdx to show selected
+	if selectedIdx < startIdx {
+		startIdx = selectedIdx
+	}
+
+	// Render logs from startIdx, counting actual display lines
+	var renderedLines []string
+	var renderedIndices []int
+	displayLines := 0
+	endIdx := startIdx
+
+	for i := startIdx; i < logCount && displayLines < maxDisplayLines; i++ {
+		logLine := formatFunc(i, false)
+		lineCount := strings.Count(logLine, "\n") + 1
+
+		// If adding this entry would exceed available space, stop unless it's the selected entry
+		if displayLines+lineCount > maxDisplayLines && i != selectedIdx {
+			// If we haven't reached the selected entry yet, we need to adjust
+			if selectedIdx > i {
+				// Skip this entry and continue to reach selected
+				continue
+			}
+			break
+		}
+
+		// Re-format with selection styling if this is the selected entry
+		if i == selectedIdx {
+			logLine = formatFunc(i, true)
+		}
+
+		renderedLines = append(renderedLines, logLine)
+		renderedIndices = append(renderedIndices, i)
+		displayLines += lineCount
+		endIdx = i + 1
+	}
+
+	// If we didn't render the selected entry, adjust startIdx and retry
+	selectedRendered := false
+	for _, idx := range renderedIndices {
+		if idx == selectedIdx {
+			selectedRendered = true
+			break
+		}
+	}
+
+	if !selectedRendered && selectedIdx < logCount {
+		// Start from selected entry and render backwards/forwards to fill screen
+		renderedLines = []string{}
+		renderedIndices = []int{}
+		displayLines = 0
+
+		// First, render the selected entry
+		logLine := formatFunc(selectedIdx, true)
+		lineCount := strings.Count(logLine, "\n") + 1
+
+		renderedLines = append(renderedLines, logLine)
+		renderedIndices = append(renderedIndices, selectedIdx)
+		displayLines += lineCount
+
+		// Try to add entries after selected
+		for i := selectedIdx + 1; i < logCount && displayLines < maxDisplayLines; i++ {
+			logLine := formatFunc(i, false)
+			lineCount := strings.Count(logLine, "\n") + 1
+
+			if displayLines+lineCount > maxDisplayLines {
+				break
+			}
+
+			renderedLines = append(renderedLines, logLine)
+			renderedIndices = append(renderedIndices, i)
+			displayLines += lineCount
+		}
+
+		// Try to add entries before selected
+		var beforeLines []string
+		var beforeIndices []int
+		for i := selectedIdx - 1; i >= 0 && displayLines < maxDisplayLines; i-- {
+			logLine := formatFunc(i, false)
+			lineCount := strings.Count(logLine, "\n") + 1
+
+			if displayLines+lineCount > maxDisplayLines {
+				break
+			}
+
+			beforeLines = append([]string{logLine}, beforeLines...)
+			beforeIndices = append([]int{i}, beforeIndices...)
+			displayLines += lineCount
+		}
+
+		renderedLines = append(beforeLines, renderedLines...)
+		renderedIndices = append(beforeIndices, renderedIndices...)
+
+		if len(renderedIndices) > 0 {
+			startIdx = renderedIndices[0]
+			endIdx = renderedIndices[len(renderedIndices)-1] + 1
+		}
+	}
+
+	return renderResult{
+		renderedLines: renderedLines,
+		startIdx:      startIdx,
+		endIdx:        endIdx,
+	}
 }
 
 // wrapText wraps text to the specified width, returning a slice of lines
@@ -823,41 +861,35 @@ func (m *TUIModel) renderServerLogsView() string {
 	if len(m.logEntries) == 0 {
 		b.WriteString("No server logs yet...\n")
 	} else {
-		visibleRows := m.getServerLogsVisibleRows()
-		startIdx := m.serverLogsScroll
-		if startIdx < 0 {
-			startIdx = 0
-		}
-		maxScroll := len(m.logEntries) - visibleRows
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		if startIdx > maxScroll {
-			startIdx = maxScroll
-		}
-		endIdx := startIdx + visibleRows
-		if endIdx > len(m.logEntries) {
-			endIdx = len(m.logEntries)
-		}
+		logCount := len(m.logEntries)
+		maxDisplayLines := m.getServerLogsVisibleRows()
 
-		// Render visible logs
-		for i := startIdx; i < endIdx; i++ {
-			entry := m.logEntries[i]
-			logLine := m.formatLogEntry(entry)
+		// Use common rendering function
+		result := renderLogsWithWrapping(
+			logCount,
+			maxDisplayLines,
+			m.serverLogsScroll,
+			m.serverLogsSelectedIdx,
+			func(idx int, isSelected bool) string {
+				entry := m.logEntries[idx]
+				logLine := m.formatLogEntry(entry)
+				if isSelected {
+					logLine = selectedStyle.Render(logLine)
+				}
+				return logLine
+			},
+		)
 
-			// Highlight selected line
-			if i == m.serverLogsSelectedIdx {
-				logLine = selectedStyle.Render(logLine)
-			}
-
+		// Write rendered logs
+		for _, logLine := range result.renderedLines {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
 		// Add scroll indicator
-		if len(m.logEntries) > visibleRows {
+		if logCount > len(result.renderedLines) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
-				startIdx+1, endIdx, len(m.logEntries))
+				result.startIdx+1, result.endIdx, logCount)
 			scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 			b.WriteString("\n" + scrollStyle.Render(scrollInfo))
 		}
