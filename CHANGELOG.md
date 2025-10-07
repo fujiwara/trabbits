@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.16](https://github.com/fujiwara/trabbits/compare/v0.0.15...v0.0.16) - 2025-10-07
+- cleanup consume channels at closed by @fujiwara in https://github.com/fujiwara/trabbits/pull/94
+- Improve TUI log display and refresh rate by @fujiwara in https://github.com/fujiwara/trabbits/pull/96
+
 ## [v0.0.15](https://github.com/fujiwara/trabbits/compare/v0.0.14...v0.0.15) - 2025-10-04
 - add 'on upstream' into log messages. by @fujiwara in https://github.com/fujiwara/trabbits/pull/85
 - Implement AMQP Connection.Tune negotiation and improve probe logs by @fujiwara in https://github.com/fujiwara/trabbits/pull/87
