@@ -374,7 +374,7 @@ func (m *TUIModel) estimateLogPaneLines() int {
 	for i := startIdx; i < len(m.logEntries); i++ {
 		entry := m.logEntries[i]
 		// Estimate lines for this entry
-		logText := m.formatLogEntry(entry)
+		logText := m.formatLogEntry(entry, false)
 		// Count newlines in formatted log
 		lineCount += strings.Count(logText, "\n") + 1
 	}
@@ -749,7 +749,7 @@ func (m *TUIModel) renderLogPane() string {
 		logLines = append(logLines, debugDimStyle.Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))
 		for i := startIdx; i < len(m.logEntries); i++ {
 			entry := m.logEntries[i]
-			logLine := m.formatLogEntry(entry)
+			logLine := m.formatLogEntry(entry, false)
 			logLines = append(logLines, logLine)
 		}
 		content = strings.Join(logLines, "\n")
@@ -761,7 +761,7 @@ func (m *TUIModel) renderLogPane() string {
 }
 
 // formatLogEntry formats a log entry for display
-func (m *TUIModel) formatLogEntry(entry LogEntry) string {
+func (m *TUIModel) formatLogEntry(entry LogEntry, isSelected bool) string {
 	timestamp := entry.Time.Format("15:04:05")
 
 	// Build the main text first (without styling)
@@ -802,24 +802,48 @@ func (m *TUIModel) formatLogEntry(entry LogEntry) string {
 
 	attrStyle := attrGreyStyle
 
+	// If selected, apply selection background to all styles
+	if isSelected {
+		levelStyle = levelStyle.Inherit(selectedStyle)
+		attrStyle = attrStyle.Inherit(selectedStyle)
+	}
+
 	for i, line := range lines {
 		if i == 0 {
 			// First line: apply level color to the level part
 			// Format: "HH:MM:SS LEVEL message {attrs...}"
 			// Level is at position 9-13 (after timestamp and space)
 			if len(line) > 14 {
-				styledLine := line[:9] + levelStyle.Render(line[9:14])
+				timestampPart := line[:9]
+				if isSelected {
+					timestampPart = selectedStyle.Render(timestampPart)
+				}
+				levelPart := levelStyle.Render(line[9:14])
 				rest := line[14:]
 				// Find where attrs start (after message)
 				attrStartInLine := len(mainText) - 14 // position relative to after level
+				var restStyled string
 				if attrStr != "" && len(rest) > attrStartInLine {
-					styledLine += rest[:attrStartInLine] + attrStyle.Render(rest[attrStartInLine:])
+					messagePart := rest[:attrStartInLine]
+					attrPart := rest[attrStartInLine:]
+					if isSelected {
+						messagePart = selectedStyle.Render(messagePart)
+					}
+					restStyled = messagePart + attrStyle.Render(attrPart)
 				} else {
-					styledLine += rest
+					if isSelected {
+						restStyled = selectedStyle.Render(rest)
+					} else {
+						restStyled = rest
+					}
 				}
-				styledLines[i] = styledLine
+				styledLines[i] = timestampPart + levelPart + restStyled
 			} else {
-				styledLines[i] = line
+				if isSelected {
+					styledLines[i] = selectedStyle.Render(line)
+				} else {
+					styledLines[i] = line
+				}
 			}
 		} else {
 			// Continuation lines: style as attrs
@@ -872,11 +896,7 @@ func (m *TUIModel) renderServerLogsView() string {
 			m.serverLogsSelectedIdx,
 			func(idx int, isSelected bool) string {
 				entry := m.logEntries[idx]
-				logLine := m.formatLogEntry(entry)
-				if isSelected {
-					logLine = selectedStyle.Render(logLine)
-				}
-				return logLine
+				return m.formatLogEntry(entry, isSelected)
 			},
 		)
 
