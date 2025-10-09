@@ -30,6 +30,7 @@ import (
 	"github.com/fujiwara/trabbits/health"
 	"github.com/fujiwara/trabbits/metrics"
 	"github.com/fujiwara/trabbits/types"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 )
 
@@ -46,6 +47,10 @@ var (
 	ShutdownMsgServerShutdown = "Server shutting down"
 	ShutdownMsgConfigUpdate   = "Configuration updated, please reconnect"
 	ShutdownMsgDefault        = "Connection closed"
+
+	// ProbeLog retention
+	ProbeLogBufferSize    = 100  // Number of logs to keep per proxy
+	ProbeLogRetentionSize = 1000 // Number of proxies to retain logs for (LRU)
 )
 
 var Debug bool
@@ -57,27 +62,33 @@ type proxyEntry struct {
 }
 
 type Server struct {
-	configMu       sync.RWMutex
-	config         *config.Config
-	configHash     string
-	activeProxies  sync.Map // proxy id -> *proxyEntry
-	healthManagers sync.Map // upstream name -> *health.Manager
-	logger         *slog.Logger
-	apiSocket      string // API socket path
-	metricsStore   *metrics.Store
-	logBuffer      *LogBuffer // Buffer for server logs
+	configMu          sync.RWMutex
+	config            *config.Config
+	configHash        string
+	activeProxies     sync.Map                            // proxy id -> *proxyEntry
+	retainedProbeLogs *lru.Cache[string, *ProbeLogBuffer] // LRU cache for disconnected proxies' probe logs
+	healthManagers    sync.Map                            // upstream name -> *health.Manager
+	logger            *slog.Logger
+	apiSocket         string // API socket path
+	metricsStore      *metrics.Store
+	logBuffer         *LogBuffer // Buffer for server logs
 }
 
 // NewServer creates a new Server instance
 func NewServer(config *config.Config, apiSocket string) *Server {
 	logBuffer := NewLogBuffer(200) // Keep last 200 log entries
+	probeLogCache, err := lru.New[string, *ProbeLogBuffer](ProbeLogRetentionSize)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create LRU cache: %v", err))
+	}
 	return &Server{
-		config:       config,
-		configHash:   config.Hash(),
-		logger:       slog.Default(),
-		apiSocket:    apiSocket,
-		metricsStore: metrics.NewStore(),
-		logBuffer:    logBuffer,
+		config:            config,
+		configHash:        config.Hash(),
+		logger:            slog.Default(),
+		apiSocket:         apiSocket,
+		metricsStore:      metrics.NewStore(),
+		logBuffer:         logBuffer,
+		retainedProbeLogs: probeLogCache,
 	}
 }
 
@@ -120,6 +131,9 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 	// Get config with timeout values
 	config := s.GetConfig()
 
+	// Create a probe log buffer for this proxy (will be added to LRU in RegisterProxy)
+	probeLogBuffer := NewProbeLogBuffer(ProbeLogBufferSize)
+
 	proxy := &Proxy{
 		conn:                   conn,
 		id:                     id,
@@ -134,6 +148,7 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		connectedAt:            time.Now(),               // timestamp when the client connected
 		stats:                  NewProxyStats(),          // initialize statistics
 		probeChan:              make(chan probeLog, 100), // buffered channel for probe logs
+		probeLogBuffer:         probeLogBuffer,           // buffer for probe log retention
 		metrics:                s.Metrics(),              // metrics instance from server
 		tuned: tuned{
 			channelMax: ChannelMax,
@@ -156,11 +171,33 @@ func (s *Server) GetHealthManager(upstreamName string) *health.Manager {
 // RegisterProxy adds a proxy and its cancel function to the server's active proxy list
 func (s *Server) RegisterProxy(proxy *Proxy, cancel context.CancelFunc) {
 	s.activeProxies.Store(proxy.id, &proxyEntry{proxy: proxy, cancel: cancel})
+	// Add the proxy's probe log buffer to LRU cache for retention
+	if proxy.probeLogBuffer != nil {
+		// Store proxy information in the buffer for later retrieval when disconnected
+		proxy.probeLogBuffer.SetProxyInfo(
+			proxy.ClientAddr(),
+			proxy.user,
+			proxy.VirtualHost,
+			proxy.ClientBanner(),
+			proxy.connectedAt,
+		)
+		s.retainedProbeLogs.Add(proxy.id, proxy.probeLogBuffer)
+	}
 }
 
 // UnregisterProxy removes a proxy from the server's active proxy list
+// and marks its probe log buffer as inactive
 func (s *Server) UnregisterProxy(proxy *Proxy) {
 	s.activeProxies.Delete(proxy.id)
+	// Mark the probe log buffer as inactive (but keep it in LRU cache)
+	if buffer, ok := s.retainedProbeLogs.Get(proxy.id); ok {
+		buffer.MarkInactive()
+	}
+}
+
+// GetProbeLogBuffer returns the probe log buffer for a given proxy ID
+func (s *Server) GetProbeLogBuffer(proxyID string) (*ProbeLogBuffer, bool) {
+	return s.retainedProbeLogs.Get(proxyID)
 }
 
 // disconnectProxies gracefully disconnects proxies based on a filter function
@@ -178,7 +215,7 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 			entry := value.(*proxyEntry)
 			if filter(entry.proxy) {
 				// Set the shutdown message for this proxy
-				entry.proxy.shutdownMessage = shutdownMessage
+				entry.proxy.setShutdownMessage(shutdownMessage)
 				targetProxies = append(targetProxies, entry.proxy)
 				targetCancels = append(targetCancels, entry.cancel)
 			}
@@ -600,9 +637,13 @@ func (s *Server) CountActiveProxies() int {
 // GetClientsInfo returns information about all connected clients
 func (s *Server) GetClientsInfo() []types.ClientInfo {
 	clients := make([]types.ClientInfo, 0) // Initialize as empty slice instead of nil
+	activeProxyIDs := make(map[string]bool)
+
+	// First, add all active proxies
 	s.activeProxies.Range(func(key, value interface{}) bool {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
+		activeProxyIDs[proxy.id] = true
 
 		// Determine status based on shutdown message
 		status := types.ClientStatusActive
@@ -639,6 +680,35 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 		return true
 	})
 
+	// Then, add disconnected proxies from LRU cache
+	for _, proxyID := range s.retainedProbeLogs.Keys() {
+		// Skip if already in active proxies
+		if activeProxyIDs[proxyID] {
+			continue
+		}
+
+		buffer, ok := s.retainedProbeLogs.Get(proxyID)
+		if !ok || buffer.IsActive() {
+			continue
+		}
+
+		// Get proxy info from buffer
+		clientAddr, user, virtualHost, clientBanner, connectedAt := buffer.GetProxyInfo()
+
+		clientInfo := types.ClientInfo{
+			ID:             proxyID,
+			ClientAddress:  clientAddr,
+			User:           user,
+			VirtualHost:    virtualHost,
+			ClientBanner:   clientBanner,
+			ConnectedAt:    connectedAt,
+			DisconnectedAt: buffer.GetDisconnectedAt(),
+			Status:         types.ClientStatusDisconnected,
+		}
+
+		clients = append(clients, clientInfo)
+	}
+
 	// Sort clients by connection time (oldest first)
 	sort.Slice(clients, func(i, j int) bool {
 		return clients[i].ConnectedAt.Before(clients[j].ConnectedAt)
@@ -649,46 +719,67 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 
 // GetClientInfo returns full client information including ClientProperties and complete stats
 func (s *Server) GetClientInfo(proxyID string) (*types.FullClientInfo, bool) {
+	// First, try to find in active proxies
 	value, ok := s.activeProxies.Load(proxyID)
-	if !ok {
+	if ok {
+		entry := value.(*proxyEntry)
+		proxy := entry.proxy
+
+		// Determine status based on shutdown message
+		status := types.ClientStatusActive
+		shutdownReason := ""
+		if proxy.shutdownMessage != ShutdownMsgDefault {
+			status = types.ClientStatusShuttingDown
+			shutdownReason = proxy.shutdownMessage
+		}
+
+		clientInfo := &types.FullClientInfo{
+			ID:               proxy.id,
+			ClientAddress:    proxy.ClientAddr(),
+			User:             proxy.user,
+			VirtualHost:      proxy.VirtualHost,
+			ClientBanner:     proxy.ClientBanner(),
+			ClientProperties: proxy.clientProps, // Include full client properties
+			ConnectedAt:      proxy.connectedAt,
+			Status:           status,
+			ShutdownReason:   shutdownReason,
+		}
+
+		// Add complete statistics if available
+		if proxy.stats != nil {
+			snapshot := proxy.stats.Snapshot()
+			clientInfo.Stats = &types.FullStatsSummary{
+				StartedAt:      snapshot.StartedAt,
+				Methods:        snapshot.Methods,
+				TotalMethods:   snapshot.TotalMethods,
+				ReceivedFrames: snapshot.ReceivedFrames,
+				SentFrames:     snapshot.SentFrames,
+				TotalFrames:    snapshot.TotalFrames,
+				Duration:       snapshot.Duration,
+			}
+		}
+
+		return clientInfo, true
+	}
+
+	// If not active, try to find in disconnected proxies
+	buffer, ok := s.retainedProbeLogs.Get(proxyID)
+	if !ok || buffer.IsActive() {
 		return nil, false
 	}
 
-	entry := value.(*proxyEntry)
-	proxy := entry.proxy
-
-	// Determine status based on shutdown message
-	status := types.ClientStatusActive
-	shutdownReason := ""
-	if proxy.shutdownMessage != ShutdownMsgDefault {
-		status = types.ClientStatusShuttingDown
-		shutdownReason = proxy.shutdownMessage
-	}
+	// Get proxy info from buffer
+	clientAddr, user, virtualHost, clientBanner, connectedAt := buffer.GetProxyInfo()
 
 	clientInfo := &types.FullClientInfo{
-		ID:               proxy.id,
-		ClientAddress:    proxy.ClientAddr(),
-		User:             proxy.user,
-		VirtualHost:      proxy.VirtualHost,
-		ClientBanner:     proxy.ClientBanner(),
-		ClientProperties: proxy.clientProps, // Include full client properties
-		ConnectedAt:      proxy.connectedAt,
-		Status:           status,
-		ShutdownReason:   shutdownReason,
-	}
-
-	// Add complete statistics if available
-	if proxy.stats != nil {
-		snapshot := proxy.stats.Snapshot()
-		clientInfo.Stats = &types.FullStatsSummary{
-			StartedAt:      snapshot.StartedAt,
-			Methods:        snapshot.Methods,
-			TotalMethods:   snapshot.TotalMethods,
-			ReceivedFrames: snapshot.ReceivedFrames,
-			SentFrames:     snapshot.SentFrames,
-			TotalFrames:    snapshot.TotalFrames,
-			Duration:       snapshot.Duration,
-		}
+		ID:             proxyID,
+		ClientAddress:  clientAddr,
+		User:           user,
+		VirtualHost:    virtualHost,
+		ClientBanner:   clientBanner,
+		ConnectedAt:    connectedAt,
+		DisconnectedAt: buffer.GetDisconnectedAt(),
+		Status:         types.ClientStatusDisconnected,
 	}
 
 	return clientInfo, true

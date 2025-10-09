@@ -822,7 +822,8 @@ Probe logs capture all major AMQP method calls with structured attributes:
 **Important Notes:**
 - Probe logs have minimal performance impact as they use non-blocking channels
 - Only the latest 100 log entries are buffered per client; older logs are discarded
-- Probe logs are automatically cleaned up when clients disconnect
+- **Probe logs are retained after client disconnection**: When a proxy disconnects, its probe logs remain accessible for debugging short-lived connections (up to 1000 most recently disconnected proxies are retained using LRU cache)
+- For disconnected proxies, the API returns all buffered logs and immediately ends the stream with `{"type":"proxy_ended","status":"disconnected"}`
 - Use Ctrl+C to stop CLI streaming; the connection will be gracefully closed
 
 #### Reload configuration with SIGHUP

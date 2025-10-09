@@ -34,14 +34,32 @@ func formatAddress(addr string) string {
 }
 
 // formatStatus formats a client status with color
+// Returns both the display text and whether to apply color
 func formatStatus(status string) string {
 	switch status {
 	case "active":
-		return activeStatusStyle.Render("Active")
+		return "Active"
 	case "shutting_down":
-		return shutdownStatusStyle.Render("Shutdown")
+		return "Shtdwn" // Shortened to fit in layout
+	case "disconnected":
+		return "Closed"
 	default:
 		return status
+	}
+}
+
+// formatStatusWithColor formats and colors a status, with padding applied before coloring
+func formatStatusWithColor(status string) string {
+	text := formatStatus(status)
+	padded := fmt.Sprintf("%-8s", text)
+
+	switch status {
+	case "active":
+		return activeStatusStyle.Render(padded)
+	case "shutting_down":
+		return shutdownStatusStyle.Render(padded)
+	default:
+		return padded
 	}
 }
 
@@ -108,11 +126,11 @@ func (m *TUIModel) formatClientRow(client types.ClientInfo, selected bool) strin
 	user := truncate(client.User, 8)
 	vhost := truncate(client.VirtualHost, 8)
 	address := formatAddress(client.ClientAddress)
-	status := formatStatus(client.Status)
+	status := formatStatusWithColor(client.Status)
 	connected := formatDuration(time.Since(client.ConnectedAt))
 	methods := formatNumber(getStatValue(client.Stats, "total_methods"))
 	frames := formatNumber(getStatValue(client.Stats, "total_frames"))
 
-	return fmt.Sprintf("%s %-10s %-8s %-8s %-21s %-8s %-10s %-8s %-8s",
+	return fmt.Sprintf("%s %-10s %-8s %-8s %-21s %s %-10s %-8s %-8s",
 		prefix, id, user, vhost, address, status, connected, methods, frames)
 }

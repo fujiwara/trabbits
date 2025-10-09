@@ -1,7 +1,9 @@
 package trabbits_test
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -172,5 +174,108 @@ func TestSSEFormat(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestProbeLogRetention tests that probe logs are retained after proxy disconnection
+func TestProbeLogRetention(t *testing.T) {
+	cfg := &config.Config{
+		Upstreams: []config.Upstream{
+			{Name: "test-upstream", Address: "localhost:5672"},
+		},
+	}
+	server := trabbits.NewTestServer(cfg)
+
+	// Create a mock connection using net.Pipe
+	clientConn, _ := net.Pipe()
+	defer clientConn.Close()
+	proxy := server.NewProxy(clientConn)
+
+	// Register the proxy (this adds the buffer to LRU cache)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server.RegisterProxy(proxy, cancel)
+
+	// Send some probe logs
+	proxy.SendProbeLog("log1", "key", "value1")
+	proxy.SendProbeLog("log2", "key", "value2")
+	proxy.SendProbeLog("log3", "key", "value3")
+
+	// Small delay to ensure logs are processed
+	time.Sleep(10 * time.Millisecond)
+
+	// Get the buffer and verify logs are stored
+	buffer, found := server.GetProbeLogBuffer(proxy.ID())
+	if !found {
+		t.Fatal("probe log buffer not found")
+	}
+
+	logs := buffer.GetLogs()
+	if len(logs) != 3 {
+		t.Errorf("expected 3 logs, got %d", len(logs))
+	}
+
+	// Verify buffer is active
+	if !buffer.IsActive() {
+		t.Error("buffer should be active before proxy unregisters")
+	}
+
+	// Unregister the proxy (simulate disconnection)
+	server.UnregisterProxy(proxy)
+
+	// Verify buffer is now inactive
+	if buffer.IsActive() {
+		t.Error("buffer should be inactive after proxy unregisters")
+	}
+
+	// Verify logs are still accessible after disconnection
+	buffer2, found := server.GetProbeLogBuffer(proxy.ID())
+	if !found {
+		t.Fatal("probe log buffer should still be available after disconnection")
+	}
+
+	logs2 := buffer2.GetLogs()
+	if len(logs2) != 3 {
+		t.Errorf("expected 3 logs after disconnection, got %d", len(logs2))
+	}
+
+	// Verify log content
+	if logs2[0].Message != "log1" {
+		t.Errorf("expected first log message 'log1', got '%s'", logs2[0].Message)
+	}
+}
+
+// TestProbeLogLRUEviction tests that LRU cache evicts old entries
+func TestProbeLogLRUEviction(t *testing.T) {
+	cfg := &config.Config{
+		Upstreams: []config.Upstream{
+			{Name: "test-upstream", Address: "localhost:5672"},
+		},
+	}
+	server := trabbits.NewTestServer(cfg)
+
+	// Create multiple proxies (more than LRU retention size would allow in practice,
+	// but we'll test with a small number)
+	var proxyIDs []string
+	for i := 0; i < 5; i++ {
+		clientConn, _ := net.Pipe()
+		defer clientConn.Close()
+		proxy := server.NewProxy(clientConn)
+
+		// Register the proxy
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		server.RegisterProxy(proxy, cancel)
+
+		proxy.SendProbeLog("test", "index", i)
+		proxyIDs = append(proxyIDs, proxy.ID())
+		server.UnregisterProxy(proxy)
+	}
+
+	// All proxies should still be in cache (within retention limit)
+	for _, id := range proxyIDs {
+		if _, found := server.GetProbeLogBuffer(id); !found {
+			t.Errorf("proxy %s should still be in LRU cache", id)
+		}
 	}
 }

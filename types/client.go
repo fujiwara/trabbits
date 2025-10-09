@@ -10,18 +10,20 @@ import (
 const (
 	ClientStatusActive       = "active"
 	ClientStatusShuttingDown = "shutting_down"
+	ClientStatusDisconnected = "disconnected"
 )
 
 // ClientInfo represents information about a connected client
 type ClientInfo struct {
 	ID               string        `json:"id"`
-	ClientAddress    string        `json:"client_address"`
-	User             string        `json:"user"`
-	VirtualHost      string        `json:"virtual_host"`
-	ClientBanner     string        `json:"client_banner"`
+	ClientAddress    string        `json:"client_address,omitempty"`
+	User             string        `json:"user,omitempty"`
+	VirtualHost      string        `json:"virtual_host,omitempty"`
+	ClientBanner     string        `json:"client_banner,omitempty"`
 	ClientProperties amqp091.Table `json:"client_properties,omitempty"`
-	ConnectedAt      time.Time     `json:"connected_at"`
-	Status           string        `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
+	ConnectedAt      time.Time     `json:"connected_at,omitempty"`
+	DisconnectedAt   time.Time     `json:"disconnected_at,omitempty"`
+	Status           string        `json:"status"` // ClientStatusActive, ClientStatusShuttingDown, or ClientStatusDisconnected
 	ShutdownReason   string        `json:"shutdown_reason,omitempty"`
 	Stats            *StatsSummary `json:"stats,omitempty"`
 }
@@ -60,13 +62,14 @@ type StatsSnapshot struct {
 // FullClientInfo represents complete information about a connected client including full stats
 type FullClientInfo struct {
 	ID               string            `json:"id"`
-	ClientAddress    string            `json:"client_address"`
-	User             string            `json:"user"`
-	VirtualHost      string            `json:"virtual_host"`
-	ClientBanner     string            `json:"client_banner"`
-	ClientProperties amqp091.Table     `json:"client_properties"`
-	ConnectedAt      time.Time         `json:"connected_at"`
-	Status           string            `json:"status"` // ClientStatusActive or ClientStatusShuttingDown
+	ClientAddress    string            `json:"client_address,omitempty"`
+	User             string            `json:"user,omitempty"`
+	VirtualHost      string            `json:"virtual_host,omitempty"`
+	ClientBanner     string            `json:"client_banner,omitempty"`
+	ClientProperties amqp091.Table     `json:"client_properties,omitempty"`
+	ConnectedAt      time.Time         `json:"connected_at,omitempty"`
+	DisconnectedAt   time.Time         `json:"disconnected_at,omitempty"`
+	Status           string            `json:"status"` // ClientStatusActive, ClientStatusShuttingDown, or ClientStatusDisconnected
 	ShutdownReason   string            `json:"shutdown_reason,omitempty"`
 	Stats            *FullStatsSummary `json:"stats,omitempty"`
 }
