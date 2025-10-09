@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -208,6 +209,33 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevSelectedID = m.clients[m.selectedIdx].ID
 		}
 		m.clients = []types.ClientInfo(msg)
+
+		// Sort clients: active first (oldest connection first), then closed (newest disconnection first)
+		sort.SliceStable(m.clients, func(i, j int) bool {
+			ci, cj := m.clients[i], m.clients[j]
+
+			// Active clients come before closed clients
+			if ci.Status == "active" && cj.Status != "active" {
+				return true
+			}
+			if ci.Status != "active" && cj.Status == "active" {
+				return false
+			}
+
+			// Among active clients, older connections first
+			if ci.Status == "active" && cj.Status == "active" {
+				return ci.ConnectedAt.Before(cj.ConnectedAt)
+			}
+
+			// Among closed clients, newer disconnections first (most recently closed)
+			if ci.Status == "disconnected" && cj.Status == "disconnected" {
+				return ci.DisconnectedAt.After(cj.DisconnectedAt)
+			}
+
+			// Default: maintain order
+			return false
+		})
+
 		m.lastUpdate = time.Now()
 		// Try to restore selection to the same client ID
 		if prevSelectedID != "" {
@@ -293,7 +321,11 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// If this is a disconnected proxy, don't attempt reconnection
 			if m.probeState.disconnected {
-				m.stopProbeStream()
+				// Cancel the context but keep probeState to display logs
+				if m.probeState.cancelFunc != nil {
+					m.probeState.cancelFunc()
+					m.probeState.cancelFunc = nil // Clear to prevent double-cancel
+				}
 				return m, nil
 			}
 

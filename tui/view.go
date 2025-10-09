@@ -387,7 +387,6 @@ func (m *TUIModel) renderProbeView() string {
 	if m.probeState == nil {
 		return "Loading probe stream..."
 	}
-
 	var b strings.Builder
 
 	// Header
