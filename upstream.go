@@ -259,9 +259,11 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 	}
 
 	// Normal declare with configured attributes
-	q, err := ch.QueueDeclare(u.QueueDeclareArgs(m))
+	name, durable, autoDelete, exclusive, noWait, args := u.QueueDeclareArgs(m)
+	u.probeLog("t->u declaring queue", "queue", name, "durable", durable, "auto_delete", autoDelete, "exclusive", exclusive, "arguments", args)
+	q, err := ch.QueueDeclare(name, durable, autoDelete, exclusive, noWait, args)
 	if err != nil {
-		return q, err
+		return q, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
 	// Check if we should emulate auto_delete for this queue
