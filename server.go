@@ -173,6 +173,14 @@ func (s *Server) RegisterProxy(proxy *Proxy, cancel context.CancelFunc) {
 	s.activeProxies.Store(proxy.id, &proxyEntry{proxy: proxy, cancel: cancel})
 	// Add the proxy's probe log buffer to LRU cache for retention
 	if proxy.probeLogBuffer != nil {
+		// Store proxy information in the buffer for later retrieval when disconnected
+		proxy.probeLogBuffer.SetProxyInfo(
+			proxy.ClientAddr(),
+			proxy.user,
+			proxy.VirtualHost,
+			proxy.ClientBanner(),
+			proxy.connectedAt,
+		)
 		s.retainedProbeLogs.Add(proxy.id, proxy.probeLogBuffer)
 	}
 }
@@ -629,9 +637,13 @@ func (s *Server) CountActiveProxies() int {
 // GetClientsInfo returns information about all connected clients
 func (s *Server) GetClientsInfo() []types.ClientInfo {
 	clients := make([]types.ClientInfo, 0) // Initialize as empty slice instead of nil
+	activeProxyIDs := make(map[string]bool)
+
+	// First, add all active proxies
 	s.activeProxies.Range(func(key, value interface{}) bool {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
+		activeProxyIDs[proxy.id] = true
 
 		// Determine status based on shutdown message
 		status := types.ClientStatusActive
@@ -668,6 +680,35 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 		return true
 	})
 
+	// Then, add disconnected proxies from LRU cache
+	for _, proxyID := range s.retainedProbeLogs.Keys() {
+		// Skip if already in active proxies
+		if activeProxyIDs[proxyID] {
+			continue
+		}
+
+		buffer, ok := s.retainedProbeLogs.Get(proxyID)
+		if !ok || buffer.IsActive() {
+			continue
+		}
+
+		// Get proxy info from buffer
+		clientAddr, user, virtualHost, clientBanner, connectedAt := buffer.GetProxyInfo()
+
+		clientInfo := types.ClientInfo{
+			ID:             proxyID,
+			ClientAddress:  clientAddr,
+			User:           user,
+			VirtualHost:    virtualHost,
+			ClientBanner:   clientBanner,
+			ConnectedAt:    connectedAt,
+			DisconnectedAt: buffer.GetDisconnectedAt(),
+			Status:         types.ClientStatusDisconnected,
+		}
+
+		clients = append(clients, clientInfo)
+	}
+
 	// Sort clients by connection time (oldest first)
 	sort.Slice(clients, func(i, j int) bool {
 		return clients[i].ConnectedAt.Before(clients[j].ConnectedAt)
@@ -678,46 +719,67 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 
 // GetClientInfo returns full client information including ClientProperties and complete stats
 func (s *Server) GetClientInfo(proxyID string) (*types.FullClientInfo, bool) {
+	// First, try to find in active proxies
 	value, ok := s.activeProxies.Load(proxyID)
-	if !ok {
+	if ok {
+		entry := value.(*proxyEntry)
+		proxy := entry.proxy
+
+		// Determine status based on shutdown message
+		status := types.ClientStatusActive
+		shutdownReason := ""
+		if proxy.shutdownMessage != ShutdownMsgDefault {
+			status = types.ClientStatusShuttingDown
+			shutdownReason = proxy.shutdownMessage
+		}
+
+		clientInfo := &types.FullClientInfo{
+			ID:               proxy.id,
+			ClientAddress:    proxy.ClientAddr(),
+			User:             proxy.user,
+			VirtualHost:      proxy.VirtualHost,
+			ClientBanner:     proxy.ClientBanner(),
+			ClientProperties: proxy.clientProps, // Include full client properties
+			ConnectedAt:      proxy.connectedAt,
+			Status:           status,
+			ShutdownReason:   shutdownReason,
+		}
+
+		// Add complete statistics if available
+		if proxy.stats != nil {
+			snapshot := proxy.stats.Snapshot()
+			clientInfo.Stats = &types.FullStatsSummary{
+				StartedAt:      snapshot.StartedAt,
+				Methods:        snapshot.Methods,
+				TotalMethods:   snapshot.TotalMethods,
+				ReceivedFrames: snapshot.ReceivedFrames,
+				SentFrames:     snapshot.SentFrames,
+				TotalFrames:    snapshot.TotalFrames,
+				Duration:       snapshot.Duration,
+			}
+		}
+
+		return clientInfo, true
+	}
+
+	// If not active, try to find in disconnected proxies
+	buffer, ok := s.retainedProbeLogs.Get(proxyID)
+	if !ok || buffer.IsActive() {
 		return nil, false
 	}
 
-	entry := value.(*proxyEntry)
-	proxy := entry.proxy
-
-	// Determine status based on shutdown message
-	status := types.ClientStatusActive
-	shutdownReason := ""
-	if proxy.shutdownMessage != ShutdownMsgDefault {
-		status = types.ClientStatusShuttingDown
-		shutdownReason = proxy.shutdownMessage
-	}
+	// Get proxy info from buffer
+	clientAddr, user, virtualHost, clientBanner, connectedAt := buffer.GetProxyInfo()
 
 	clientInfo := &types.FullClientInfo{
-		ID:               proxy.id,
-		ClientAddress:    proxy.ClientAddr(),
-		User:             proxy.user,
-		VirtualHost:      proxy.VirtualHost,
-		ClientBanner:     proxy.ClientBanner(),
-		ClientProperties: proxy.clientProps, // Include full client properties
-		ConnectedAt:      proxy.connectedAt,
-		Status:           status,
-		ShutdownReason:   shutdownReason,
-	}
-
-	// Add complete statistics if available
-	if proxy.stats != nil {
-		snapshot := proxy.stats.Snapshot()
-		clientInfo.Stats = &types.FullStatsSummary{
-			StartedAt:      snapshot.StartedAt,
-			Methods:        snapshot.Methods,
-			TotalMethods:   snapshot.TotalMethods,
-			ReceivedFrames: snapshot.ReceivedFrames,
-			SentFrames:     snapshot.SentFrames,
-			TotalFrames:    snapshot.TotalFrames,
-			Duration:       snapshot.Duration,
-		}
+		ID:             proxyID,
+		ClientAddress:  clientAddr,
+		User:           user,
+		VirtualHost:    virtualHost,
+		ClientBanner:   clientBanner,
+		ConnectedAt:    connectedAt,
+		DisconnectedAt: buffer.GetDisconnectedAt(),
+		Status:         types.ClientStatusDisconnected,
 	}
 
 	return clientInfo, true

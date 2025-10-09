@@ -28,10 +28,18 @@ func (p *probeLog) AttrsMap() map[string]any {
 
 // ProbeLogBuffer stores probe logs for a proxy with a circular buffer
 type ProbeLogBuffer struct {
-	mu      sync.RWMutex
-	logs    []probeLog
-	maxSize int
-	active  bool // whether the proxy is still active
+	mu             sync.RWMutex
+	logs           []probeLog
+	maxSize        int
+	active         bool      // whether the proxy is still active
+	disconnectedAt time.Time // timestamp when the proxy disconnected
+
+	// Proxy information (captured at registration for disconnected proxies)
+	clientAddr   string
+	user         string
+	virtualHost  string
+	clientBanner string
+	connectedAt  time.Time
 }
 
 // NewProbeLogBuffer creates a new probe log buffer
@@ -70,6 +78,14 @@ func (b *ProbeLogBuffer) MarkInactive() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.active = false
+	b.disconnectedAt = time.Now()
+}
+
+// GetDisconnectedAt returns the timestamp when the proxy disconnected
+func (b *ProbeLogBuffer) GetDisconnectedAt() time.Time {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.disconnectedAt
 }
 
 // IsActive returns whether the proxy is still active
@@ -77,4 +93,22 @@ func (b *ProbeLogBuffer) IsActive() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.active
+}
+
+// SetProxyInfo sets the proxy information (should be called once at registration)
+func (b *ProbeLogBuffer) SetProxyInfo(clientAddr, user, virtualHost, clientBanner string, connectedAt time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.clientAddr = clientAddr
+	b.user = user
+	b.virtualHost = virtualHost
+	b.clientBanner = clientBanner
+	b.connectedAt = connectedAt
+}
+
+// GetProxyInfo returns the stored proxy information
+func (b *ProbeLogBuffer) GetProxyInfo() (clientAddr, user, virtualHost, clientBanner string, connectedAt time.Time) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.clientAddr, b.user, b.virtualHost, b.clientBanner, b.connectedAt
 }
