@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.17](https://github.com/fujiwara/trabbits/compare/v0.0.16...v0.0.17) - 2025-10-09
+- Retain probe logs after proxy disconnection by @fujiwara in https://github.com/fujiwara/trabbits/pull/97
+- detailed logging at deleting queue. by @fujiwara in https://github.com/fujiwara/trabbits/pull/99
+
 ## [v0.0.16](https://github.com/fujiwara/trabbits/compare/v0.0.15...v0.0.16) - 2025-10-07
 - cleanup consume channels at closed by @fujiwara in https://github.com/fujiwara/trabbits/pull/94
 - Improve TUI log display and refresh rate by @fujiwara in https://github.com/fujiwara/trabbits/pull/96
