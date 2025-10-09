@@ -169,9 +169,11 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		// Start probe stream for selected client
 		if len(m.clients) > 0 {
-			clientID := m.clients[m.selectedIdx].ID
+			client := m.clients[m.selectedIdx]
 			m.viewMode = ViewProbe
-			return m, m.startProbeStream(clientID)
+			// Check if this is a disconnected proxy
+			disconnected := client.Status == "disconnected"
+			return m, m.startProbeStreamWithDisconnected(client.ID, disconnected)
 		}
 	case "l":
 		// Switch to server logs view
@@ -229,7 +231,9 @@ func (m *TUIModel) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Start probe stream for current client
 		if m.clientDetail != nil {
 			m.viewMode = ViewProbe
-			return m, m.startProbeStream(m.clientDetail.ID)
+			// Check if this is a disconnected proxy
+			disconnected := m.clientDetail.Status == "disconnected"
+			return m, m.startProbeStreamWithDisconnected(m.clientDetail.ID, disconnected)
 		}
 	}
 	return m, nil

@@ -423,9 +423,9 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 			}
 		}
 
-		// If proxy is not active, send proxy_ended and return
+		// If proxy is not active, send proxy_ended with status and return
 		if !isActive {
-			fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\"}\n\n")
+			fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\",\"status\":\"disconnected\"}\n\n")
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}

@@ -86,6 +86,7 @@ type probeState struct {
 	logChan        <-chan ProbeLogEntry
 	autoScroll     bool // whether to auto-scroll to latest logs
 	reconnectCount int  // Track reconnection attempts
+	disconnected   bool // true if this is a disconnected proxy (no reconnection)
 }
 
 // Use types.ProbeLogEntry instead of local definition
@@ -124,6 +125,7 @@ type (
 		cancelFunc     context.CancelFunc
 		preservedLogs  []probeLogEntry
 		reconnectCount int
+		disconnected   bool
 	}
 )
 
@@ -235,6 +237,10 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorMsg:
 		m.err = error(msg)
 		m.errorTime = time.Now()
+		// If we were trying to start probe stream and got an error, go back to list
+		if m.viewMode == ViewProbe && m.probeState == nil {
+			m.viewMode = ViewList
+		}
 		return m, nil
 
 	case successMsg:
@@ -284,6 +290,13 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stopProbeStream()
 				return m, nil
 			}
+
+			// If this is a disconnected proxy, don't attempt reconnection
+			if m.probeState.disconnected {
+				m.stopProbeStream()
+				return m, nil
+			}
+
 			// Probe stream ended, attempt to reconnect
 			clientID := m.probeState.clientID
 			reconnectCount := m.probeState.reconnectCount
@@ -330,7 +343,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewMode != ViewProbe {
 			return m, nil
 		}
-		return m, m.startProbeStreamWithState(msg.clientID, msg.logs, msg.reconnectCount)
+		return m, m.startProbeStreamWithState(msg.clientID, msg.logs, msg.reconnectCount, false)
 
 	case probeStreamStartedMsgWithState:
 		// Initialize probe state with preserved logs and start listening
@@ -355,6 +368,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logChan:        msg.logChan,
 			autoScroll:     true,
 			reconnectCount: msg.reconnectCount,
+			disconnected:   msg.disconnected,
 		}
 		// Ensure selectedIdx is not negative
 		if m.probeState.selectedIdx < 0 {
@@ -444,11 +458,16 @@ func (m *TUIModel) shutdownClient(clientID string) tea.Cmd {
 
 // startProbeStream starts probe log streaming for a client
 func (m *TUIModel) startProbeStream(clientID string) tea.Cmd {
-	return m.startProbeStreamWithState(clientID, nil, 0)
+	return m.startProbeStreamWithState(clientID, nil, 0, false)
+}
+
+// startProbeStreamWithDisconnected starts probe log streaming with disconnected flag
+func (m *TUIModel) startProbeStreamWithDisconnected(clientID string, disconnected bool) tea.Cmd {
+	return m.startProbeStreamWithState(clientID, nil, 0, disconnected)
 }
 
 // startProbeStreamWithState starts probe log streaming with preserved state
-func (m *TUIModel) startProbeStreamWithState(clientID string, preservedLogs []probeLogEntry, reconnectCount int) tea.Cmd {
+func (m *TUIModel) startProbeStreamWithState(clientID string, preservedLogs []probeLogEntry, reconnectCount int, disconnected bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithCancel(m.ctx)
 
@@ -466,6 +485,7 @@ func (m *TUIModel) startProbeStreamWithState(clientID string, preservedLogs []pr
 			cancelFunc:     cancel,
 			preservedLogs:  preservedLogs,
 			reconnectCount: reconnectCount,
+			disconnected:   disconnected,
 		}
 	}
 }

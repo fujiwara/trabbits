@@ -385,7 +385,7 @@ func (m *TUIModel) estimateLogPaneLines() int {
 // renderProbeView renders the probe log streaming view
 func (m *TUIModel) renderProbeView() string {
 	if m.probeState == nil {
-		return "No probe stream active"
+		return "Loading probe stream..."
 	}
 
 	var b strings.Builder
