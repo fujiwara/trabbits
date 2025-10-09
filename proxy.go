@@ -49,6 +49,7 @@ type Proxy struct {
 	connectedAt        time.Time             // timestamp when the client connected
 	stats              *ProxyStats           // statistics for this proxy
 	probeChan          chan probeLog         // channel to send probe logs
+	probeLogBuffer     *ProbeLogBuffer       // buffer to store probe logs for retention
 	metrics            *metricsstore.Metrics // metrics instance for this proxy
 	tuned              tuned                 // negotiated parameters
 	heartbeatTimer     *time.Timer           // timer for heartbeat
@@ -70,16 +71,22 @@ func (p *Proxy) GetProbeChan() chan probeLog {
 }
 
 // probeLog sends a probe log message with structured attributes to the probe channel
-// If the channel is full, it removes the oldest log and sends the new one
+// and also stores it in the buffer for retention after proxy disconnection
 func (p *Proxy) probeLog(message string, attrs ...any) {
-	if p.probeChan == nil {
-		return
-	}
-
 	log := probeLog{
 		Timestamp: time.Now(),
 		Message:   message,
 		attrs:     attrs, // Store as slice without conversion
+	}
+
+	// Store in buffer for retention
+	if p.probeLogBuffer != nil {
+		p.probeLogBuffer.Add(log)
+	}
+
+	// Also send to channel for real-time streaming
+	if p.probeChan == nil {
+		return
 	}
 
 	select {
@@ -485,6 +492,18 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 	}
 }
 
+func (p *Proxy) setShutdownMessage(msg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.shutdownMessage = msg
+}
+
+func (p *Proxy) getShutdownMessage() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.shutdownMessage
+}
+
 func (p *Proxy) shutdown(ctx context.Context) error {
 	// If no connection, shutdown is immediate
 	if p.conn == nil {
@@ -494,7 +513,7 @@ func (p *Proxy) shutdown(ctx context.Context) error {
 	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
-		ReplyText: p.shutdownMessage,
+		ReplyText: p.getShutdownMessage(),
 	}
 	if err := p.send(0, close); err != nil {
 		return fmt.Errorf("failed to write Connection.Close: %w", err)

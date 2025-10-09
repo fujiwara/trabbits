@@ -362,39 +362,87 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 			return
 		}
 
-		// Find the proxy by ID
-		value, found := s.activeProxies.Load(proxyID)
-		if !found {
-			http.Error(w, "Proxy not found", http.StatusNotFound)
-			return
-		}
-
-		entry := value.(*proxyEntry)
-		proxy := entry.proxy
-
-		// Get probe channel
-		probeChan := proxy.GetProbeChan()
-		if probeChan == nil {
-			http.Error(w, "Probe logging not available for this proxy", http.StatusServiceUnavailable)
-			return
-		}
-
 		// Set SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		// Send initial connection message
-		fmt.Fprintf(w, "data: {\"type\":\"connected\",\"proxy_id\":\"%s\"}\n\n", proxyID)
+		// Try to find active proxy first
+		value, activeFound := s.activeProxies.Load(proxyID)
+		var probeChan chan probeLog
+		var isActive bool
+
+		if activeFound {
+			// Active proxy - stream logs in real-time
+			entry := value.(*proxyEntry)
+			proxy := entry.proxy
+			probeChan = proxy.GetProbeChan()
+			isActive = true
+		}
+
+		// Get retained probe log buffer (works for both active and inactive proxies)
+		buffer, bufferFound := s.GetProbeLogBuffer(proxyID)
+		if !bufferFound {
+			http.Error(w, "Proxy not found", http.StatusNotFound)
+			return
+		}
+
+		// Send initial connection message with proxy status
+		status := "active"
+		if !isActive {
+			status = "disconnected"
+		}
+		fmt.Fprintf(w, "data: {\"type\":\"connected\",\"proxy_id\":\"%s\",\"status\":\"%s\"}\n\n", proxyID, status)
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
 
-		// Create context for cleanup
-		ctx := r.Context()
+		// First, send all buffered logs
+		bufferedLogs := buffer.GetLogs()
+		for _, log := range bufferedLogs {
+			logData := struct {
+				Timestamp time.Time      `json:"timestamp"`
+				Message   string         `json:"message"`
+				Attrs     map[string]any `json:"attrs,omitempty"`
+			}{
+				Timestamp: log.Timestamp,
+				Message:   log.Message,
+				Attrs:     log.AttrsMap(),
+			}
 
-		// Start streaming probe logs
+			jsonData, err := json.Marshal(logData)
+			if err != nil {
+				slog.Warn("Failed to marshal probe log", "error", err)
+				continue
+			}
+
+			fmt.Fprintf(w, "data: %s\n\n", jsonData)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
+
+		// If proxy is not active, send proxy_ended with status and return
+		if !isActive {
+			fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\",\"status\":\"disconnected\"}\n\n")
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			return
+		}
+
+		// For active proxies, continue streaming new logs
+		if probeChan == nil {
+			// Active proxy but no probe channel (shouldn't happen)
+			fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\"}\n\n")
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			return
+		}
+
+		ctx := r.Context()
 		for {
 			select {
 			case <-ctx.Done():
