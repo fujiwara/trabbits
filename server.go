@@ -215,7 +215,7 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 			entry := value.(*proxyEntry)
 			if filter(entry.proxy) {
 				// Set the shutdown message for this proxy
-				entry.proxy.shutdownMessage = shutdownMessage
+				entry.proxy.setShutdownMessage(shutdownMessage)
 				targetProxies = append(targetProxies, entry.proxy)
 				targetCancels = append(targetCancels, entry.cancel)
 			}

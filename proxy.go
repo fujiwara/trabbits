@@ -492,6 +492,18 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 	}
 }
 
+func (p *Proxy) setShutdownMessage(msg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.shutdownMessage = msg
+}
+
+func (p *Proxy) getShutdownMessage() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.shutdownMessage
+}
+
 func (p *Proxy) shutdown(ctx context.Context) error {
 	// If no connection, shutdown is immediate
 	if p.conn == nil {
@@ -501,7 +513,7 @@ func (p *Proxy) shutdown(ctx context.Context) error {
 	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
-		ReplyText: p.shutdownMessage,
+		ReplyText: p.getShutdownMessage(),
 	}
 	if err := p.send(0, close); err != nil {
 		return fmt.Errorf("failed to write Connection.Close: %w", err)
