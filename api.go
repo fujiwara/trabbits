@@ -384,6 +384,10 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 		// Get retained probe log buffer (works for both active and inactive proxies)
 		buffer, bufferFound := s.GetProbeLogBuffer(proxyID)
 		if !bufferFound {
+			slog.Warn("Probe log buffer not found",
+				"proxy_id", proxyID,
+				"active_found", activeFound,
+				"buffer_found", bufferFound)
 			http.Error(w, "Proxy not found", http.StatusNotFound)
 			return
 		}
