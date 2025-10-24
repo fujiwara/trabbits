@@ -171,9 +171,10 @@ func (s *Server) GetHealthManager(upstreamName string) *health.Manager {
 // RegisterProxy adds a proxy and its cancel function to the server's active proxy list
 func (s *Server) RegisterProxy(proxy *Proxy, cancel context.CancelFunc) {
 	s.activeProxies.Store(proxy.id, &proxyEntry{proxy: proxy, cancel: cancel})
-	// Add the proxy's probe log buffer to LRU cache for retention
+	// Store proxy information in the buffer for later retrieval when disconnected
+	// Note: We don't add to LRU here - active proxies are accessed via activeProxies map
+	// The buffer will be added to LRU only when the proxy disconnects (in UnregisterProxy)
 	if proxy.probeLogBuffer != nil {
-		// Store proxy information in the buffer for later retrieval when disconnected
 		proxy.probeLogBuffer.SetProxyInfo(
 			proxy.ClientAddr(),
 			proxy.user,
@@ -181,22 +182,30 @@ func (s *Server) RegisterProxy(proxy *Proxy, cancel context.CancelFunc) {
 			proxy.ClientBanner(),
 			proxy.connectedAt,
 		)
-		s.retainedProbeLogs.Add(proxy.id, proxy.probeLogBuffer)
 	}
 }
 
 // UnregisterProxy removes a proxy from the server's active proxy list
-// and marks its probe log buffer as inactive
+// and adds its probe log buffer to LRU cache for retention
 func (s *Server) UnregisterProxy(proxy *Proxy) {
 	s.activeProxies.Delete(proxy.id)
-	// Mark the probe log buffer as inactive (but keep it in LRU cache)
-	if buffer, ok := s.retainedProbeLogs.Get(proxy.id); ok {
-		buffer.MarkInactive()
+
+	// Mark buffer as inactive and add to LRU for retention after disconnection
+	if proxy.probeLogBuffer != nil {
+		proxy.probeLogBuffer.MarkInactive()
+		s.retainedProbeLogs.Add(proxy.id, proxy.probeLogBuffer)
 	}
 }
 
 // GetProbeLogBuffer returns the probe log buffer for a given proxy ID
+// First checks active proxies, then falls back to LRU cache for disconnected proxies
 func (s *Server) GetProbeLogBuffer(proxyID string) (*ProbeLogBuffer, bool) {
+	// First, try to get from active proxy (which always has its buffer)
+	if value, ok := s.activeProxies.Load(proxyID); ok {
+		entry := value.(*proxyEntry)
+		return entry.proxy.probeLogBuffer, true
+	}
+	// Fall back to LRU cache for disconnected proxies
 	return s.retainedProbeLogs.Get(proxyID)
 }
 
