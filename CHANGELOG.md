@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.17](https://github.com/fujiwara/trabbits/compare/v0.0.16...v0.0.17) - 2025-10-24
+- Retain probe logs after proxy disconnection by @fujiwara in https://github.com/fujiwara/trabbits/pull/97
+- detailed logging at deleting queue. by @fujiwara in https://github.com/fujiwara/trabbits/pull/99
+- Fix probe log access for long-lived active proxies by @fujiwara in https://github.com/fujiwara/trabbits/pull/100
+- Bump actions/github-script from 7.1.0 to 8.0.0 by @dependabot[bot] in https://github.com/fujiwara/trabbits/pull/77
+- Bump actions/setup-go from 5.5.0 to 6.0.0 by @dependabot[bot] in https://github.com/fujiwara/trabbits/pull/81
+- Bump github.com/prometheus/client_golang from 1.23.0 to 1.23.2 by @dependabot[bot] in https://github.com/fujiwara/trabbits/pull/80
+- Bump Songmu/tagpr from 1.8.4 to 1.9.0 by @dependabot[bot] in https://github.com/fujiwara/trabbits/pull/79
+- Bump github.com/prometheus/common from 0.65.0 to 0.66.1 by @dependabot[bot] in https://github.com/fujiwara/trabbits/pull/78
+
 ## [v0.0.16](https://github.com/fujiwara/trabbits/compare/v0.0.15...v0.0.16) - 2025-10-07
 - cleanup consume channels at closed by @fujiwara in https://github.com/fujiwara/trabbits/pull/94
 - Improve TUI log display and refresh rate by @fujiwara in https://github.com/fujiwara/trabbits/pull/96
