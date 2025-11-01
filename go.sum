@@ -31,8 +31,8 @@ github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f h1:Y/CXytFA4m6
 github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f/go.mod h1:vw97MGsxSvLiUE2X8qFplwetxpGLQrlU1Q9AUEIzCaM=
 github.com/fatih/color v1.18.0 h1:S8gINlzdQ840/4pfAwic/ZE0djQEH3wM94VfqLTZcOM=
 github.com/fatih/color v1.18.0/go.mod h1:4FelSpRwEGDpQ12mAdzqdOukCy4u8WUtOY6lkT/6HfU=
-github.com/fujiwara/jsonnet-armed v0.0.12 h1:VRLJBdgEY73CKBCZ7q/++UZkCzbuFiO/P2lT8JOYQNo=
-github.com/fujiwara/jsonnet-armed v0.0.12/go.mod h1:nhBKlAjxlGwrOr1/6HQiT3DohX5WRL1Qn2tYzJ7a+gE=
+github.com/fujiwara/jsonnet-armed v0.0.13 h1:hdAPsAbmpNmYcKfqWZkrSSr5Y8tpzeUHl6UqLvcTIZQ=
+github.com/fujiwara/jsonnet-armed v0.0.13/go.mod h1:nhBKlAjxlGwrOr1/6HQiT3DohX5WRL1Qn2tYzJ7a+gE=
 github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
