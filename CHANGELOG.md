@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.18](https://github.com/fujiwara/trabbits/compare/v0.0.17...v0.0.18) - 2026-04-06
+- Add publisher confirm mode support by @fujiwara in https://github.com/fujiwara/trabbits/pull/121
+- Bump Go version and dependencies by @fujiwara in https://github.com/fujiwara/trabbits/pull/123
+
 ## [v0.0.17](https://github.com/fujiwara/trabbits/compare/v0.0.16...v0.0.17) - 2025-10-24
 - Retain probe logs after proxy disconnection by @fujiwara in https://github.com/fujiwara/trabbits/pull/97
 - detailed logging at deleting queue. by @fujiwara in https://github.com/fujiwara/trabbits/pull/99
