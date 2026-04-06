@@ -54,7 +54,7 @@ func (s *ProxyStats) GetMethodCount(method string) int64 {
 // GetAllMethodCounts returns a map of all method counts
 func (s *ProxyStats) GetAllMethodCounts() map[string]int64 {
 	result := make(map[string]int64)
-	s.methodCounts.Range(func(key, value interface{}) bool {
+	s.methodCounts.Range(func(key, value any) bool {
 		method := key.(string)
 		count := atomic.LoadInt64(value.(*int64))
 		result[method] = count
@@ -81,7 +81,7 @@ func (s *ProxyStats) GetTotalFrames() int64 {
 // GetTotalMethods returns the total number of methods processed
 func (s *ProxyStats) GetTotalMethods() int64 {
 	var total int64
-	s.methodCounts.Range(func(_, value interface{}) bool {
+	s.methodCounts.Range(func(_, value any) bool {
 		total += atomic.LoadInt64(value.(*int64))
 		return true
 	})

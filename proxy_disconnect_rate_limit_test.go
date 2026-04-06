@@ -41,7 +41,7 @@ func TestDisconnectOutdatedProxies_RateLimit(t *testing.T) {
 	const numProxies = 50
 	var proxies []*trabbits.Proxy
 
-	for i := 0; i < numProxies; i++ {
+	for range numProxies {
 		proxy := testServer.NewProxy(nil) // Use nil connection for internal logic testing
 		proxy.SetConfigHash(oldHash)
 		_, cancel := context.WithCancel(t.Context())
@@ -124,7 +124,7 @@ func TestDisconnectOutdatedProxies_TimeoutCalculation(t *testing.T) {
 	const numProxies = 5 // Small number for quick test
 	var proxies []*trabbits.Proxy
 
-	for i := 0; i < numProxies; i++ {
+	for range numProxies {
 		proxy := testServer.NewProxy(nil) // Use nil connection for internal logic testing
 		proxy.SetConfigHash(oldHash)
 		_, cancel := context.WithCancel(t.Context())

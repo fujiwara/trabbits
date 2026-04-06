@@ -6,6 +6,7 @@ package trabbits
 import (
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 
@@ -216,9 +217,7 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 		if m.Arguments != nil || attr.Arguments != nil {
 			arguments = rabbitmq.Table{}
 			if m.Arguments != nil {
-				for k, v := range m.Arguments {
-					arguments[k] = v
-				}
+				maps.Copy(arguments, m.Arguments)
 			}
 			if attr.Arguments != nil {
 				for k, v := range attr.Arguments {

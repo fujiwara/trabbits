@@ -83,8 +83,8 @@ func (c *Client) readProbeLogSSE(ctx context.Context, proxyID string, handler fu
 
 		line := scanner.Text()
 
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			data := after
 			dataBuffer.WriteString(data)
 		} else if line == "" {
 			// Empty line indicates end of event
@@ -177,8 +177,8 @@ func (c *Client) readServerLogSSE(ctx context.Context, handler func(*types.Probe
 
 		line := scanner.Text()
 
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			data := after
 			dataBuffer.WriteString(data)
 		} else if line == "" {
 			// Empty line indicates end of event

@@ -220,7 +220,7 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 		var targetProxies []*Proxy
 		var targetCancels []context.CancelFunc
 
-		srv.activeProxies.Range(func(key, value interface{}) bool {
+		srv.activeProxies.Range(func(key, value any) bool {
 			entry := value.(*proxyEntry)
 			if filter(entry.proxy) {
 				// Set the shutdown message for this proxy
@@ -264,7 +264,7 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 		var wg sync.WaitGroup
 
 		// Start worker goroutines
-		for i := 0; i < numWorkers; i++ {
+		for i := range numWorkers {
 			wg.Add(1)
 			go func(workerID int) {
 				defer recoverFromPanic(slog.Default(), "DisconnectOutdatedProxies.worker", srv.Metrics())
@@ -288,13 +288,11 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 		// Calculate timeout based on proxy count and rate limit
 		actualRate := float64(rateLimitValue)
 		expectedDuration := float64(disconnectedCount)/actualRate + 1 // Plus 1 second buffer
-		timeoutDuration := time.Duration(expectedDuration) * time.Second
-		if timeoutDuration < 2*time.Second {
-			timeoutDuration = 2 * time.Second // Minimum 2 seconds
-		}
-		if timeoutDuration > maxTimeout {
-			timeoutDuration = maxTimeout
-		}
+		timeoutDuration := min(
+			// Minimum 2 seconds
+			max(time.Duration(expectedDuration)*time.Second,
+
+				2*time.Second), maxTimeout)
 
 		done := make(chan struct{})
 		go func() {
@@ -497,7 +495,7 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 // initHealthManagers initializes health check managers for cluster upstreams
 func (srv *Server) initHealthManagers(ctx context.Context) error {
 	// Stop existing health managers
-	srv.healthManagers.Range(func(key, value interface{}) bool {
+	srv.healthManagers.Range(func(key, value any) bool {
 		if mgr, ok := value.(*health.Manager); ok {
 			mgr.Stop()
 		}
@@ -636,7 +634,7 @@ func (s *Server) GetProxy(id string) *Proxy {
 // CountActiveProxies returns the number of active proxies for this server instance
 func (s *Server) CountActiveProxies() int {
 	count := 0
-	s.activeProxies.Range(func(key, value interface{}) bool {
+	s.activeProxies.Range(func(key, value any) bool {
 		count++
 		return true
 	})
@@ -649,7 +647,7 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 	activeProxyIDs := make(map[string]bool)
 
 	// First, add all active proxies
-	s.activeProxies.Range(func(key, value interface{}) bool {
+	s.activeProxies.Range(func(key, value any) bool {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
 		activeProxyIDs[proxy.id] = true

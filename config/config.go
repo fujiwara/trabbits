@@ -34,7 +34,7 @@ type Config struct {
 	Upstreams              []Upstream       `yaml:"upstreams" json:"upstreams"`
 	HandshakeTimeout       Duration         `yaml:"handshake_timeout,omitempty" json:"handshake_timeout,omitempty"`
 	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
-	GracefulShutdown       GracefulShutdown `yaml:"graceful_shutdown,omitempty" json:"graceful_shutdown,omitempty"`
+	GracefulShutdown       GracefulShutdown `yaml:"graceful_shutdown,omitempty" json:"graceful_shutdown"`
 }
 
 // GracefulShutdown configures graceful shutdown behavior
@@ -147,7 +147,7 @@ type Upstream struct {
 	Timeout     Duration     `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	HealthCheck *HealthCheck `yaml:"health_check,omitempty" json:"health_check,omitempty"`
 
-	Routing         Routing          `yaml:"routing,omitempty" json:"routing,omitempty"`
+	Routing         Routing          `yaml:"routing,omitempty" json:"routing"`
 	QueueAttributes *QueueAttributes `yaml:"queue_attributes,omitempty" json:"queue_attributes,omitempty"`
 	QueueOptions    *QueueOptions    `yaml:"queue_options,omitempty" json:"queue_options,omitempty"`
 }

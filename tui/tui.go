@@ -182,14 +182,8 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.logEntries) > 0 {
 			m.serverLogsSelectedIdx = len(m.logEntries) - 1
 			// Scroll so that the last entry is visible
-			visible := m.getServerLogsVisibleRows()
-			if visible < 1 {
-				visible = 1
-			}
-			maxScroll := len(m.logEntries) - visible
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
+			visible := max(m.getServerLogsVisibleRows(), 1)
+			maxScroll := max(len(m.logEntries)-visible, 0)
 			m.serverLogsScroll = maxScroll
 		} else {
 			m.serverLogsSelectedIdx = 0
@@ -277,10 +271,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.probeState.autoScroll && len(m.probeState.logs) > 0 {
 				m.probeState.selectedIdx = len(m.probeState.logs) - 1
 				visibleRows := m.getProbeVisibleRows()
-				maxScroll := len(m.probeState.logs) - visibleRows
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
+				maxScroll := max(len(m.probeState.logs)-visibleRows, 0)
 				m.probeState.scroll = maxScroll
 			}
 			// Show a short toast indicating the state
@@ -336,10 +327,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.probeState.selectedIdx = len(m.probeState.logs) - 1
 			// Adjust scroll to show the last item
 			visibleRows := m.getProbeVisibleRows()
-			maxScroll := len(m.probeState.logs) - visibleRows
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
+			maxScroll := max(len(m.probeState.logs)-visibleRows, 0)
 			m.probeState.scroll = maxScroll
 			m.probeState.autoScroll = true // Enable auto-scroll when going to bottom
 		}
@@ -384,10 +372,7 @@ func (m *TUIModel) updateAutoScroll() {
 
 	logCount := len(m.probeState.logs)
 	visibleRows := m.getProbeVisibleRows()
-	maxScroll := logCount - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := max(logCount-visibleRows, 0)
 
 	// Enable auto-scroll only when we're at or near the bottom
 	m.probeState.autoScroll = m.probeState.scroll >= maxScroll
@@ -399,10 +384,7 @@ func (m *TUIModel) getProbeVisibleRows() int {
 	// Header: title (2 lines), status (2 lines)
 	// Footer: help (2 lines), error/success (2 lines)
 	reserved := 8
-	visible := m.height - reserved
-	if visible < 5 {
-		visible = 5
-	}
+	visible := max(m.height-reserved, 5)
 	return visible
 }
 

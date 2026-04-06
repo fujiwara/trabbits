@@ -119,10 +119,10 @@ func (r *sseRecorder) Write(data []byte) (int, error) {
 	r.body.Write(data)
 
 	// Parse data lines and send to channel
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "data: ") {
-			r.dataChan <- strings.TrimPrefix(line, "data: ")
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			r.dataChan <- after
 		}
 	}
 
@@ -257,7 +257,7 @@ func TestProbeLogLRUEviction(t *testing.T) {
 	// Create multiple proxies (more than LRU retention size would allow in practice,
 	// but we'll test with a small number)
 	var proxyIDs []string
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		clientConn, _ := net.Pipe()
 		defer clientConn.Close()
 		proxy := server.NewProxy(clientConn)

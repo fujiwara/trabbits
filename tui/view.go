@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -94,10 +95,7 @@ func (m *TUIModel) renderListView() string {
 		if len(errMsg) > 80 {
 			lines := []string{}
 			for i := 0; i < len(errMsg); i += 80 {
-				end := i + 80
-				if end > len(errMsg) {
-					end = len(errMsg)
-				}
+				end := min(i+80, len(errMsg))
 				lines = append(lines, errMsg[i:end])
 			}
 			errMsg = strings.Join(lines, "\n")
@@ -151,10 +149,7 @@ func (m *TUIModel) renderTable() string {
 	// Calculate visible range
 	visibleRows := m.getVisibleRows()
 	startIdx := m.listScroll
-	endIdx := startIdx + visibleRows
-	if endIdx > len(m.clients) {
-		endIdx = len(m.clients)
-	}
+	endIdx := min(startIdx+visibleRows, len(m.clients))
 
 	// Show only visible clients
 	for i := startIdx; i < endIdx; i++ {
@@ -263,11 +258,8 @@ func (m *TUIModel) renderDetailView() string {
 			})
 
 			// Show top 5 methods
-			topCount := len(methods)
-			if topCount > 5 {
-				topCount = 5
-			}
-			for i := 0; i < topCount; i++ {
+			topCount := min(len(methods), 5)
+			for i := range topCount {
 				mc := methods[i]
 				b.WriteString(fmt.Sprintf("  %s: %d\n", mc.method, mc.count))
 			}
@@ -283,26 +275,17 @@ func (m *TUIModel) renderDetailView() string {
 	lines := strings.Split(content, "\n")
 
 	// Calculate available height (subtract some for header/footer margins)
-	availableHeight := m.height - 4
-	if availableHeight < 10 {
-		availableHeight = 10
-	}
+	availableHeight := max(m.height-4, 10)
 
 	// Limit scroll position
-	maxScroll := len(lines) - availableHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := max(len(lines)-availableHeight, 0)
 	if m.detailScroll > maxScroll {
 		m.detailScroll = maxScroll
 	}
 
 	// Apply scrolling
 	startLine := m.detailScroll
-	endLine := startLine + availableHeight
-	if endLine > len(lines) {
-		endLine = len(lines)
-	}
+	endLine := min(startLine+availableHeight, len(lines))
 
 	scrolledLines := lines[startLine:endLine]
 
@@ -345,10 +328,7 @@ func (m *TUIModel) getVisibleRows() int {
 	logPaneLines := m.estimateLogPaneLines()
 
 	marginLines := 4 // various margins and spacing
-	visibleHeight := m.height - headerLines - helpLines - logPaneLines - marginLines
-	if visibleHeight < 5 {
-		visibleHeight = 5
-	}
+	visibleHeight := max(m.height-headerLines-helpLines-logPaneLines-marginLines, 5)
 	return visibleHeight
 }
 
@@ -360,10 +340,7 @@ func (m *TUIModel) estimateLogPaneLines() int {
 
 	// Count lines for last 3 log entries
 	displayCount := 3
-	startIdx := len(m.logEntries) - displayCount
-	if startIdx < 0 {
-		startIdx = 0
-	}
+	startIdx := max(len(m.logEntries)-displayCount, 0)
 
 	lineCount := 1       // Title line: "Logs (N total):"
 	width := m.width - 4 // Account for border padding
@@ -557,10 +534,7 @@ func renderLogsWithWrapping(
 	}
 
 	// Clamp inputs
-	startIdx := scrollPos
-	if startIdx < 0 {
-		startIdx = 0
-	}
+	startIdx := max(scrollPos, 0)
 	if startIdx >= logCount {
 		startIdx = logCount - 1
 	}
@@ -612,13 +586,7 @@ func renderLogsWithWrapping(
 	}
 
 	// If we didn't render the selected entry, adjust startIdx and retry
-	selectedRendered := false
-	for _, idx := range renderedIndices {
-		if idx == selectedIdx {
-			selectedRendered = true
-			break
-		}
-	}
+	selectedRendered := slices.Contains(renderedIndices, selectedIdx)
 
 	if !selectedRendered && selectedIdx < logCount {
 		// Start from selected entry and render backwards/forwards to fill screen
@@ -700,7 +668,7 @@ func wrapText(text string, width int) []string {
 		start := 0
 		lineWidth := 0
 
-		for i := 0; i < len(runes); i++ {
+		for i := range runes {
 			ch := runes[i]
 			rw := runewidth.RuneWidth(ch)
 
@@ -732,10 +700,7 @@ func (m *TUIModel) renderLogPane() string {
 	} else {
 		// Show last 3 log entries
 		displayCount := 3
-		startIdx := len(m.logEntries) - displayCount
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx := max(len(m.logEntries)-displayCount, 0)
 
 		var logLines []string
 		logLines = append(logLines, debugDimStyle.Render(fmt.Sprintf("Logs (%d total):", len(m.logEntries))))

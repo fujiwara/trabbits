@@ -90,8 +90,8 @@ func TestSIGHUPSignalHandling(t *testing.T) {
 				return
 			}
 			// Print each line separately for better readability
-			lines := strings.Split(strings.TrimSpace(string(buf[:n])), "\n")
-			for _, line := range lines {
+			lines := strings.SplitSeq(strings.TrimSpace(string(buf[:n])), "\n")
+			for line := range lines {
 				if line != "" {
 					t.Logf("trabbits: %s", line)
 				}

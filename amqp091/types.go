@@ -32,7 +32,7 @@ const (
 	flagReserved1       = 0x0004
 )
 
-type Table map[string]interface{}
+type Table map[string]any
 
 // Used by header frames to capture routing and header information
 type Properties struct {
