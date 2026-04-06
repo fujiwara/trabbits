@@ -21,8 +21,8 @@ type ClientInfo struct {
 	VirtualHost      string        `json:"virtual_host,omitempty"`
 	ClientBanner     string        `json:"client_banner,omitempty"`
 	ClientProperties amqp091.Table `json:"client_properties,omitempty"`
-	ConnectedAt      time.Time     `json:"connected_at,omitempty"`
-	DisconnectedAt   time.Time     `json:"disconnected_at,omitempty"`
+	ConnectedAt      time.Time     `json:"connected_at"`
+	DisconnectedAt   time.Time     `json:"disconnected_at"`
 	Status           string        `json:"status"` // ClientStatusActive, ClientStatusShuttingDown, or ClientStatusDisconnected
 	ShutdownReason   string        `json:"shutdown_reason,omitempty"`
 	Stats            *StatsSummary `json:"stats,omitempty"`
@@ -67,8 +67,8 @@ type FullClientInfo struct {
 	VirtualHost      string            `json:"virtual_host,omitempty"`
 	ClientBanner     string            `json:"client_banner,omitempty"`
 	ClientProperties amqp091.Table     `json:"client_properties,omitempty"`
-	ConnectedAt      time.Time         `json:"connected_at,omitempty"`
-	DisconnectedAt   time.Time         `json:"disconnected_at,omitempty"`
+	ConnectedAt      time.Time         `json:"connected_at"`
+	DisconnectedAt   time.Time         `json:"disconnected_at"`
 	Status           string            `json:"status"` // ClientStatusActive, ClientStatusShuttingDown, or ClientStatusDisconnected
 	ShutdownReason   string            `json:"shutdown_reason,omitempty"`
 	Stats            *FullStatsSummary `json:"stats,omitempty"`

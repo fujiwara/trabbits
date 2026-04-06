@@ -2,6 +2,7 @@ package trabbits_test
 
 import (
 	"crypto/rand"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,11 +66,8 @@ func TestProxyPublishGetRouting(t *testing.T) {
 
 	// Find which upstream handles "test.queue.another.*" pattern
 	for i, upstream := range cfg.Upstreams {
-		for _, pattern := range upstream.Routing.KeyPatterns {
-			if pattern == "test.queue.another.*" {
-				expectedUpstream["another"] = i
-				break
-			}
+		if slices.Contains(upstream.Routing.KeyPatterns, "test.queue.another.*") {
+			expectedUpstream["another"] = i
 		}
 	}
 

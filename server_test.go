@@ -185,7 +185,7 @@ func TestProxyChannel(t *testing.T) {
 	defer conn.Close()
 	logger.Info("connected", "conn", conn)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		ch := mustTestChannel(t, conn)
 		logger.Info("channel opened", "ch", ch)
 		if err := ch.Close(); err != nil {
@@ -274,10 +274,8 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 	t.Log("queue declared (auto naming)", "queue", q.Name)
 
 	wg := sync.WaitGroup{}
-	wg.Add(1)
 	// consume the message
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(100 * time.Millisecond) // Wait for the message to be delivered
 		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 		defer cancel()
@@ -295,7 +293,7 @@ func TestProxyPublishAutoQueueNaming(t *testing.T) {
 			t.Error(err)
 		}
 		t.Log("message acked")
-	}()
+	})
 	// publish the message
 	ch.Publish(
 		"",     // exchange
@@ -539,7 +537,7 @@ func TestProxyQos(t *testing.T) {
 			false, // immediate
 			rabbitmq.Publishing{
 				ContentType: "text/plain",
-				Body:        []byte(fmt.Sprintf("%d-%s", i, rand.Text())),
+				Body:        fmt.Appendf(nil, "%d-%s", i, rand.Text()),
 			},
 		); err != nil {
 			t.Fatal(err)
@@ -584,7 +582,7 @@ func TestProxyQos(t *testing.T) {
 	}
 	wg.Wait()
 	processedIDs := []int{}
-	processed.Range(func(k, v interface{}) bool {
+	processed.Range(func(k, v any) bool {
 		processedIDs = append(processedIDs, k.(int))
 		return true
 	})
@@ -653,9 +651,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 	}()
 
 	// send message by another connection
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		conn := mustTestConn(t)
 		defer conn.Close()
 		ch := mustTestChannel(t, conn)
@@ -672,7 +668,7 @@ func TestProxyExchangeDirect(t *testing.T) {
 		); err != nil {
 			t.Error(err)
 		}
-	}()
+	})
 	wg.Wait()
 
 	t.Logf("got message: %s", gotMessage)

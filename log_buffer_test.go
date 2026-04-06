@@ -51,7 +51,7 @@ func TestLogBuffer_MaxSize(t *testing.T) {
 	buf := trabbits.NewLogBuffer(maxSize)
 
 	// Add more entries than maxSize
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		entry := types.ProbeLogEntry{
 			Timestamp: time.Now(),
 			Message:   "message",
@@ -283,7 +283,7 @@ func TestLogBuffer_ConcurrentAddAndSubscribe(t *testing.T) {
 	// Create multiple subscribers
 	numSubscribers := 5
 	subscribers := make([]<-chan types.ProbeLogEntry, numSubscribers)
-	for i := 0; i < numSubscribers; i++ {
+	for i := range numSubscribers {
 		subscribers[i] = buf.Subscribe(ctx, "listener-"+string(rune('A'+i)))
 	}
 
@@ -292,10 +292,8 @@ func TestLogBuffer_ConcurrentAddAndSubscribe(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Add entries concurrently
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < numEntries; i++ {
+	wg.Go(func() {
+		for i := range numEntries {
 			entry := types.ProbeLogEntry{
 				Timestamp: time.Now(),
 				Message:   "concurrent message",
@@ -306,7 +304,7 @@ func TestLogBuffer_ConcurrentAddAndSubscribe(t *testing.T) {
 			buf.Add(entry)
 			time.Sleep(time.Millisecond) // Small delay to simulate real usage
 		}
-	}()
+	})
 
 	// Count received entries for each subscriber
 	for idx, ch := range subscribers {

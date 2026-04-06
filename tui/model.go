@@ -408,14 +408,8 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// If we already have logs, set initial scroll so the last page is visible
 		if len(logs) > 0 {
-			visible := m.getProbeVisibleRows()
-			if visible < 1 {
-				visible = 1
-			}
-			maxScroll := len(logs) - visible
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
+			visible := max(m.getProbeVisibleRows(), 1)
+			maxScroll := max(len(logs)-visible, 0)
 			m.probeState.scroll = maxScroll
 		}
 		return m, m.listenForProbeLog()

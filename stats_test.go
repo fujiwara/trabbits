@@ -133,10 +133,10 @@ func TestProxyStatsInClientInfo(t *testing.T) {
 	if proxy.Stats() != nil {
 		proxy.Stats().IncrementMethod("Basic.Publish")
 		proxy.Stats().IncrementMethod("Queue.Declare")
-		for i := 0; i < 6; i++ {
+		for range 6 {
 			proxy.Stats().IncrementReceivedFrames()
 		}
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			proxy.Stats().IncrementSentFrames()
 		}
 	}

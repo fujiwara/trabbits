@@ -144,7 +144,7 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 	}
 
 	// Run multiple times to check randomization of same-count nodes
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		result := proxy.SortNodesByLeastConnections(nodes)
 
 		if len(result) != 4 {
@@ -153,7 +153,7 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 
 		// First two nodes should be the ones with 1 connection
 		firstTwoConnections := make([]int, 2)
-		for j := 0; j < 2; j++ {
+		for j := range 2 {
 			firstTwoConnections[j] = connectionCounts[result[j]]
 		}
 		if firstTwoConnections[0] != 1 || firstTwoConnections[1] != 1 {

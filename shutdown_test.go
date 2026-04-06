@@ -63,7 +63,7 @@ func TestGracefulShutdown(t *testing.T) {
 	const numProxies = 5
 	var proxies []*trabbits.Proxy
 
-	for i := 0; i < numProxies; i++ {
+	for range numProxies {
 		proxy := testServer.NewProxy(nil) // Use nil connection for internal logic testing
 		_, cancel := context.WithCancel(t.Context())
 		defer cancel()

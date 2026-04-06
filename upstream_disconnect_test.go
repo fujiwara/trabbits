@@ -82,11 +82,11 @@ func TestUpstreamDisconnection(t *testing.T) {
 }
 
 type rabbitMQConnection struct {
-	Name             string                 `json:"name"`
-	User             string                 `json:"user"`
-	Host             string                 `json:"host"`
-	Port             int                    `json:"port"`
-	ClientProperties map[string]interface{} `json:"client_properties"`
+	Name             string         `json:"name"`
+	User             string         `json:"user"`
+	Host             string         `json:"host"`
+	Port             int            `json:"port"`
+	ClientProperties map[string]any `json:"client_properties"`
 }
 
 func getRabbitMQConnections() ([]rabbitMQConnection, error) {
@@ -122,7 +122,7 @@ func closeUpstreamConnectionsWithID(t *testing.T, testID string) error {
 	var connections []rabbitMQConnection
 	var err error
 
-	for attempts := 0; attempts < 5; attempts++ {
+	for attempts := range 5 {
 		connections, err = getRabbitMQConnections()
 		if err != nil {
 			t.Logf("Attempt %d: Failed to get connections: %v", attempts+1, err)

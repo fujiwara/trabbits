@@ -54,7 +54,7 @@ func TestListVimNavigation(t *testing.T) {
 func TestServerLogsNavAndReset(t *testing.T) {
 	m := &TUIModel{viewMode: ViewServerLogs, height: 20}
 	// populate some logs
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, _ = m.Update(logMsg(LogEntry{Time: time.Now(), Message: "log"}))
 	}
 	// g to top

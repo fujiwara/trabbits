@@ -134,7 +134,7 @@ func TestRenderLogsWithWrapping(t *testing.T) {
 
 func makeSimpleLogs(count int) []string {
 	logs := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		logs[i] = fmt.Sprintf("log %d", i)
 	}
 	return logs

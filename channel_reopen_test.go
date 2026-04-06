@@ -122,7 +122,7 @@ func TestMultipleChannelOpenCloseSequence(t *testing.T) {
 	setupCh.Close()
 
 	// Test sequence: open, publish, close - repeat 1000 times
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		if i%100 == 0 {
 			t.Logf("Publishing progress: %d/%d messages", i, iterations)
 		}
