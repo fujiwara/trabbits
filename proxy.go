@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"net/url"
@@ -42,6 +43,8 @@ type Proxy struct {
 	handshakeTimeout       time.Duration
 	processTimeout         time.Duration
 	connectionCloseTimeout time.Duration
+
+	confirmStates map[uint16]*confirmState // channel ID -> confirm state for publisher confirms
 
 	configHash         string                // hash of config used for this proxy
 	upstreamDisconnect chan string           // channel to notify upstream disconnection
@@ -140,6 +143,22 @@ func (p *Proxy) GetChannel(id uint16, routingKey string) (*rabbitmq.Channel, err
 	us := p.upstreams[0] // default upstream
 	p.probeLog("t->u not matched any patterns, using default upstream", "routing_key", routingKey)
 	return us.GetChannel(id)
+}
+
+func (p *Proxy) GetChannelWithIndex(id uint16, routingKey string) (*rabbitmq.Channel, int, error) {
+	for i, us := range p.upstreams {
+		for _, keyPattern := range us.keyPatterns {
+			if pattern.Match(routingKey, keyPattern) {
+				us.probeLog("t->u matched pattern", "pattern", keyPattern, "routing_key", routingKey)
+				ch, err := us.GetChannel(id)
+				return ch, i, err
+			}
+		}
+	}
+	us := p.upstreams[0] // default upstream
+	p.probeLog("t->u not matched any patterns, using default upstream", "routing_key", routingKey)
+	ch, err := us.GetChannel(id)
+	return ch, 0, err
 }
 
 func (p *Proxy) ID() string {
@@ -248,9 +267,7 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 	p.probeLog("t->u connect", "url", safeURLString(*u))
 	// Copy all client properties and override specific ones
 	upstreamProps := rabbitmq.Table{}
-	for k, v := range props {
-		upstreamProps[k] = v
-	}
+	maps.Copy(upstreamProps, props)
 	// overwrite product property to include trabbits and client address
 	upstreamProps["product"] = fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], p.ClientAddr(), Version)
 
@@ -635,6 +652,8 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			return p.replyBasicCancel(ctx, f, m)
 		case *amqp091.BasicQos:
 			return p.replyBasicQos(ctx, f, m)
+		case *amqp091.ConfirmSelect:
+			return p.replyConfirmSelect(ctx, f, m)
 		default:
 			p.metrics.ErroredMessages.WithLabelValues(methodName).Inc()
 			return NewError(amqp091.NotImplemented, fmt.Sprintf("unsupported method: %s", methodName))
@@ -698,10 +717,7 @@ func (p *Proxy) send(channel uint16, m amqp091.Message) error {
 		// The overhead of BodyFrame is 8 bytes
 		offset := 0
 		for offset < len(body) {
-			end := offset + int(p.tuned.frameMax) - 8
-			if end > len(body) {
-				end = len(body)
-			}
+			end := min(offset+int(p.tuned.frameMax)-8, len(body))
 			if err := p.w.WriteFrame(&amqp091.BodyFrame{
 				ChannelId: uint16(channel),
 				Body:      body[offset:end],
