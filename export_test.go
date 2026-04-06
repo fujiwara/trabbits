@@ -75,7 +75,7 @@ func (p *Proxy) SetVirtualHost(vhost string) {
 // Test-only method for gracefully stopping a specific proxy by client address
 func (s *Server) TestGracefulStopProxy(clientAddr string, shutdownMessage string) bool {
 	var found bool
-	s.activeProxies.Range(func(key, value interface{}) bool {
+	s.activeProxies.Range(func(key, value any) bool {
 		entry := value.(*proxyEntry)
 		if entry.proxy.ClientAddr() == clientAddr {
 			// Set custom shutdown message
@@ -132,3 +132,8 @@ func (s *Server) GetAPIProbeLogHandler() http.HandlerFunc {
 func (u *Upstream) ShouldEmulateAutoDelete(m *amqp091.QueueDeclare) bool {
 	return u.shouldEmulateAutoDelete(m)
 }
+
+// Export confirm state for testing
+type ConfirmState = confirmState
+
+var NewConfirmState = newConfirmState

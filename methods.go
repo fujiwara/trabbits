@@ -31,6 +31,7 @@ func (p *Proxy) replyChannelOpen(_ context.Context, f *amqp091.MethodFrame, m *a
 func (p *Proxy) replyChannelClose(_ context.Context, f *amqp091.MethodFrame, m *amqp091.ChannelClose) error {
 	id := f.Channel()
 	p.probeLog("c->t Channel.Close", "channel", id, "message", m)
+	p.deleteConfirmState(id)
 	if err := p.CloseChannel(id); err != nil {
 		return err
 	}
@@ -84,10 +85,18 @@ func (p *Proxy) replyQueueDeclare(_ context.Context, f *amqp091.MethodFrame, m *
 func (p *Proxy) replyBasicPublish(ctx context.Context, f *amqp091.MethodFrame, m *amqp091.BasicPublish) error {
 	id := f.Channel()
 	p.probeLog("c->t Basic.Publish", "message", m)
-	ch, err := p.GetChannel(id, m.RoutingKey)
+	ch, upstreamIndex, err := p.GetChannelWithIndex(id, m.RoutingKey)
 	if err != nil {
 		return err
 	}
+
+	// If confirm mode is active, record the mapping before publishing
+	if cs := p.getConfirmState(id); cs != nil {
+		nextTag := ch.GetNextPublishSeqNo()
+		clientTag := cs.RecordPublish(upstreamIndex, nextTag)
+		p.probeLog("t->u Basic.Publish (confirm)", "upstream_index", upstreamIndex, "upstream_tag", nextTag, "client_tag", clientTag)
+	}
+
 	p.probeLog("t->u Basic.Publish", "message", m)
 	if err := ch.PublishWithContext(
 		ctx,

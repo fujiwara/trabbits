@@ -386,6 +386,7 @@ trabbits currently supports the following AMQP methods:
 - BasicNack
 - BasicCancel
 - BasicQos
+- ConfirmSelect (Publisher Confirms)
 
 ## Server-named queues emulation
 
