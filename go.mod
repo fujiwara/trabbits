@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/aereal/jsondiff v0.4.1
-	github.com/alecthomas/kong v1.13.0
+	github.com/alecthomas/kong v1.15.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/fatih/color v1.18.0
