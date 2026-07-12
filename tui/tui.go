@@ -20,7 +20,6 @@ func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 
 	model := NewModel(ctx, apiClient)
 
-	// Start streaming server logs from API
 	go func() {
 		logChan, err := apiClient.StreamServerLogs(ctx)
 		if err != nil {
@@ -28,9 +27,7 @@ func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 			return
 		}
 
-		// Forward server logs to TUI log channel
 		for log := range logChan {
-			// Extract level from attrs if present
 			level := "INFO"
 			if log.Attrs != nil {
 				if l, ok := log.Attrs["level"].(string); ok {
@@ -38,7 +35,6 @@ func Run(ctx context.Context, apiClient apiclient.APIClient) error {
 				}
 			}
 
-			// Convert ProbeLogEntry to LogEntry
 			entry := LogEntry{
 				Time:    log.Timestamp,
 				Level:   level,
@@ -80,7 +76,6 @@ func (m *TUIModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// View-specific key handling
 	switch m.viewMode {
 	case ViewList:
 		return m.handleListKeys(msg)
@@ -107,7 +102,6 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedIdx = 0
 		m.listScroll = 0
 	case "K":
-		// Shutdown client
 		if len(m.clients) > 0 && m.selectedIdx < len(m.clients) {
 			client := m.clients[m.selectedIdx]
 			if client.ID == "" {
@@ -167,21 +161,17 @@ func (m *TUIModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m, m.fetchClients()
 	case "p":
-		// Start probe stream for selected client
 		if len(m.clients) > 0 {
 			client := m.clients[m.selectedIdx]
 			m.viewMode = ViewProbe
-			// Check if this is a disconnected proxy
 			disconnected := client.Status == "disconnected"
 			return m, m.startProbeStreamWithDisconnected(client.ID, disconnected)
 		}
 	case "l":
-		// Switch to server logs view
 		m.viewMode = ViewServerLogs
 		// Initialize scroll to bottom
 		if len(m.logEntries) > 0 {
 			m.serverLogsSelectedIdx = len(m.logEntries) - 1
-			// Scroll so that the last entry is visible
 			visible := max(m.getServerLogsVisibleRows(), 1)
 			maxScroll := max(len(m.logEntries)-visible, 0)
 			m.serverLogsScroll = maxScroll
@@ -201,7 +191,6 @@ func (m *TUIModel) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clientDetail = nil
 		m.detailScroll = 0
 	case "K":
-		// Shutdown client from detail view
 		if m.clientDetail != nil {
 			m.confirmState = &confirmState{
 				clientID: m.clientDetail.ID,
@@ -222,10 +211,8 @@ func (m *TUIModel) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Set to large number, will be limited in render
 		m.detailScroll = 1000
 	case "p":
-		// Start probe stream for current client
 		if m.clientDetail != nil {
 			m.viewMode = ViewProbe
-			// Check if this is a disconnected proxy
 			disconnected := m.clientDetail.Status == "disconnected"
 			return m, m.startProbeStreamWithDisconnected(m.clientDetail.ID, disconnected)
 		}
@@ -254,7 +241,6 @@ func (m *TUIModel) handleConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q", "esc":
-		// Stop probe stream and return to list view
 		m.stopProbeStream()
 		m.viewMode = ViewList
 	case "g":
@@ -264,17 +250,14 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.probeState.autoScroll = false
 		}
 	case " ":
-		// Toggle auto-scroll with space key
 		if m.probeState != nil {
 			m.probeState.autoScroll = !m.probeState.autoScroll
-			// If enabling auto-scroll, jump to bottom
 			if m.probeState.autoScroll && len(m.probeState.logs) > 0 {
 				m.probeState.selectedIdx = len(m.probeState.logs) - 1
 				visibleRows := m.getProbeVisibleRows()
 				maxScroll := max(len(m.probeState.logs)-visibleRows, 0)
 				m.probeState.scroll = maxScroll
 			}
-			// Show a short toast indicating the state
 			if m.probeState.autoScroll {
 				m.successMsg = "Auto-scroll: ON"
 			} else {
@@ -283,7 +266,6 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.successTime = time.Now()
 		}
 	case "s":
-		// Save probe logs to file
 		if m.probeState != nil {
 			clientID := m.probeState.clientID
 			timestamp := time.Now().Format("20060102-150405")
@@ -303,7 +285,6 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.probeState.selectedIdx > 0 {
 				m.probeState.selectedIdx--
 			}
-			// Clamp scroll to contain the selection
 			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), total)
 			m.probeState.autoScroll = false // Disable auto-scroll on manual navigation
 		}
@@ -314,7 +295,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.probeState.selectedIdx++
 			}
 			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), total)
-			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+			m.updateAutoScroll()
 		}
 	case "home":
 		if m.probeState != nil {
@@ -325,7 +306,6 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		if m.probeState != nil && len(m.probeState.logs) > 0 {
 			m.probeState.selectedIdx = len(m.probeState.logs) - 1
-			// Adjust scroll to show the last item
 			visibleRows := m.getProbeVisibleRows()
 			maxScroll := max(len(m.probeState.logs)-visibleRows, 0)
 			m.probeState.scroll = maxScroll
@@ -358,7 +338,7 @@ func (m *TUIModel) handleProbeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.probeState.selectedIdx = logCount - 1
 			}
 			m.probeState.scroll = clampScrollToContain(m.probeState.scroll, m.probeState.selectedIdx, m.getProbeVisibleRows(), logCount)
-			m.updateAutoScroll() // Check if we should enable/disable auto-scroll
+			m.updateAutoScroll()
 		}
 	}
 	return m, nil
@@ -374,7 +354,6 @@ func (m *TUIModel) updateAutoScroll() {
 	visibleRows := m.getProbeVisibleRows()
 	maxScroll := max(logCount-visibleRows, 0)
 
-	// Enable auto-scroll only when we're at or near the bottom
 	m.probeState.autoScroll = m.probeState.scroll >= maxScroll
 }
 
@@ -395,7 +374,6 @@ func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewMode = ViewList
 		m.serverLogsScroll = 0
 	case "g":
-		// Jump to top
 		m.serverLogsSelectedIdx = 0
 		m.serverLogsScroll = 0
 	case "up", "k":
@@ -433,13 +411,11 @@ func (m *TUIModel) handleServerLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.adjustServerLogsScroll()
 		}
 	case "G":
-		// Jump to bottom
 		if len(m.logEntries) > 0 {
 			m.serverLogsSelectedIdx = len(m.logEntries) - 1
 			m.adjustServerLogsScroll()
 		}
 	case "R":
-		// Reset dropped logs counter
 		m.droppedLogs = 0
 		m.successMsg = "Dropped logs reset"
 		m.successTime = time.Now()
@@ -481,23 +457,18 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.saveState.editing {
-		// Editing mode
 		switch msg.Type {
 		case tea.KeyEsc:
-			// Stop editing
 			m.saveState.editing = false
 		case tea.KeyEnter:
-			// Confirm with current path
 			m.saveState.editing = false
 		case tea.KeyBackspace:
-			// Delete character before cursor
 			if m.saveState.cursorPos > 0 {
 				path := m.saveState.filePath
 				m.saveState.filePath = path[:m.saveState.cursorPos-1] + path[m.saveState.cursorPos:]
 				m.saveState.cursorPos--
 			}
 		case tea.KeyDelete:
-			// Delete character at cursor
 			if m.saveState.cursorPos < len(m.saveState.filePath) {
 				path := m.saveState.filePath
 				m.saveState.filePath = path[:m.saveState.cursorPos] + path[m.saveState.cursorPos+1:]
@@ -515,7 +486,6 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnd:
 			m.saveState.cursorPos = len(m.saveState.filePath)
 		case tea.KeyRunes:
-			// Insert runes at cursor (basic rune-aware insertion)
 			path := m.saveState.filePath
 			for _, r := range msg.Runes {
 				s := string(r)
@@ -525,14 +495,11 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.saveState.filePath = path
 		}
 	} else {
-		// Not editing mode
 		switch msg.String() {
 		case "ctrl+c", "esc", "n", "q":
-			// Cancel save
 			m.viewMode = m.saveState.previousView
 			m.saveState = nil
 		case "e":
-			// Start editing
 			m.saveState.editing = true
 			m.saveState.overwriteConfirm = false
 		case "enter":
@@ -541,13 +508,11 @@ func (m *TUIModel) handleSaveConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				path := m.saveState.filePath
 				if !m.saveState.overwriteConfirm {
 					if _, err := os.Stat(path); err == nil {
-						// File exists, require explicit confirmation
 						m.saveState.overwriteConfirm = true
 						return m, nil
 					}
 				}
 			}
-			// Proceed to save
 			return m, m.saveProbeLogsToFile()
 		}
 	}

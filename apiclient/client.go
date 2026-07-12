@@ -30,7 +30,6 @@ func New(socketPath string) *Client {
 		endpoint = socketPath
 		transport = http.DefaultTransport
 	} else {
-		// Otherwise, treat it as a Unix socket path
 		endpoint = "http://localhost/"
 		transport = &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {

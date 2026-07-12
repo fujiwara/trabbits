@@ -25,20 +25,20 @@ func NewProxyStats() *ProxyStats {
 
 // IncrementMethod increments the counter for a specific AMQP method
 func (s *ProxyStats) IncrementMethod(method string) {
-	// Update local counter only - Prometheus metrics are updated directly in proxy.go
+	// Update local counter only - metrics are updated directly in proxy.go
 	v, _ := s.methodCounts.LoadOrStore(method, new(int64))
 	atomic.AddInt64(v.(*int64), 1)
 }
 
 // IncrementReceivedFrames increments the received frame counter
 func (s *ProxyStats) IncrementReceivedFrames() {
-	// Update local counter only - Prometheus metrics are updated directly in proxy.go
+	// Update local counter only - metrics are updated directly in proxy.go
 	atomic.AddInt64(&s.receivedFrames, 1)
 }
 
 // IncrementSentFrames increments the sent frame counter
 func (s *ProxyStats) IncrementSentFrames() {
-	// Update local counter only - Prometheus metrics are updated directly in proxy.go
+	// Update local counter only - metrics are updated directly in proxy.go
 	atomic.AddInt64(&s.sentFrames, 1)
 }
 

@@ -23,7 +23,7 @@ type Upstream struct {
 	channel      map[uint16]*rabbitmq.Channel
 	mu           sync.Mutex
 	logger       *slog.Logger
-	probeLogFunc func(string, ...any) // Function to send probe logs
+	probeLogFunc func(string, ...any)
 	keyPatterns  []string
 	queueAttr    *config.QueueAttributes
 	queueOpts    *config.QueueOptions
@@ -48,7 +48,6 @@ func NewUpstream(conn *rabbitmq.Connection, logger *slog.Logger, conf config.Ups
 		metrics:      metrics,
 		probeLogFunc: probeLogFunc,
 	}
-	// Register for connection close notifications if connection is not nil
 	if conn != nil {
 		conn.NotifyClose(u.closeChan)
 	}
@@ -199,7 +198,6 @@ func (u *Upstream) QueueDeclareArgs(m *amqp091.QueueDeclare) (name string, durab
 		return m.Queue, m.Durable, m.AutoDelete, m.Exclusive, false, rabbitmq.Table(m.Arguments)
 	} else {
 		u.probeLog("t->u overriding queue attributes", "queue", m.Queue, "attributes", *attr)
-		// override the message's attributes with the upstream's configuration
 		durable := m.Durable
 		if attr.Durable != nil {
 			durable = *attr.Durable
@@ -247,17 +245,14 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 			// Don't register for emulation if queue already existed
 			return q, nil
 		}
-		// Check if error is NOT_FOUND (404)
 		if amqpErr, ok := err.(*rabbitmq.Error); ok && amqpErr.Code == amqp091.NotFound {
 			u.probeLog("t<-u queue not found, falling back to normal declare", "queue", m.Queue)
 			// Fall through to normal declare
 		} else {
-			// Other errors should be returned
 			return rabbitmq.Queue{}, fmt.Errorf("passive declare failed: %w", err)
 		}
 	}
 
-	// Normal declare with configured attributes
 	name, durable, autoDelete, exclusive, noWait, args := u.QueueDeclareArgs(m)
 	u.probeLog("t->u declaring queue", "queue", name, "durable", durable, "auto_delete", autoDelete, "exclusive", exclusive, "arguments", args)
 	q, err := ch.QueueDeclare(name, durable, autoDelete, exclusive, noWait, args)
@@ -265,7 +260,6 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 		return q, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
-	// Check if we should emulate auto_delete for this queue
 	if !queueExisted && u.shouldEmulateAutoDelete(m) {
 		u.probeLog("t->u registering queue for emulated auto_delete", "queue", q.Name)
 		u.RegisterEmulatedAutoDeleteQueue(q.Name)
@@ -276,12 +270,10 @@ func (u *Upstream) QueueDeclareWithTryPassive(ch *rabbitmq.Channel, m *amqp091.Q
 
 // shouldEmulateAutoDelete checks if auto_delete emulation should be enabled for this queue
 func (u *Upstream) shouldEmulateAutoDelete(m *amqp091.QueueDeclare) bool {
-	// Check if emulation is enabled in config
 	if u.queueOpts == nil || !u.queueOpts.EmulateAutoDelete {
 		return false
 	}
 
-	// Check if client requested auto_delete=true
 	if !m.AutoDelete {
 		return false
 	}

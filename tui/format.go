@@ -8,7 +8,6 @@ import (
 	"github.com/fujiwara/trabbits/types"
 )
 
-// Styles for formatting
 var (
 	activeStatusStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("46"))

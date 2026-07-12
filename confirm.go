@@ -32,7 +32,7 @@ func newConfirmState() *confirmState {
 	}
 }
 
-// recordPublish records a mapping from upstream tag to client tag.
+// RecordPublish records a mapping from upstream tag to client tag.
 // Returns the client-side delivery tag.
 func (cs *confirmState) RecordPublish(upstreamIndex int, upstreamTag uint64) uint64 {
 	cs.mu.Lock()
@@ -42,7 +42,7 @@ func (cs *confirmState) RecordPublish(upstreamIndex int, upstreamTag uint64) uin
 	return cs.clientTag
 }
 
-// lookupClientTag returns the client-side delivery tag for a given upstream confirmation
+// LookupClientTag returns the client-side delivery tag for a given upstream confirmation
 // and removes the mapping entry.
 func (cs *confirmState) LookupClientTag(upstreamIndex int, upstreamTag uint64) (uint64, bool) {
 	cs.mu.Lock()
@@ -84,7 +84,6 @@ func (p *Proxy) replyConfirmSelect(_ context.Context, f *amqp091.MethodFrame, m 
 		return err
 	}
 
-	// Put all upstream channels into confirm mode and start listeners
 	cs := newConfirmState()
 	for i, ch := range chs {
 		us := p.Upstream(i)

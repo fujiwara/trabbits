@@ -142,7 +142,6 @@ func NewManager(upstream *config.Upstream, metrics MetricsReporter) *Manager {
 		return nil
 	}
 
-	// Initialize health check config with defaults
 	healthConfig := &Config{
 		Interval:           30 * time.Second,
 		Timeout:            5 * time.Second,
@@ -150,7 +149,6 @@ func NewManager(upstream *config.Upstream, metrics MetricsReporter) *Manager {
 		RecoveryInterval:   60 * time.Second,
 	}
 
-	// Override with user config if provided
 	if upstream.HealthCheck.Interval > 0 {
 		healthConfig.Interval = upstream.HealthCheck.Interval.ToDuration()
 	}
@@ -174,7 +172,6 @@ func NewManager(upstream *config.Upstream, metrics MetricsReporter) *Manager {
 		metrics:  metrics,
 	}
 
-	// Initialize node status for each cluster node
 	for _, addr := range upstream.Cluster.Nodes {
 		mgr.nodes[addr] = &NodeStatus{
 			Address: addr,
@@ -251,7 +248,6 @@ func (m *Manager) GetHealthyNodes() []string {
 		}
 	}
 
-	// If no healthy nodes, return all nodes as fallback
 	if len(healthy) == 0 {
 		m.logger.Warn("No healthy nodes found, returning all nodes")
 		for addr := range m.nodes {
@@ -281,14 +277,12 @@ func (m *Manager) checkAllNodes() {
 	}
 	wg.Wait()
 
-	// Log summary
 	healthy, unhealthy := m.getHealthSummary()
 	m.logger.Debug("Health check completed",
 		"healthy", healthy,
 		"unhealthy", unhealthy,
 		"total", len(nodes))
 
-	// Update metrics
 	if m.metrics != nil {
 		m.metrics.SetHealthyNodes(m.name, healthy)
 		m.metrics.SetUnhealthyNodes(m.name, unhealthy)
@@ -314,14 +308,12 @@ func (m *Manager) checkAllNodesInitial() {
 	}
 	wg.Wait()
 
-	// Log summary
 	healthy, unhealthy := m.getHealthSummary()
 	m.logger.Debug("Initial health check completed",
 		"healthy", healthy,
 		"unhealthy", unhealthy,
 		"total", len(nodes))
 
-	// Update metrics
 	if m.metrics != nil {
 		m.metrics.SetHealthyNodes(m.name, healthy)
 		m.metrics.SetUnhealthyNodes(m.name, unhealthy)
@@ -333,7 +325,6 @@ func (m *Manager) checkNode(node *NodeStatus, failFast bool) {
 	_, cancel := context.WithTimeout(context.Background(), m.config.Timeout)
 	defer cancel()
 
-	// Determine the failure threshold based on mode
 	threshold := m.config.UnhealthyThreshold
 	if failFast {
 		threshold = 1
@@ -351,7 +342,6 @@ func (m *Manager) checkNode(node *NodeStatus, failFast bool) {
 		}
 	}
 
-	// Try to connect to the node
 	u := &url.URL{
 		Scheme: "amqp",
 		User:   url.UserPassword(m.username, m.password),
@@ -390,7 +380,6 @@ func (m *Manager) checkNode(node *NodeStatus, failFast bool) {
 		return
 	}
 
-	// Connection successful, close it immediately
 	conn.Close()
 
 	previousStatus := node.GetStatus()

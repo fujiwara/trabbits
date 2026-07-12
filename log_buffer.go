@@ -30,13 +30,11 @@ func (b *LogBuffer) Add(entry types.ProbeLogEntry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Add to buffer (keep last maxSize entries)
 	b.entries = append(b.entries, entry)
 	if len(b.entries) > b.maxSize {
 		b.entries = b.entries[len(b.entries)-b.maxSize:]
 	}
 
-	// Broadcast to all listeners (non-blocking)
 	for _, ch := range b.listeners {
 		select {
 		case ch <- entry:
@@ -52,7 +50,6 @@ func (b *LogBuffer) Subscribe(ctx context.Context, listenerID string) <-chan typ
 
 	b.mu.Lock()
 	b.listeners[listenerID] = ch
-	// Send recent entries to new subscriber
 	recentEntries := make([]types.ProbeLogEntry, len(b.entries))
 	copy(recentEntries, b.entries)
 	b.mu.Unlock()
@@ -68,7 +65,6 @@ func (b *LogBuffer) Subscribe(ctx context.Context, listenerID string) <-chan typ
 		}
 	}()
 
-	// Clean up on context cancellation
 	go func() {
 		<-ctx.Done()
 		b.Unsubscribe(listenerID)
@@ -113,38 +109,31 @@ func (h *ServerLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 // Handle handles the Record
 func (h *ServerLogHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Extract attributes including those from WithAttrs
 	attrs := make(map[string]any)
 
-	// First add accumulated attrs from WithAttrs
 	for _, attr := range h.attrs {
 		attrs[attr.Key] = attr.Value.Any()
 	}
 
-	// Then add attrs from the record
 	r.Attrs(func(a slog.Attr) bool {
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})
 
-	// Add log level to attrs
 	attrs["level"] = r.Level.String()
 
-	// Add to buffer
 	h.logBuffer.Add(types.ProbeLogEntry{
 		Timestamp: r.Time,
 		Message:   r.Message,
 		Attrs:     attrs,
 	})
 
-	// Forward to next handler
 	return h.next.Handle(ctx, r)
 }
 
 // WithAttrs returns a new Handler whose attributes consist of
 // both the receiver's attributes and the arguments
 func (h *ServerLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	// Accumulate attributes
 	newAttrs := make([]slog.Attr, len(h.attrs)+len(attrs))
 	copy(newAttrs, h.attrs)
 	copy(newAttrs[len(h.attrs):], attrs)
@@ -160,7 +149,6 @@ func (h *ServerLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 // WithGroup returns a new Handler with the given group appended to
 // the receiver's existing groups
 func (h *ServerLogHandler) WithGroup(name string) slog.Handler {
-	// Accumulate group names
 	newGroups := make([]string, len(h.groups)+1)
 	copy(newGroups, h.groups)
 	newGroups[len(h.groups)] = name

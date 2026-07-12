@@ -15,7 +15,6 @@ func newListener(ctx context.Context, addr string) (net.Listener, error) {
 		Control: func(network, address string, c syscall.RawConn) error {
 			var opErr error
 			err := c.Control(func(fd uintptr) {
-				// SO_REUSEPORT
 				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
 			})
 			if err != nil {

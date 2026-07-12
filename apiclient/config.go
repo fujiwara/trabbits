@@ -59,7 +59,6 @@ func (c *Client) PutConfigFromFile(ctx context.Context, configPath string) error
 		return err
 	}
 
-	// Set Content-Type based on file extension
 	contentType := "application/json"
 	if strings.HasSuffix(configPath, ".jsonnet") {
 		contentType = "application/jsonnet"
@@ -110,7 +109,6 @@ func (c *Client) PutConfig(ctx context.Context, cfg *config.Config) error {
 func (c *Client) DiffConfigFromFile(ctx context.Context, configPath string) (string, error) {
 	slog.Info("getting diff from file", "file", configPath)
 
-	// Read raw file content
 	configBytes, err := os.ReadFile(configPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read config file: %w", err)
@@ -126,7 +124,6 @@ func (c *Client) DiffConfigFromFile(ctx context.Context, configPath string) (str
 		return "", err
 	}
 
-	// Set Content-Type based on file extension
 	contentType := "application/json"
 	if strings.HasSuffix(configPath, ".jsonnet") {
 		contentType = "application/jsonnet"

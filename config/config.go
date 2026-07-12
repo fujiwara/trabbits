@@ -21,7 +21,6 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 )
 
-// Default values for graceful shutdown
 const (
 	DefaultGracefulShutdownTimeout = 10 * time.Second
 	DefaultGracefulReloadTimeout   = 30 * time.Second
@@ -64,7 +63,6 @@ type GracefulShutdown struct {
 
 // Hash calculates SHA256 hash of the config using gob encoding
 func (c *Config) Hash() string {
-	// Use gob encoding to serialize config directly to hash writer
 	hasher := sha256.New()
 	encoder := gob.NewEncoder(hasher)
 
@@ -99,7 +97,6 @@ func Load(ctx context.Context, f string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %w", err)
 		}
-		// Expand environment variables in the configuration
 		expandedData := os.ExpandEnv(string(data))
 		buf.WriteString(expandedData)
 	}
@@ -118,7 +115,6 @@ func Load(ctx context.Context, f string) (*Config, error) {
 
 // SetDefaults sets default values for config fields if not specified
 func (c *Config) SetDefaults() {
-	// Set default timeout values if not specified
 	if c.HandshakeTimeout == 0 {
 		c.HandshakeTimeout = Duration(5 * time.Second) // DefaultHandshakeTimeout
 	}
@@ -126,7 +122,6 @@ func (c *Config) SetDefaults() {
 		c.ConnectionCloseTimeout = Duration(1 * time.Second) // DefaultConnectionCloseTimeout
 	}
 
-	// Set default graceful shutdown values if not specified
 	if c.GracefulShutdown.ShutdownTimeout == 0 {
 		c.GracefulShutdown.ShutdownTimeout = Duration(DefaultGracefulShutdownTimeout)
 	}
@@ -185,12 +180,10 @@ func (u *Upstream) Validate() error {
 			if addr == "" {
 				return fmt.Errorf("address is required for cluster node")
 			}
-			// Validate address format
 			if _, _, err := net.SplitHostPort(addr); err != nil {
 				return fmt.Errorf("invalid address format for cluster node: %w", err)
 			}
 		}
-		// Validate health check credentials if health check is defined
 		if u.HealthCheck != nil {
 			if u.HealthCheck.Username == "" {
 				return fmt.Errorf("username is required for health check")
@@ -200,11 +193,9 @@ func (u *Upstream) Validate() error {
 			}
 		}
 	} else {
-		// single host
 		if u.Address == "" {
 			return fmt.Errorf("address is required")
 		}
-		// Validate address format
 		if _, _, err := net.SplitHostPort(u.Address); err != nil {
 			return fmt.Errorf("invalid address format: %w", err)
 		}

@@ -25,15 +25,11 @@ func clampScrollToContain(scroll, selected, visible, total int) int {
 	if visible <= 0 {
 		return 0
 	}
-	// Ensure scroll is within bounds first
 	ms := maxScroll(total, visible)
 	scroll = min(
-		// Scroll up if selected is above
 		selected, clamp(scroll, 0, ms))
-	// Scroll down if selected is below visible window
 	if selected >= scroll+visible {
 		scroll = selected - visible + 1
 	}
-	// Clamp again
 	return clamp(scroll, 0, ms)
 }

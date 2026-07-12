@@ -12,7 +12,6 @@ import (
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Setup signal handling with logging
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, signals()...)
 

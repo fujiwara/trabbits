@@ -163,7 +163,6 @@ func (p *Proxy) replyBasicConsume(ctx context.Context, f *amqp091.MethodFrame, m
 	tag := m.ConsumerTag
 	q := m.Queue
 
-	// start goroutines to consume from all upstreams
 	ctx2, cancel := context.WithCancel(ctx)
 	for us, d := range deliveries {
 		go func(us *Upstream, d *delivery) {

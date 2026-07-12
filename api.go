@@ -32,7 +32,6 @@ func listenUnixSocket(socketPath string) (net.Listener, func(), error) {
 	cancelFunc := func() {
 		os.Remove(socketPath)
 	}
-	// Create a new Unix socket listener
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return nil, cancelFunc, fmt.Errorf("failed to listen on socket: %w", err)
@@ -120,7 +119,6 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	mux.HandleFunc("GET /clients/{proxy_id}/probe", s.apiProbeLogHandler())
 	mux.HandleFunc("GET /logs", s.apiServerLogsHandler())
 	var srv http.Server
-	// start API server
 	ch := make(chan error)
 	go func() {
 		slog.Info("starting API server", "socket", s.apiSocket)
@@ -153,7 +151,6 @@ func (s *Server) startAPIServer(ctx context.Context, configPath string) (func(),
 	}, nil
 }
 
-// API handler methods for the server
 func (s *Server) apiGetConfigHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
@@ -179,13 +176,11 @@ func (s *Server) apiPutConfigHandler() http.HandlerFunc {
 			return
 		}
 
-		// Reinitialize health managers with new configuration
 		if err := s.initHealthManagers(r.Context()); err != nil {
 			slog.Error("failed to reinit health managers", "error", err)
 			// Don't fail the config update, just log the error
 		}
 
-		// Update server config and disconnect outdated proxies
 		s.UpdateConfig(cfg)
 		disconnectChan := s.disconnectOutdatedProxies(cfg.Hash())
 		go func() {
@@ -209,7 +204,6 @@ func (s *Server) apiDiffConfigHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/plain")
 
-		// Load new config from request
 		newCfg, err := config.Load(r.Context(), configFile)
 		if err != nil {
 			slog.Error("failed to load new configuration", "error", err)
@@ -217,10 +211,8 @@ func (s *Server) apiDiffConfigHandler() http.HandlerFunc {
 			return
 		}
 
-		// Get current config
 		currentCfg := s.GetConfig()
 
-		// Generate diff using jsondiff
 		diff, err := jsondiff.Diff(
 			&jsondiff.Input{Name: "current", X: currentCfg},
 			&jsondiff.Input{Name: "new", X: newCfg},
@@ -231,7 +223,6 @@ func (s *Server) apiDiffConfigHandler() http.HandlerFunc {
 			return
 		}
 
-		// Return diff as plain text
 		w.Write([]byte(diff))
 	})
 }
@@ -254,20 +245,17 @@ func (s *Server) apiReloadConfigHandler(configPath string) http.HandlerFunc {
 func (s *Server) reloadConfigFromFile(ctx context.Context, configPath string) (*config.Config, error) {
 	slog.Info("Reloading configuration from file", "file", configPath)
 
-	// Reload config from the original config file
 	cfg, err := config.Load(ctx, configPath)
 	if err != nil {
 		slog.Error("failed to reload configuration", "error", err)
 		return nil, fmt.Errorf("failed to reload configuration: %w", err)
 	}
 
-	// Reinitialize health managers with new configuration
 	if err := s.initHealthManagers(ctx); err != nil {
 		slog.Error("failed to reinit health managers", "error", err)
 		// Don't fail the config reload, just log the error
 	}
 
-	// Update server config and disconnect outdated proxies
 	s.UpdateConfig(cfg)
 	disconnectChan := s.disconnectOutdatedProxies(cfg.Hash())
 	go func() {
@@ -293,10 +281,8 @@ func (s *Server) apiShutdownClientHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
 
-		// Debug: log the request
 		slog.Debug("shutdown request received", "method", r.Method, "url", r.URL.String(), "path", r.URL.Path)
 
-		// Extract proxy ID from URL path
 		proxyID := r.PathValue("proxy_id")
 		slog.Debug("extracted proxy_id", "proxy_id", proxyID, "raw_path", r.URL.Path)
 
@@ -306,17 +292,14 @@ func (s *Server) apiShutdownClientHandler() http.HandlerFunc {
 			return
 		}
 
-		// Get optional shutdown reason from query parameter
 		shutdownReason := r.URL.Query().Get("reason")
 
-		// Attempt to shutdown the proxy
 		found := s.ShutdownProxy(proxyID, shutdownReason)
 		if !found {
 			http.Error(w, "Proxy not found", http.StatusNotFound)
 			return
 		}
 
-		// Return success response
 		response := map[string]string{
 			"status":   "shutdown_initiated",
 			"proxy_id": proxyID,
@@ -334,14 +317,12 @@ func (s *Server) apiGetClientHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", APIContentType)
 
-		// Extract proxy ID from URL path
 		proxyID := r.PathValue("proxy_id")
 		if proxyID == "" {
 			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
 			return
 		}
 
-		// Get full client information
 		clientInfo, found := s.GetClientInfo(proxyID)
 		if !found {
 			http.Error(w, "Proxy not found", http.StatusNotFound)
@@ -355,26 +336,22 @@ func (s *Server) apiGetClientHandler() http.HandlerFunc {
 
 func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract proxy ID from URL path
 		proxyID := r.PathValue("proxy_id")
 		if proxyID == "" {
 			http.Error(w, "Proxy ID is required", http.StatusBadRequest)
 			return
 		}
 
-		// Set SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		// Try to find active proxy first
 		value, activeFound := s.activeProxies.Load(proxyID)
 		var probeChan chan probeLog
 		var isActive bool
 
 		if activeFound {
-			// Active proxy - stream logs in real-time
 			entry := value.(*proxyEntry)
 			proxy := entry.proxy
 			probeChan = proxy.GetProbeChan()
@@ -392,7 +369,6 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 			return
 		}
 
-		// Send initial connection message with proxy status
 		status := "active"
 		if !isActive {
 			status = "disconnected"
@@ -402,7 +378,6 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 			flusher.Flush()
 		}
 
-		// First, send all buffered logs
 		bufferedLogs := buffer.GetLogs()
 		for _, log := range bufferedLogs {
 			logData := struct {
@@ -427,7 +402,6 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 			}
 		}
 
-		// If proxy is not active, send proxy_ended with status and return
 		if !isActive {
 			fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\",\"status\":\"disconnected\"}\n\n")
 			if flusher, ok := w.(http.Flusher); ok {
@@ -436,7 +410,6 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 			return
 		}
 
-		// For active proxies, continue streaming new logs
 		if probeChan == nil {
 			// Active proxy but no probe channel (shouldn't happen)
 			fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\"}\n\n")
@@ -450,11 +423,9 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 		for {
 			select {
 			case <-ctx.Done():
-				// Client disconnected
 				return
 			case log, ok := <-probeChan:
 				if !ok {
-					// Channel closed, proxy ended
 					fmt.Fprintf(w, "data: {\"type\":\"proxy_ended\"}\n\n")
 					if flusher, ok := w.(http.Flusher); ok {
 						flusher.Flush()
@@ -462,7 +433,6 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 					return
 				}
 
-				// Convert probe log to JSON
 				logData := struct {
 					Timestamp time.Time      `json:"timestamp"`
 					Message   string         `json:"message"`
@@ -479,7 +449,6 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 					continue
 				}
 
-				// Send SSE data
 				fmt.Fprintf(w, "data: %s\n\n", jsonData)
 				if flusher, ok := w.(http.Flusher); ok {
 					flusher.Flush()
@@ -491,47 +460,37 @@ func (s *Server) apiProbeLogHandler() http.HandlerFunc {
 
 func (s *Server) apiServerLogsHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		// Send initial connection message
 		fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
 
-		// Create context for cleanup
 		ctx := r.Context()
 
-		// Generate unique listener ID
 		listenerID := fmt.Sprintf("api-%d", time.Now().UnixNano())
 
-		// Subscribe to log buffer
 		logChan := s.logBuffer.Subscribe(ctx, listenerID)
 
-		// Start streaming server logs
 		for {
 			select {
 			case <-ctx.Done():
-				// Client disconnected
 				return
 			case log, ok := <-logChan:
 				if !ok {
-					// Channel closed
 					return
 				}
 
-				// Send log as JSON (already in ProbeLogEntry format)
 				jsonData, err := json.Marshal(log)
 				if err != nil {
 					slog.Warn("Failed to marshal server log", "error", err)
 					continue
 				}
 
-				// Send SSE data
 				fmt.Fprintf(w, "data: %s\n\n", jsonData)
 				if flusher, ok := w.(http.Flusher); ok {
 					flusher.Flush()

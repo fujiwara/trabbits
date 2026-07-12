@@ -27,14 +27,12 @@ func (h *TUIHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 // Handle handles the Record
 func (h *TUIHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Extract attributes
 	attrs := make(map[string]any)
 	r.Attrs(func(a slog.Attr) bool {
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})
 
-	// Send to TUI channel (non-blocking)
 	select {
 	case h.logChan <- LogEntry{
 		Time:    r.Time,
@@ -46,7 +44,6 @@ func (h *TUIHandler) Handle(ctx context.Context, r slog.Record) error {
 		// Channel full, skip this log to avoid blocking
 	}
 
-	// Forward to next handler
 	return h.next.Handle(ctx, r)
 }
 

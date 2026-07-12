@@ -13,7 +13,6 @@ import (
 //   - # matches zero or more words
 //   - % matches any substring within a single word
 func Match(routingKey, bindingPattern string) bool {
-	// Split the routing key and binding pattern by dots
 	routingTokens := strings.Split(routingKey, ".")
 	bindingTokens := strings.Split(bindingPattern, ".")
 
@@ -43,7 +42,6 @@ func matchTokens(routingTokens, bindingTokens []string, rIdx, bIdx int) bool {
 		return true
 	}
 
-	// Current tokens
 	rToken := routingTokens[rIdx]
 	bToken := bindingTokens[bIdx]
 
@@ -78,7 +76,6 @@ func matchTokens(routingTokens, bindingTokens []string, rIdx, bIdx int) bool {
 		return matchTokens(routingTokens, bindingTokens, rIdx+1, bIdx+1)
 	}
 
-	// No match
 	return false
 }
 
@@ -123,6 +120,5 @@ func matchPercentPattern(text, pattern string, textIdx, patternIdx int) bool {
 		return matchPercentPattern(text, pattern, textIdx+1, patternIdx+1)
 	}
 
-	// No match
 	return false
 }

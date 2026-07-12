@@ -91,7 +91,6 @@ func (c *Client) readProbeLogSSE(ctx context.Context, proxyID string, handler fu
 			if dataBuffer.Len() > 0 {
 				data := dataBuffer.String()
 
-				// Parse as ProbeLogEntry
 				var entry types.ProbeLogEntry
 				if err := json.Unmarshal([]byte(data), &entry); err != nil {
 					slog.Warn("Failed to parse probe log entry", "error", err, "data", data)
@@ -185,7 +184,6 @@ func (c *Client) readServerLogSSE(ctx context.Context, handler func(*types.Probe
 			if dataBuffer.Len() > 0 {
 				data := dataBuffer.String()
 
-				// Parse as ProbeLogEntry
 				var entry types.ProbeLogEntry
 				if err := json.Unmarshal([]byte(data), &entry); err != nil {
 					slog.Warn("Failed to parse server log entry", "error", err, "data", data)
