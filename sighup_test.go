@@ -63,8 +63,7 @@ func TestSIGHUPSignalHandling(t *testing.T) {
 	cmd := exec.Command("/tmp/trabbits-test", "run",
 		"--config", configFile.Name(),
 		"--api-socket", apiSocketPath,
-		"--port", "0", // Use random port
-		"--metrics-port", "0") // Use random metrics port
+		"--port", "0") // Use random port
 
 	// Capture stderr for debugging
 	stderr, err := cmd.StderrPipe()

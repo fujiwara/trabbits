@@ -4,15 +4,15 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/fujiwara/trabbits/metrics"
 )
 
 type MetricSlogHandler struct {
 	slog.Handler
-	logCounter *prometheus.CounterVec
+	logCounter *metrics.CounterVec
 }
 
-func NewMetricSlogHandler(base slog.Handler, logCounter *prometheus.CounterVec) slog.Handler {
+func NewMetricSlogHandler(base slog.Handler, logCounter *metrics.CounterVec) slog.Handler {
 	if logCounter != nil {
 		logCounter.WithLabelValues("INFO").Add(0)
 		logCounter.WithLabelValues("WARN").Add(0)

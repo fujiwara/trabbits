@@ -1,123 +1,170 @@
 package metrics
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"context"
+	"errors"
 
-// Metrics contains all Prometheus metrics for trabbits
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+)
+
+// Metrics contains all metrics for trabbits.
+// The values are held in memory and observed by OpenTelemetry observable
+// instruments at collection time. This allows call sites to update metrics
+// without a context.Context and to read current values back
+// (e.g. for least connection balancing).
 type Metrics struct {
-	ClientConnections      prometheus.Gauge
-	ClientTotalConnections prometheus.Counter
-	ClientConnectionErrors prometheus.Counter
+	ClientConnections      *Gauge
+	ClientTotalConnections *Counter
+	ClientConnectionErrors *Counter
 
-	ClientReceivedFrames prometheus.Counter
-	ClientSentFrames     prometheus.Counter
+	ClientReceivedFrames *Counter
+	ClientSentFrames     *Counter
 
-	UpstreamConnections      *prometheus.GaugeVec
-	UpstreamTotalConnections *prometheus.CounterVec
-	UpstreamConnectionErrors *prometheus.CounterVec
+	UpstreamConnections      *GaugeVec
+	UpstreamTotalConnections *CounterVec
+	UpstreamConnectionErrors *CounterVec
 
-	UpstreamHealthyNodes   *prometheus.GaugeVec
-	UpstreamUnhealthyNodes *prometheus.GaugeVec
+	UpstreamHealthyNodes   *GaugeVec
+	UpstreamUnhealthyNodes *GaugeVec
 
-	ProcessedMessages *prometheus.CounterVec
-	ErroredMessages   *prometheus.CounterVec
+	ProcessedMessages *CounterVec
+	ErroredMessages   *CounterVec
 
-	LoggerStats *prometheus.CounterVec
+	LoggerStats *CounterVec
 
-	PanicRecoveries *prometheus.CounterVec
+	PanicRecoveries *CounterVec
 }
 
-// NewMetrics creates a new Metrics instance with all metrics initialized
-func NewMetrics() *Metrics {
-	return &Metrics{
-		ClientConnections: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "trabbits_client_connections",
-			Help: "Number of client connections.",
-		}),
-		ClientTotalConnections: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_connections_total",
-			Help: "Total number of client connections.",
-		}),
-		ClientConnectionErrors: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_connection_errors_total",
-			Help: "Number of client connection errors.",
-		}),
+// NewMetrics creates a new Metrics instance and registers observable
+// instruments on the given meter.
+func NewMetrics(meter metric.Meter) (*Metrics, error) {
+	m := &Metrics{
+		ClientConnections:      &Gauge{},
+		ClientTotalConnections: &Counter{},
+		ClientConnectionErrors: &Counter{},
 
-		ClientReceivedFrames: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_received_frames_total",
-			Help: "Number of received frames from clients.",
-		}),
-		ClientSentFrames: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "trabbits_client_sent_frames_total",
-			Help: "Number of sent frames to clients.",
-		}),
+		ClientReceivedFrames: &Counter{},
+		ClientSentFrames:     &Counter{},
 
-		UpstreamConnections: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "trabbits_upstream_connections",
-			Help: "Number of upstream connections.",
-		}, []string{"addr"}),
-		UpstreamTotalConnections: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_upstream_connections_total",
-			Help: "Total number of upstream connections.",
-		}, []string{"addr"}),
-		UpstreamConnectionErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_upstream_connection_errors_total",
-			Help: "Number of upstream connection errors.",
-		}, []string{"addr"}),
+		UpstreamConnections:      newGaugeVec(),
+		UpstreamTotalConnections: newCounterVec(),
+		UpstreamConnectionErrors: newCounterVec(),
 
-		UpstreamHealthyNodes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "trabbits_upstream_healthy_nodes",
-			Help: "Number of healthy nodes in upstream cluster.",
-		}, []string{"upstream"}),
-		UpstreamUnhealthyNodes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "trabbits_upstream_unhealthy_nodes",
-			Help: "Number of unhealthy nodes in upstream cluster.",
-		}, []string{"upstream"}),
+		UpstreamHealthyNodes:   newGaugeVec(),
+		UpstreamUnhealthyNodes: newGaugeVec(),
 
-		ProcessedMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_processed_messages_total",
-			Help: "Number of processed messages by method.",
-		}, []string{"method"}),
-		ErroredMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_errored_messages_total",
-			Help: "Number of errored messages by method.",
-		}, []string{"method"}),
+		ProcessedMessages: newCounterVec(),
+		ErroredMessages:   newCounterVec(),
 
-		LoggerStats: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_logger_stats_total",
-			Help: "Number of logger stats by level.",
-		}, []string{"level"}),
+		LoggerStats: newCounterVec(),
 
-		PanicRecoveries: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "trabbits_panic_recoveries_total",
-			Help: "Number of panic recoveries by function.",
-		}, []string{"function"}),
+		PanicRecoveries: newCounterVec(),
 	}
-}
 
-// MustRegister registers all metrics with the given registry
-func (m *Metrics) MustRegister(reg prometheus.Registerer) {
-	reg.MustRegister(
-		m.ClientConnections,
-		m.ClientTotalConnections,
-		m.ClientConnectionErrors,
+	var errs []error
+	counter := func(name, desc string) metric.Int64ObservableCounter {
+		c, err := meter.Int64ObservableCounter(name, metric.WithDescription(desc))
+		errs = append(errs, err)
+		return c
+	}
+	upDownCounter := func(name, desc string) metric.Int64ObservableUpDownCounter {
+		c, err := meter.Int64ObservableUpDownCounter(name, metric.WithDescription(desc))
+		errs = append(errs, err)
+		return c
+	}
+	gauge := func(name, desc string) metric.Int64ObservableGauge {
+		g, err := meter.Int64ObservableGauge(name, metric.WithDescription(desc))
+		errs = append(errs, err)
+		return g
+	}
 
-		m.ClientReceivedFrames,
-		m.ClientSentFrames,
+	clientConnections := upDownCounter("trabbits_client_connections",
+		"Number of client connections.")
+	clientTotalConnections := counter("trabbits_client_connections_total",
+		"Total number of client connections.")
+	clientConnectionErrors := counter("trabbits_client_connection_errors_total",
+		"Number of client connection errors.")
 
-		m.UpstreamConnections,
-		m.UpstreamTotalConnections,
-		m.UpstreamConnectionErrors,
+	clientReceivedFrames := counter("trabbits_client_received_frames_total",
+		"Number of received frames from clients.")
+	clientSentFrames := counter("trabbits_client_sent_frames_total",
+		"Number of sent frames to clients.")
 
-		m.UpstreamHealthyNodes,
-		m.UpstreamUnhealthyNodes,
+	upstreamConnections := upDownCounter("trabbits_upstream_connections",
+		"Number of upstream connections.")
+	upstreamTotalConnections := counter("trabbits_upstream_connections_total",
+		"Total number of upstream connections.")
+	upstreamConnectionErrors := counter("trabbits_upstream_connection_errors_total",
+		"Number of upstream connection errors.")
 
-		m.ProcessedMessages,
-		m.ErroredMessages,
+	upstreamHealthyNodes := gauge("trabbits_upstream_healthy_nodes",
+		"Number of healthy nodes in upstream cluster.")
+	upstreamUnhealthyNodes := gauge("trabbits_upstream_unhealthy_nodes",
+		"Number of unhealthy nodes in upstream cluster.")
 
-		m.LoggerStats,
+	processedMessages := counter("trabbits_processed_messages_total",
+		"Number of processed messages by method.")
+	erroredMessages := counter("trabbits_errored_messages_total",
+		"Number of errored messages by method.")
 
-		m.PanicRecoveries,
+	loggerStats := counter("trabbits_logger_stats_total",
+		"Number of logger stats by level.")
+
+	panicRecoveries := counter("trabbits_panic_recoveries_total",
+		"Number of panic recoveries by function.")
+
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	observeVec := func(o metric.Observer, inst metric.Int64Observable, key string) func(string, int64) {
+		return func(lv string, v int64) {
+			o.ObserveInt64(inst, v, metric.WithAttributes(attribute.String(key, lv)))
+		}
+	}
+	_, err := meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		o.ObserveInt64(clientConnections, m.ClientConnections.load())
+		o.ObserveInt64(clientTotalConnections, m.ClientTotalConnections.load())
+		o.ObserveInt64(clientConnectionErrors, m.ClientConnectionErrors.load())
+
+		o.ObserveInt64(clientReceivedFrames, m.ClientReceivedFrames.load())
+		o.ObserveInt64(clientSentFrames, m.ClientSentFrames.load())
+
+		m.UpstreamConnections.each(observeVec(o, upstreamConnections, "addr"))
+		m.UpstreamTotalConnections.each(observeVec(o, upstreamTotalConnections, "addr"))
+		m.UpstreamConnectionErrors.each(observeVec(o, upstreamConnectionErrors, "addr"))
+
+		m.UpstreamHealthyNodes.each(observeVec(o, upstreamHealthyNodes, "upstream"))
+		m.UpstreamUnhealthyNodes.each(observeVec(o, upstreamUnhealthyNodes, "upstream"))
+
+		m.ProcessedMessages.each(observeVec(o, processedMessages, "method"))
+		m.ErroredMessages.each(observeVec(o, erroredMessages, "method"))
+
+		m.LoggerStats.each(observeVec(o, loggerStats, "level"))
+
+		m.PanicRecoveries.each(observeVec(o, panicRecoveries, "function"))
+		return nil
+	},
+		clientConnections,
+		clientTotalConnections,
+		clientConnectionErrors,
+		clientReceivedFrames,
+		clientSentFrames,
+		upstreamConnections,
+		upstreamTotalConnections,
+		upstreamConnectionErrors,
+		upstreamHealthyNodes,
+		upstreamUnhealthyNodes,
+		processedMessages,
+		erroredMessages,
+		loggerStats,
+		panicRecoveries,
 	)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // SetHealthyNodes sets the number of healthy nodes for an upstream

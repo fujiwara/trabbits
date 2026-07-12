@@ -21,7 +21,6 @@ import (
 	"github.com/fujiwara/trabbits/config"
 	metricsstore "github.com/fujiwara/trabbits/metrics"
 	"github.com/fujiwara/trabbits/pattern"
-	dto "github.com/prometheus/client_model/go"
 	rabbitmq "github.com/rabbitmq/amqp091-go"
 )
 
@@ -328,10 +327,7 @@ func (p *Proxy) sortNodesByLeastConnections(nodes []string) []string {
 
 	var nodeInfos []nodeInfo
 	for _, addr := range nodes {
-		metric := &dto.Metric{}
-		gauge := p.metrics.UpstreamConnections.WithLabelValues(addr)
-		gauge.Write(metric)
-		connections := int64(metric.GetGauge().GetValue())
+		connections := int64(p.metrics.UpstreamConnections.WithLabelValues(addr).Value())
 		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
 	}
 

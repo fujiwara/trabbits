@@ -35,6 +35,23 @@ type Config struct {
 	HandshakeTimeout       Duration         `yaml:"handshake_timeout,omitempty" json:"handshake_timeout,omitempty"`
 	ConnectionCloseTimeout Duration         `yaml:"connection_close_timeout,omitempty" json:"connection_close_timeout,omitempty"`
 	GracefulShutdown       GracefulShutdown `yaml:"graceful_shutdown,omitempty" json:"graceful_shutdown"`
+	Metrics                *Metrics         `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+}
+
+// Metrics configures OpenTelemetry metrics. Exporter selection and endpoint
+// come from standard OTEL_* environment variables, not from this struct.
+// These settings are applied at startup only; changing them requires a restart.
+type Metrics struct {
+	// Attributes are additional resource attributes attached to exported metrics.
+	Attributes map[string]string `yaml:"attributes,omitempty" json:"attributes,omitempty"`
+}
+
+// GetAttributes returns additional resource attributes. Safe to call on nil.
+func (m *Metrics) GetAttributes() map[string]string {
+	if m == nil {
+		return nil
+	}
+	return m.Attributes
 }
 
 // GracefulShutdown configures graceful shutdown behavior

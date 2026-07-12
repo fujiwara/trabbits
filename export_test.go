@@ -8,7 +8,6 @@ import (
 	"github.com/fujiwara/trabbits/amqp091"
 	"github.com/fujiwara/trabbits/config"
 	"github.com/fujiwara/trabbits/pattern"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
@@ -46,10 +45,6 @@ type Delivery = delivery
 
 func init() {
 	FrameMax = 256 // for testing
-}
-
-func GetMetricsRegistry() *prometheus.Registry {
-	return prometheus.NewRegistry()
 }
 
 // Test-only method for setting proxy config hash

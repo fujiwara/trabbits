@@ -50,7 +50,7 @@ Your clients can connect to trabbits and send and receive messages without knowi
 - Health checking for cluster nodes with automatic node isolation and recovery
 - Routing publishing messages to different upstreams based on the routing key
 - Consuming messages from multiple upstreams
-- Prometheus exporter for monitoring
+- OpenTelemetry metrics export (OTLP)
 - Dynamic configuration reloading
 - CLI and API for managing configuration
 
@@ -72,7 +72,6 @@ Flags:
   -h, --help                    Show context-sensitive help.
       --config="config.json"    Path to the configuration file ($TRABBITS_CONFIG).
       --port=6672               Port to listen on ($TRABBITS_PORT).
-      --metrics-port=16692      Port to listen on for metrics ($TRABBITS_METRICS_PORT)
       --api-socket="/tmp/trabbits.sock"
                                 Path to the API socket ($TRABBITS_API_SOCKET).
       --debug                   Enable debug mode ($DEBUG).
@@ -206,7 +205,7 @@ For cluster upstreams with health checking enabled:
 2. **Node Isolation**: Mark nodes as unhealthy after consecutive failures exceed the threshold
 3. **Automatic Recovery**: Periodically check unhealthy nodes and restore them when they recover
 4. **Graceful Degradation**: Fall back to all nodes if no healthy nodes are available
-5. **Metrics Export**: Expose healthy/unhealthy node counts via Prometheus metrics
+5. **Metrics Export**: Expose healthy/unhealthy node counts via OpenTelemetry metrics
 
 Health checks use simple AMQP connection attempts with immediate disconnection to minimize overhead.
 
@@ -400,13 +399,42 @@ The generated queue by trabbis is not a temporary queue on the upstream RabbitMQ
 
 trabbits will delete the queue when the connection that declared the queue is closed (=exclusive).
 
-## Monitoring server
+## Metrics (OpenTelemetry)
 
-trabbits provides a monitoring server that exposes metrics about the proxy server. You can access the metrics at `http://localhost:16692/metrics`.
+trabbits exports metrics about the proxy server via OpenTelemetry (OTLP push). All metric names are prefixed with `trabbits_` (e.g. `trabbits_client_connections`, `trabbits_processed_messages_total`).
 
-These metrics format is compatible with Prometheus.
+The exporter is configured with standard `OTEL_*` environment variables. When none of them are set, metrics are not exported.
 
-The monitoring server is enabled by default and listens on port 16692. You can change the port by using the `--metrics-port` option.
+| Environment variable | Description |
+|---|---|
+| `OTEL_METRICS_EXPORTER` | `otlp`, `console` or `none`. Defaults to `otlp` when an OTLP endpoint is set, otherwise `none`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | OTLP endpoint (e.g. `http://localhost:4318`) |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` / `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | `http/protobuf` (default) or `grpc` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Export interval in milliseconds (default: 60000) |
+| `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES` | Resource attributes (`service.name` defaults to `trabbits`) |
+
+Other standard OTLP exporter environment variables (headers, TLS, timeout, etc.) are supported as well.
+
+```console
+$ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 trabbits run --config config.json
+```
+
+### Custom resource attributes
+
+You can add custom resource attributes to exported metrics in the configuration file:
+
+```json
+{
+  "metrics": {
+    "attributes": {
+      "env": "production",
+      "region": "ap-northeast-1"
+    }
+  }
+}
+```
+
+These attributes are applied at startup only. Changing them requires a restart; dynamic configuration reloading does not reapply them.
 
 
 ## API Server
@@ -915,7 +943,7 @@ This feature is useful for deploying a new version without downtime. You can sta
 
 ### Note
 
-The `--metrics-port` and `--api-socket` options must be different for each instance because they are individual for each instance.
+The `--api-socket` option must be different for each instance because it is individual for each instance.
 
 ## License
 

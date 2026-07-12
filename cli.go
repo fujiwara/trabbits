@@ -20,10 +20,9 @@ type CLI struct {
 	Manage *ManageOptions `cmd:"" help:"Manage the trabbits server."`
 	Test   *TestOptions   `cmd:"" help:"Test utilities for trabbits."`
 
-	Config      string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
-	Port        int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
-	MetricsPort int    `help:"Port to listen on for metrics" default:"16692" env:"TRABBITS_METRICS_PORT"`
-	APISocket   string `help:"Path to the API socket." default:"/tmp/trabbits.sock" env:"TRABBITS_API_SOCKET"`
+	Config    string `help:"Path to the configuration file." default:"config.json" env:"TRABBITS_CONFIG"`
+	Port      int    `help:"Port to listen on." default:"6672" env:"TRABBITS_PORT"`
+	APISocket string `help:"Path to the API socket." default:"/tmp/trabbits.sock" env:"TRABBITS_API_SOCKET"`
 
 	Debug       bool             `help:"Enable debug mode." env:"DEBUG"`
 	EnablePprof bool             `help:"Enable pprof." env:"ENABLE_PPROF"`
@@ -84,9 +83,7 @@ func Run(ctx context.Context) error {
 
 func setupLogger(level slog.Level) {
 	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-	// Use nil for LoggerStats during CLI setup - metrics will be available after server creation
-	mh := NewMetricSlogHandler(h, nil)
-	slog.SetDefault(slog.New(mh))
+	slog.SetDefault(slog.New(h))
 }
 
 type ManageOptions struct {
