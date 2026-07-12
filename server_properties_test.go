@@ -9,6 +9,9 @@ import (
 
 func TestServerProperties(t *testing.T) {
 	t.Parallel()
+	if !testViaTrabbits {
+		t.Skip("Skipping: connected to real RabbitMQ, not trabbits")
+	}
 	conn := mustTestConn(t)
 	defer conn.Close()
 
