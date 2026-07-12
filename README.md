@@ -10,7 +10,36 @@ trabbits is a proxy server for sending and receiving messages using the AMQP pro
 
 trabbits can have multiple upstreams, which can be single RabbitMQ servers or RabbitMQ clusters that it connects to. It can also route messages to different upstreams based on the routing key.
 
-## Propose of this project
+## Table of Contents
+
+- [Purpose of this project](#purpose-of-this-project)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Limitations](#limitations)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Setting Log Level](#setting-log-level)
+- [Configuration](#configuration)
+  - [Upstreams section](#upstreams-section)
+  - [Cluster Connection Behavior](#cluster-connection-behavior)
+  - [Health Check Behavior](#health-check-behavior)
+  - [Routing Algorithm](#routing-algorithm)
+  - [Global Configuration Options](#global-configuration-options)
+  - [Configuration File Formats](#configuration-file-formats)
+  - [Environment Variable Expansion](#environment-variable-expansion)
+- [Supported Methods](#supported-methods)
+- [Server-named queues emulation](#server-named-queues-emulation)
+- [Metrics (OpenTelemetry)](#metrics-opentelemetry)
+- [API Server](#api-server)
+  - [Configuration API / CLI](#configuration-api--cli)
+  - [Clients API](#clients-api)
+- [Test utilities](#test-utilities)
+- [Support for multiple instances](#support-for-multiple-instances)
+- [License](#license)
+- [Contributing](#contributing)
+- [Copyright](#copyright)
+
+## Purpose of this project
 
 trabbits is helpful for migrating from one RabbitMQ server to another. You can use trabbits to proxy messages from the old RabbitMQ server to the new RabbitMQ server. This allows you to migrate your RabbitMQ server without any downtime.
 
@@ -98,6 +127,14 @@ trabbits run --config config.json
 ```
 
 By default, trabbits listens on port 6672 and connects to an upstream RabbitMQ server.
+
+### Setting Log Level
+
+By default, the log level is set to info. You can change the log level to debug by setting the `DEBUG` environment variable to `true`.
+
+```sh
+DEBUG=true trabbits run
+```
 
 ## Configuration
 
@@ -260,15 +297,15 @@ Example configuration for large-scale deployments:
 }
 ```
 
-## Configuration File Formats
+### Configuration File Formats
 
 trabbits supports two configuration file formats:
 
-### JSON Configuration
+#### JSON Configuration
 
 Standard JSON format configuration files are supported with environment variable expansion using the `${VAR}` syntax.
 
-### Jsonnet Configuration
+#### Jsonnet Configuration
 
 trabbits also supports [Jsonnet](https://jsonnet.org/) configuration files (`.jsonnet` extension), which provides:
 - Dynamic configuration generation
@@ -277,7 +314,7 @@ trabbits also supports [Jsonnet](https://jsonnet.org/) configuration files (`.js
 - Environment variable access via `std.native('env')`
 - Additional utility functions from [jsonnet-armed](https://github.com/fujiwara/jsonnet-armed) such as file reading, JSON/YAML parsing, and more
 
-#### Jsonnet Example
+Example:
 
 ```jsonnet
 local env = std.native('env');
@@ -311,11 +348,11 @@ export RABBITMQ_HEALTH_PASS=secretpassword
 trabbits run --config config.jsonnet
 ```
 
-## Environment Variable Expansion
+### Environment Variable Expansion
 
 For JSON configuration files, trabbits supports environment variable expansion using the `${VAR}` syntax. This is particularly useful for sensitive information like passwords that should not be stored in plain text in configuration files.
 
-### Example
+#### Example
 
 Instead of storing credentials directly in the configuration file:
 
@@ -350,21 +387,13 @@ export RABBITMQ_HEALTH_PASS=secretpassword
 trabbits run --config config.json
 ```
 
-### Notes
+#### Notes
 
 - If an environment variable is not set, it expands to an empty string in JSON files
 - For Jsonnet files, use `std.native('env')` function with default values
 - Environment variable expansion works for any string field in the configuration
 - Variable names are case-sensitive
 - Use double quotes around the `${VAR}` syntax in JSON
-
-## Setting Log Level
-
-By default, the log level is set to info. You can change the log level to debug by setting the `DEBUG` environment variable to `true`.
-
-```sh
-DEBUG=true trabbits run
-```
 
 ## Supported Methods
 
@@ -475,89 +504,6 @@ Commands:
   tui                      Interactive terminal interface for managing clients
 ```
 
-#### Interactive Client Management (TUI)
-
-For interactive client management, trabbits provides a modern Terminal User Interface built with Bubble Tea:
-
-```console
-$ trabbits manage clients tui
-```
-
-The TUI provides a real-time, top-like interface with the following features:
-
-**Main Interface:**
-- **Fixed Header**: Server statistics (active clients, total clients, last update time) always visible at top
-- **Client List**: Scrollable table showing connected clients with key information:
-  - Client ID (shortened for display)
-  - Username and Virtual Host
-  - Client address
-  - Connection status (active/shutting_down)
-  - Connected time (relative)
-  - Method and frame statistics
-- **Real-time Updates**: All information refreshes automatically every 2 seconds
-- **Pagination**: Handles large numbers of clients with proper scrolling and pagination indicators
-
-**Navigation:**
-- `↑↓` or `k/j`: Navigate through client list
-- `Page Up/Down`: Jump by pages for large client lists
-- `Home/End`: Jump to first/last client
-- `Enter`: View detailed client information
-- `p`: Start probe log streaming for selected client
-- `l`: View server logs (dedicated full-screen view)
-- `Shift+K`: Shutdown selected client (with confirmation)
-- `r`: Force refresh
-- `q`: Quit
-
-**Client Detail View:**
-- Complete client information including properties and capabilities
-- Method-level statistics breakdown showing usage patterns
-- Frame counters and connection duration
-- Scrollable content for clients with many properties
-- `p`: Start probe log streaming for current client
-- `Shift+K`: Shutdown client directly from detail view
-- Real-time updates of statistics and status
-
-**Probe Log View:**
-- Real-time streaming of AMQP protocol events for selected client
-- Shows method calls with structured attributes in JSON format (routing keys, message properties, etc.)
-- Scrollable log viewer with auto-scroll behavior
-- Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
-- Auto-scroll control: `SPACE` to toggle auto-scroll on/off
-  - Auto-scroll automatically disables when scrolling up to view older logs
-  - Press `SPACE` or `End` to re-enable auto-scroll and jump to latest logs
-  - Current auto-scroll status displayed in help text
-- Save logs to file: `s` to open save dialog
-  - Default filename format: `{client-id}-{timestamp}.log`
-  - Edit file path with `e` key (supports full text editing with cursor navigation)
-  - Logs saved in JSON Lines format for easy processing
-  - ENTER to save, ESC/n to cancel
-- `q/Esc`: Return to main client list
-
-**Server Logs View:**
-- Dedicated full-screen view for reviewing server logs
-- Shows all recent server logs (last 100 entries) with structured attributes in JSON format
-- Scrollable viewer with full navigation support
-- Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
-- Each log entry shows timestamp, level (INFO/DEBUG/ERROR), message, and attributes
-- Useful for monitoring server health and debugging issues
-- `q/Esc`: Return to main client list
-
-**Client Shutdown:**
-- Confirmation dialog showing client details before shutdown
-- Optional reason (defaults to "TUI shutdown")
-- Immediate feedback on success/failure
-- Graceful disconnection with proper AMQP close protocol
-
-**Benefits:**
-- **No Terminal Disruption**: Unlike `curl` commands, the TUI doesn't clutter your terminal with JSON output
-- **Real-time Monitoring**: See client connections, disconnections, and activity as it happens
-- **Live Protocol Inspection**: Stream real-time AMQP protocol events and method calls for debugging
-- **Server Log Integration**: View server logs directly in TUI for comprehensive monitoring
-- **Log Persistence**: Save probe logs to file for offline analysis and troubleshooting
-- **Efficient Navigation**: Quickly browse through many clients without manual ID copying
-- **Comprehensive Information**: All client details in an easy-to-read format
-- **Safe Operations**: Confirmation dialogs prevent accidental shutdowns
-
 #### Configuration Versioning and Graceful Disconnection
 
 When a new configuration is loaded (via API PUT request or SIGHUP signal), trabbits implements a graceful proxy management system:
@@ -577,10 +523,6 @@ You can use `curl` to access the API server. The API server listens on the unix 
 ```console
 $ curl --unix-socket /tmp/trabbits.sock http://localhost/config
 ```
-
-#### Note
-
-Reloading the configuration will not affect the existing connections. The new configuration will be applied to new connections only.
 
 #### Get the current configuration
 
@@ -623,6 +565,26 @@ You can diff the current configuration and a new configuration using trabbits cl
 $ trabbits manage config diff new_config.json
 ```
 
+Example output:
+
+```diff
+--- current
++++ new
+@@ -7,10 +7,10 @@
+     },
+     {
+       "address": "localhost:5673",
++      "address": "localhost:5674",
+       "routing": {
+         "key_patterns": [
+-          "#"
++          "test.queue.example.*"
+         ]
+       },
+       "queue_attributes": {
+```
+
+
 #### Reload the configuration
 
 You can reload the configuration from the original configuration file using trabbits cli.
@@ -632,6 +594,31 @@ $ trabbits manage config reload
 ```
 
 This command reloads the configuration from the file specified by `--config` option (default: `config.json`).
+
+#### Reload configuration with SIGHUP
+
+You can also reload the configuration by sending a SIGHUP signal to the trabbits process.
+
+For better reliability, use a PID file to ensure you target the correct process:
+
+```console
+$ trabbits run --pid-file /var/run/trabbits.pid --config config.json
+$ kill -HUP $(cat /var/run/trabbits.pid)
+```
+
+Alternatively, you can use process discovery (less reliable):
+
+```console
+$ kill -HUP $(pidof trabbits)
+```
+
+or
+
+```console
+$ pkill -HUP trabbits
+```
+
+This will reload the configuration from the original configuration file specified when trabbits was started.
 
 ### Clients API
 
@@ -855,50 +842,92 @@ Probe logs capture all major AMQP method calls with structured attributes:
 - For disconnected proxies, the API returns all buffered logs and immediately ends the stream with `{"type":"proxy_ended","status":"disconnected"}`
 - Use Ctrl+C to stop CLI streaming; the connection will be gracefully closed
 
-#### Reload configuration with SIGHUP
+#### Interactive Client Management (TUI)
 
-You can also reload the configuration by sending a SIGHUP signal to the trabbits process.
-
-For better reliability, use a PID file to ensure you target the correct process:
+For interactive client management, trabbits provides a modern Terminal User Interface built with Bubble Tea:
 
 ```console
-$ trabbits run --pid-file /var/run/trabbits.pid --config config.json
-$ kill -HUP $(cat /var/run/trabbits.pid)
+$ trabbits manage clients tui
 ```
 
-Alternatively, you can use process discovery (less reliable):
+The TUI provides a real-time, top-like interface with the following features:
 
-```console
-$ kill -HUP $(pidof trabbits)
-```
+**Main Interface:**
+- **Fixed Header**: Server statistics (active clients, total clients, last update time) always visible at top
+- **Client List**: Scrollable table showing connected clients with key information:
+  - Client ID (shortened for display)
+  - Username and Virtual Host
+  - Client address
+  - Connection status (active/shutting_down)
+  - Connected time (relative)
+  - Method and frame statistics
+- **Real-time Updates**: All information refreshes automatically every 2 seconds
+- **Pagination**: Handles large numbers of clients with proper scrolling and pagination indicators
 
-or
+**Navigation:**
+- `↑↓` or `k/j`: Navigate through client list
+- `Page Up/Down`: Jump by pages for large client lists
+- `Home/End`: Jump to first/last client
+- `Enter`: View detailed client information
+- `p`: Start probe log streaming for selected client
+- `l`: View server logs (dedicated full-screen view)
+- `Shift+K`: Shutdown selected client (with confirmation)
+- `r`: Force refresh
+- `q`: Quit
 
-```console
-$ pkill -HUP trabbits
-```
+**Client Detail View:**
+- Complete client information including properties and capabilities
+- Method-level statistics breakdown showing usage patterns
+- Frame counters and connection duration
+- Scrollable content for clients with many properties
+- `p`: Start probe log streaming for current client
+- `Shift+K`: Shutdown client directly from detail view
+- Real-time updates of statistics and status
 
-This will reload the configuration from the original configuration file specified when trabbits was started.
-```diff
---- http://localhost:16692/config
-+++ new_config.json
-@@ -7,10 +7,10 @@
-     },
-     {
-       "address": "localhost:5673",
-+      "address": "localhost:5674",
-       "routing": {
-         "key_patterns": [
--          "#"
-+          "test.queue.example.*"
-         ]
-       },
-       "queue_attributes": {
-```
+**Probe Log View:**
+- Real-time streaming of AMQP protocol events for selected client
+- Shows method calls with structured attributes in JSON format (routing keys, message properties, etc.)
+- Scrollable log viewer with auto-scroll behavior
+- Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
+- Auto-scroll control: `SPACE` to toggle auto-scroll on/off
+  - Auto-scroll automatically disables when scrolling up to view older logs
+  - Press `SPACE` or `End` to re-enable auto-scroll and jump to latest logs
+  - Current auto-scroll status displayed in help text
+- Save logs to file: `s` to open save dialog
+  - Default filename format: `{client-id}-{timestamp}.log`
+  - Edit file path with `e` key (supports full text editing with cursor navigation)
+  - Logs saved in JSON Lines format for easy processing
+  - ENTER to save, ESC/n to cancel
+- `q/Esc`: Return to main client list
 
-### Test utilities
+**Server Logs View:**
+- Dedicated full-screen view for reviewing server logs
+- Shows all recent server logs (last 100 entries) with structured attributes in JSON format
+- Scrollable viewer with full navigation support
+- Navigation controls: `↑↓/kj` to scroll, `Home/End` to jump, `PgUp/PgDn` for page navigation
+- Each log entry shows timestamp, level (INFO/DEBUG/ERROR), message, and attributes
+- Useful for monitoring server health and debugging issues
+- `q/Esc`: Return to main client list
 
-#### Test routing pattern matching
+**Client Shutdown:**
+- Confirmation dialog showing client details before shutdown
+- Optional reason (defaults to "TUI shutdown")
+- Immediate feedback on success/failure
+- Graceful disconnection with proper AMQP close protocol
+
+**Benefits:**
+- **No Terminal Disruption**: Unlike `curl` commands, the TUI doesn't clutter your terminal with JSON output
+- **Real-time Monitoring**: See client connections, disconnections, and activity as it happens
+- **Live Protocol Inspection**: Stream real-time AMQP protocol events and method calls for debugging
+- **Server Log Integration**: View server logs directly in TUI for comprehensive monitoring
+- **Log Persistence**: Save probe logs to file for offline analysis and troubleshooting
+- **Efficient Navigation**: Quickly browse through many clients without manual ID copying
+- **Comprehensive Information**: All client details in an easy-to-read format
+- **Safe Operations**: Confirmation dialogs prevent accidental shutdowns
+
+## Test utilities
+
+### Test routing pattern matching
 
 The `test match-routing` command allows you to test whether a routing key matches a given binding pattern. This is useful for debugging routing rules before applying them in your configuration.
 
@@ -944,6 +973,46 @@ This feature is useful for deploying a new version without downtime. You can sta
 ### Note
 
 The `--api-socket` option must be different for each instance because it is individual for each instance.
+
+### Example: zero-downtime restart with systemd
+
+You can run multiple instances as a systemd template unit:
+
+```ini
+# /etc/systemd/system/trabbits@.service
+[Unit]
+Description=trabbits AMQP proxy (instance %i)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/trabbits run --config /etc/trabbits/config.json
+Environment=TRABBITS_API_SOCKET=%t/trabbits-%i.sock
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+# Must be longer than graceful_shutdown.shutdown_timeout plus the time
+# to disconnect all clients at the rate limit.
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Run two (or more) instances:
+
+```console
+$ systemctl enable --now trabbits@1 trabbits@2
+```
+
+To replace the binary or restart without downtime, restart the instances one by one:
+
+```console
+$ systemctl restart trabbits@1
+$ systemctl restart trabbits@2
+```
+
+While one instance is restarting, the others keep accepting new connections on the same port. Clients connected to the restarting instance are disconnected gracefully (`Connection.Close` with error code 320 connection-forced) at the configured rate limit, so they should implement automatic reconnection; reconnecting clients are distributed to the remaining instances by the kernel.
+
+Do not restart all instances at once — that would leave a moment with no listener on the port.
 
 ## License
 
