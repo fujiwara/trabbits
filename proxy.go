@@ -46,16 +46,16 @@ type Proxy struct {
 
 	confirmStates map[uint16]*confirmState // channel ID -> confirm state for publisher confirms
 
-	configHash         string                // hash of config used for this proxy
-	upstreamDisconnect chan string           // channel to notify upstream disconnection
-	shutdownMessage    string                // message to send when shutting down
-	connectedAt        time.Time             // timestamp when the client connected
-	stats              *ProxyStats           // statistics for this proxy
-	probeChan          chan probeLog         // channel to send probe logs
-	probeLogBuffer     *ProbeLogBuffer       // buffer to store probe logs for retention
-	metrics            *metricsstore.Metrics // metrics instance for this proxy
-	tuned              tuned                 // negotiated parameters
-	heartbeatTimer     *time.Timer           // timer for heartbeat
+	configHash         string // hash of config used for this proxy
+	upstreamDisconnect chan string
+	shutdownMessage    string
+	connectedAt        time.Time
+	stats              *ProxyStats
+	probeChan          chan probeLog
+	probeLogBuffer     *ProbeLogBuffer // buffer to store probe logs for retention
+	metrics            *metricsstore.Metrics
+	tuned              tuned // negotiated parameters
+	heartbeatTimer     *time.Timer
 }
 
 type tuned struct {
@@ -82,7 +82,6 @@ func (p *Proxy) probeLog(message string, attrs ...any) {
 		attrs:     attrs, // Store as slice without conversion
 	}
 
-	// Store in buffer for retention
 	if p.probeLogBuffer != nil {
 		p.probeLogBuffer.Add(log)
 	}
@@ -94,11 +93,10 @@ func (p *Proxy) probeLog(message string, attrs ...any) {
 
 	select {
 	case p.probeChan <- log:
-		// Successfully sent
 	default:
 		// Channel is full, discard one old log and try to send the new one
 		select {
-		case <-p.probeChan: // Remove oldest log
+		case <-p.probeChan:
 		default:
 		}
 		// Try to send new log, but don't block if still full (race condition with other goroutines)
@@ -227,7 +225,6 @@ func (p *Proxy) MonitorUpstreamConnection(ctx context.Context, upstream *Upstrea
 				"upstream", upstream.String(),
 				"address", upstream.address)
 		}
-		// Notify proxy about the disconnection
 		select {
 		case p.upstreamDisconnect <- upstream.String():
 		default:
@@ -265,10 +262,8 @@ func (p *Proxy) connectToUpstreamServer(addr string, props amqp091.Table, timeou
 		Path:   p.VirtualHost,
 	}
 	p.probeLog("t->u connect", "url", safeURLString(*u))
-	// Copy all client properties and override specific ones
 	upstreamProps := rabbitmq.Table{}
 	maps.Copy(upstreamProps, props)
-	// overwrite product property to include trabbits and client address
 	upstreamProps["product"] = fmt.Sprintf("%s (%s) via trabbits/%s", props["product"], p.ClientAddr(), Version)
 
 	cfg := rabbitmq.Config{
@@ -294,10 +289,8 @@ func (p *Proxy) connectToUpstreamServers(upstreamName string, addrs []string, pr
 		nodesToTry = addrs
 	}
 
-	// Sort nodes using least connection algorithm
 	nodesToTry = p.sortNodesByLeastConnections(nodesToTry)
 
-	// Try to connect to each node
 	for _, addr := range nodesToTry {
 		conn, err := p.connectToUpstreamServer(addr, props, timeout)
 		if err == nil {
@@ -331,15 +324,13 @@ func (p *Proxy) sortNodesByLeastConnections(nodes []string) []string {
 		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
 	}
 
-	// Sort by connection count, then shuffle nodes with same connection count
 	sort.Slice(nodeInfos, func(i, j int) bool {
 		if nodeInfos[i].connections == nodeInfos[j].connections {
-			return rand.IntN(2) == 0 // Random order for nodes with same connection count
+			return rand.IntN(2) == 0
 		}
 		return nodeInfos[i].connections < nodeInfos[j].connections
 	})
 
-	// Create result slice with sorted addresses
 	result := make([]string, len(nodeInfos))
 	for i, info := range nodeInfos {
 		result[i] = info.addr
@@ -360,7 +351,6 @@ func (p *Proxy) ConnectToUpstreams(ctx context.Context, upstreamConfigs []config
 		us := p.newUpstream(conn, conf, addr)
 		p.upstreams = append(p.upstreams, us)
 
-		// Start monitoring the upstream connection
 		go p.MonitorUpstreamConnection(ctx, us)
 	}
 	return nil
@@ -386,7 +376,6 @@ func serverProperties() amqp091.Table {
 }
 
 func (p *Proxy) handshake(_ context.Context) error {
-	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
 		VersionMajor:     0,
 		VersionMinor:     9,
@@ -398,7 +387,6 @@ func (p *Proxy) handshake(_ context.Context) error {
 		return fmt.Errorf("failed to write Connection.Start: %w", err)
 	}
 
-	// Connection.Start-Ok 受信（認証情報含む）
 	startOk := amqp091.ConnectionStartOk{}
 	_, err := p.recvWithTimeout(0, &startOk, p.handshakeTimeout)
 	if err != nil {
@@ -425,7 +413,6 @@ func (p *Proxy) handshake(_ context.Context) error {
 		return fmt.Errorf("unsupported auth mechanism: %s", auth)
 	}
 
-	// Connection.Tune 送信
 	tune := &amqp091.ConnectionTune{
 		ChannelMax: ChannelMax,
 		FrameMax:   FrameMax,
@@ -435,7 +422,6 @@ func (p *Proxy) handshake(_ context.Context) error {
 		return fmt.Errorf("failed to write Connection.Tune: %w", err)
 	}
 
-	// Connection.Tune-Ok 受信
 	tuneOk := amqp091.ConnectionTuneOk{}
 	_, err = p.recvWithTimeout(0, &tuneOk, p.handshakeTimeout)
 	if err != nil {
@@ -451,7 +437,6 @@ func (p *Proxy) handshake(_ context.Context) error {
 	// If heartbeat is 0, heartbeat is disabled
 	p.tuned.heartbeat = tuneOk.Heartbeat
 
-	// Connection.Open 受信
 	open := amqp091.ConnectionOpen{}
 	_, err = p.recvWithTimeout(0, &open, p.handshakeTimeout)
 	if err != nil {
@@ -460,7 +445,6 @@ func (p *Proxy) handshake(_ context.Context) error {
 	p.VirtualHost = open.VirtualHost
 	p.probeLog("c->t Connection.Open", "vhost", p.VirtualHost)
 
-	// Connection.Open-Ok 送信
 	openOk := &amqp091.ConnectionOpenOk{}
 	if err := p.send(0, openOk); err != nil {
 		return fmt.Errorf("failed to write Connection.Open-Ok: %w", err)
@@ -513,9 +497,7 @@ func (p *Proxy) runHeartbeat(ctx context.Context) {
 				p.shutdown(ctx)
 				return
 			}
-			// Count heartbeat frame
 			p.stats.IncrementSentFrames()
-			// Reset timer for next heartbeat after this send
 			p.heartbeatTimer.Reset(interval)
 			p.mu.Unlock()
 		}
@@ -535,12 +517,10 @@ func (p *Proxy) getShutdownMessage() string {
 }
 
 func (p *Proxy) shutdown(ctx context.Context) error {
-	// If no connection, shutdown is immediate
 	if p.conn == nil {
 		return nil
 	}
 
-	// Connection.Close 送信
 	close := &amqp091.ConnectionClose{
 		ReplyCode: 200,
 		ReplyText: p.getShutdownMessage(),
@@ -548,7 +528,6 @@ func (p *Proxy) shutdown(ctx context.Context) error {
 	if err := p.send(0, close); err != nil {
 		return fmt.Errorf("failed to write Connection.Close: %w", err)
 	}
-	// Connection.Close-Ok 受信
 	msg := amqp091.ConnectionCloseOk{}
 	_, err := p.recv(0, &msg)
 	if err != nil {
@@ -594,7 +573,6 @@ func (p *Proxy) process(ctx context.Context) error {
 		return fmt.Errorf("failed to read frame: %w", err)
 	}
 
-	// Update frame statistics
 	p.stats.IncrementReceivedFrames()
 	p.metrics.ClientReceivedFrames.Inc()
 
@@ -627,11 +605,10 @@ func (p *Proxy) dispatchN(ctx context.Context, frame amqp091.Frame) error {
 			if err != nil {
 				return NewError(amqp091.FrameError, fmt.Sprintf("failed to read frames: %s", err))
 			}
-			f.Method = m // replace method with message
+			f.Method = m
 		}
 		methodName := amqp091.TypeName(f.Method)
 		p.metrics.ProcessedMessages.WithLabelValues(methodName).Inc()
-		// Update proxy-specific statistics
 		p.stats.IncrementMethod(methodName)
 		p.probeLog("c->t method", "channel", f.Channel(), "type", methodName)
 		switch m := f.Method.(type) {
@@ -778,7 +755,6 @@ func (p *Proxy) recvWithTimeout(channel int, m amqp091.Message, timeout time.Dur
 			p.probeLog("c->t heartbeat received")
 			// nothing to do
 		case *amqp091.HeaderFrame:
-			// start content state
 			header = f
 			remaining = int(header.Size)
 			if remaining == 0 {
@@ -787,7 +763,6 @@ func (p *Proxy) recvWithTimeout(channel int, m amqp091.Message, timeout time.Dur
 			}
 
 		case *amqp091.BodyFrame:
-			// continue until terminated
 			body = append(body, f.Body...)
 			remaining -= len(f.Body)
 			if remaining <= 0 {

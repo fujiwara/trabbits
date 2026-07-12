@@ -53,28 +53,20 @@ func Run(ctx context.Context) error {
 
 	switch k.Command() {
 	case "run":
-		// Run the server
 		return run(ctx, &cli)
 	case "manage config <command>", "manage config <command> <file>":
-		// Manage the server
 		return manageConfig(ctx, &cli)
 	case "manage clients list":
-		// Get clients information
 		return manageClients(ctx, &cli)
 	case "manage clients tui":
-		// Interactive TUI for managing clients
 		return runTUI(ctx, &cli)
 	case "manage clients shutdown <proxy-id>":
-		// Shutdown a specific proxy
 		return manageClientShutdown(ctx, &cli)
 	case "manage clients info <proxy-id>":
-		// Get detailed information for a specific proxy
 		return manageClientInfo(ctx, &cli)
 	case "manage clients probe <proxy-id>":
-		// Stream real-time probe logs for a specific proxy
 		return manageClientProbe(ctx, &cli)
 	case "test match-routing <pattern> <key>":
-		// Test routing pattern matching
 		return testMatchRouting(ctx, &cli)
 	default:
 		return fmt.Errorf("unknown command: %s", k.Command())

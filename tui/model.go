@@ -81,7 +81,7 @@ type probeState struct {
 	clientID       string
 	logs           []probeLogEntry
 	scroll         int
-	selectedIdx    int // Currently selected log index
+	selectedIdx    int
 	cancelFunc     context.CancelFunc
 	ctx            context.Context
 	logChan        <-chan ProbeLogEntry
@@ -173,7 +173,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			total = clamp(total, 0, total) // no-op, placeholder for clarity
 			m.serverLogsSelectedIdx = clamp(m.serverLogsSelectedIdx, 0, clamp(total-1, -1, total-1))
 			m.serverLogsScroll = clampScrollToContain(m.serverLogsScroll, m.serverLogsSelectedIdx, visible, total)
-			// Ensure bounds when there are no logs
 			if total == 0 {
 				m.serverLogsSelectedIdx = 0
 				m.serverLogsScroll = 0
@@ -192,10 +191,8 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyPress(msg)
 
 	case tickMsg:
-		// Always fetch clients list on every tick (every 2 seconds)
 		cmds := []tea.Cmd{m.fetchClients(), tick()}
 
-		// If in detail view, also fetch updated client detail
 		if m.viewMode == ViewDetail && m.clientDetail != nil {
 			cmds = append(cmds, m.fetchClientDetail(m.clientDetail.ID))
 		}
@@ -214,7 +211,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sort.SliceStable(m.clients, func(i, j int) bool {
 			ci, cj := m.clients[i], m.clients[j]
 
-			// Active clients come before closed clients
 			if ci.Status == "active" && cj.Status != "active" {
 				return true
 			}
@@ -222,22 +218,18 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return false
 			}
 
-			// Among active clients, older connections first
 			if ci.Status == "active" && cj.Status == "active" {
 				return ci.ConnectedAt.Before(cj.ConnectedAt)
 			}
 
-			// Among closed clients, newer disconnections first (most recently closed)
 			if ci.Status == "disconnected" && cj.Status == "disconnected" {
 				return ci.DisconnectedAt.After(cj.DisconnectedAt)
 			}
 
-			// Default: maintain order
 			return false
 		})
 
 		m.lastUpdate = time.Now()
-		// Try to restore selection to the same client ID
 		if prevSelectedID != "" {
 			restored := false
 			for i, c := range m.clients {
@@ -253,7 +245,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if len(m.clients) > 0 && m.selectedIdx >= len(m.clients) {
 			m.selectedIdx = len(m.clients) - 1
 		}
-		// Ensure selection remains visible and scroll stays in bounds
 		m.adjustScrollForSelection()
 		return m, nil
 
@@ -274,7 +265,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case successMsg:
 		m.successMsg = string(msg)
 		m.successTime = time.Now()
-		// If we were in save confirm view, return to previous view
 		if m.viewMode == ViewSaveConfirm && m.saveState != nil {
 			m.viewMode = m.saveState.previousView
 			m.saveState = nil
@@ -289,10 +279,8 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.probeState.logs) > probeLogKeep {
 				m.probeState.logs = m.probeState.logs[len(m.probeState.logs)-probeLogKeep:]
 			}
-			// Auto-scroll to bottom only if auto-scroll is enabled
 			if m.probeState.autoScroll {
-				m.probeState.selectedIdx = len(m.probeState.logs) - 1 // Select the latest log
-				// Adjust scroll to show the last item
+				m.probeState.selectedIdx = len(m.probeState.logs) - 1
 				visibleRows := m.getProbeVisibleRows()
 				total := len(m.probeState.logs)
 				m.probeState.scroll = maxScroll(total, visibleRows)
@@ -301,7 +289,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.probeState.autoScroll {
 				visible := m.getProbeVisibleRows()
 				total := len(m.probeState.logs)
-				// Keep selectedIdx inside bounds
 				m.probeState.selectedIdx = clamp(m.probeState.selectedIdx, 0, clamp(total-1, -1, total-1))
 				m.probeState.scroll = clamp(m.probeState.scroll, 0, maxScroll(total, visible))
 			}
@@ -329,11 +316,9 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Probe stream ended, attempt to reconnect
 			clientID := m.probeState.clientID
 			reconnectCount := m.probeState.reconnectCount
 
-			// Limit reconnection attempts
 			if reconnectCount >= 5 {
 				m.err = fmt.Errorf("probe stream ended after %d reconnection attempts", reconnectCount)
 				m.errorTime = time.Now()
@@ -345,11 +330,9 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logs := m.probeState.logs
 			m.stopProbeStream()
 
-			// Add a message about reconnecting
 			m.err = fmt.Errorf("probe stream disconnected, reconnecting... (attempt %d/5)", reconnectCount+1)
 			m.errorTime = time.Now()
 
-			// Restart the probe stream with incremented reconnect count after a short delay
 			return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
 				return reconnectProbeMsg{clientID: clientID, logs: logs, reconnectCount: reconnectCount + 1}
 			})
@@ -357,7 +340,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case probeStreamStartedMsg:
-		// Initialize probe state and start listening
 		m.probeState = &probeState{
 			clientID:    msg.clientID,
 			logs:        []probeLogEntry{},
@@ -366,19 +348,17 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cancelFunc:  msg.cancelFunc,
 			ctx:         msg.ctx,
 			logChan:     msg.logChan,
-			autoScroll:  true, // start with auto-scroll enabled
+			autoScroll:  true,
 		}
 		return m, m.listenForProbeLog()
 
 	case reconnectProbeMsg:
-		// Handle reconnection with preserved logs only when still in probe view
 		if m.viewMode != ViewProbe {
 			return m, nil
 		}
 		return m, m.startProbeStreamWithState(msg.clientID, msg.logs, msg.reconnectCount, false)
 
 	case probeStreamStartedMsgWithState:
-		// Initialize probe state with preserved logs and start listening
 		if m.viewMode != ViewProbe {
 			// View changed while starting; cancel to avoid leak
 			if msg.cancelFunc != nil {
@@ -394,7 +374,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			clientID:       msg.clientID,
 			logs:           logs,
 			scroll:         0,
-			selectedIdx:    len(logs) - 1, // Select the last log if there are existing logs
+			selectedIdx:    len(logs) - 1,
 			cancelFunc:     msg.cancelFunc,
 			ctx:            msg.ctx,
 			logChan:        msg.logChan,
@@ -402,7 +382,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			reconnectCount: msg.reconnectCount,
 			disconnected:   msg.disconnected,
 		}
-		// Ensure selectedIdx is not negative
 		if m.probeState.selectedIdx < 0 {
 			m.probeState.selectedIdx = 0
 		}
@@ -415,7 +394,6 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listenForProbeLog()
 
 	case logMsg:
-		// Add log entry to buffer with cached AttrJSON
 		entry := LogEntry(msg)
 		if len(entry.Attrs) > 0 {
 			// Filter out level before caching
@@ -503,7 +481,6 @@ func (m *TUIModel) startProbeStreamWithState(clientID string, preservedLogs []pr
 			return errorMsg(err)
 		}
 
-		// Set up a modified probeStreamStartedMsg to preserve logs and reconnect count
 		return probeStreamStartedMsgWithState{
 			clientID:       clientID,
 			ctx:            ctx,
@@ -575,21 +552,18 @@ func (m *TUIModel) saveProbeLogsToFile() tea.Cmd {
 		filePath := m.saveState.filePath
 		logs := m.probeState.logs
 
-		// Ensure parent directory exists if specified
 		if dir := filepath.Dir(filePath); dir != "." && dir != "" {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return errorMsg(fmt.Errorf("failed to create directory %s: %w", dir, err))
 			}
 		}
 
-		// Create file
 		file, err := os.Create(filePath)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create file: %w", err))
 		}
 		defer file.Close()
 
-		// Write logs as JSON lines
 		encoder := json.NewEncoder(file)
 		for _, log := range logs {
 			if err := encoder.Encode(log); err != nil {

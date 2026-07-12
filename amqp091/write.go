@@ -47,7 +47,6 @@ func (f *MethodFrame) Write(w io.Writer) (err error) {
 		return errors.New("malformed frame: missing method")
 	}
 
-	// Get buffer from pool
 	payload := bufferPool.Get().(*bytes.Buffer)
 	payload.Reset()
 	defer bufferPool.Put(payload)
@@ -84,7 +83,6 @@ func (f *HeartbeatFrame) Write(w io.Writer) (err error) {
 //
 //	short     short    long long       short        remainder...
 func (f *HeaderFrame) Write(w io.Writer) (err error) {
-	// Get buffer from pool
 	payload := bufferPool.Get().(*bytes.Buffer)
 	payload.Reset()
 	defer bufferPool.Put(payload)
@@ -228,12 +226,10 @@ func (f *BodyFrame) Write(w io.Writer) (err error) {
 }
 
 func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) error {
-	size := uint32(len(payload)) // 型を統一
+	size := uint32(len(payload))
 
-	// 必要な容量を事前に確保
 	buf := make([]byte, 7+len(payload)+1)
 
-	// ヘッダー部分をエンコード
 	buf[0] = typ
 	buf[1] = byte(channel >> 8)
 	buf[2] = byte(channel)
@@ -242,10 +238,8 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) error {
 	buf[5] = byte(size >> 8)
 	buf[6] = byte(size)
 
-	// ペイロードをコピー
 	copy(buf[7:], payload)
 
-	// フレームエンドをセット
 	buf[len(buf)-1] = frameEnd
 
 	// 1回の Write で送信
@@ -272,19 +266,16 @@ func writeFrameBuffer(w io.Writer, typ uint8, channel uint16, payload *bytes.Buf
 		frameEnd,
 	}
 
-	// Write header (7 bytes)
 	if _, err := w.Write(header[:7]); err != nil {
 		return err
 	}
 
-	// Write payload directly from buffer (no copy)
 	if len(payloadBytes) > 0 {
 		if _, err := w.Write(payloadBytes); err != nil {
 			return err
 		}
 	}
 
-	// Write frame end marker
 	_, err := w.Write(header[7:8])
 	return err
 }

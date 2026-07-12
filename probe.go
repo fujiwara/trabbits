@@ -58,7 +58,6 @@ func (b *ProbeLogBuffer) Add(log probeLog) {
 
 	b.logs = append(b.logs, log)
 	if len(b.logs) > b.maxSize {
-		// Keep only the last maxSize entries
 		b.logs = b.logs[len(b.logs)-b.maxSize:]
 	}
 }

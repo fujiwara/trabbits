@@ -12,7 +12,6 @@ import (
 	runewidth "github.com/mattn/go-runewidth"
 )
 
-// Styles for rendering
 var (
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -46,7 +45,6 @@ var (
 	cursorStyle     = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(lipgloss.Color("0")).Render(" ")
 	logPaneBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1)
 
-	// Log level styles
 	levelErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 	levelWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
 	levelInfoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
@@ -89,7 +87,6 @@ func (m *TUIModel) renderListView() string {
 	b.WriteString("\n")
 	b.WriteString(help)
 
-	// Show error messages
 	if m.err != nil && time.Since(m.errorTime) < errorToastDuration {
 		errMsg := fmt.Sprintf("Error: %v", m.err)
 		if len(errMsg) > 80 {
@@ -105,7 +102,6 @@ func (m *TUIModel) renderListView() string {
 		m.err = nil
 	}
 
-	// Show success messages
 	if m.successMsg != "" && time.Since(m.successTime) < successToastDuration {
 		b.WriteString("\n" + successStyle.Render(m.successMsg))
 	} else if m.successMsg != "" && time.Since(m.successTime) >= 3*time.Second {
@@ -126,7 +122,6 @@ func (m *TUIModel) renderHeader() string {
 
 	headerText := fmt.Sprintf("Active Clients: %d  Total: %d  Last Update: %s",
 		activeCount, len(m.clients), m.lastUpdate.Format("15:04:05"))
-	// Show dropped server logs if any
 	if m.droppedLogs > 0 {
 		headerText += fmt.Sprintf("  Dropped logs: %d", m.droppedLogs)
 	}
@@ -146,12 +141,10 @@ func (m *TUIModel) renderTable() string {
 	rows = append(rows, header)
 	rows = append(rows, strings.Repeat("─", len(header)))
 
-	// Calculate visible range
 	visibleRows := m.getVisibleRows()
 	startIdx := m.listScroll
 	endIdx := min(startIdx+visibleRows, len(m.clients))
 
-	// Show only visible clients
 	for i := startIdx; i < endIdx; i++ {
 		client := m.clients[i]
 		row := m.formatClientRow(client, i == m.selectedIdx)
@@ -163,7 +156,6 @@ func (m *TUIModel) renderTable() string {
 
 	content := strings.Join(rows, "\n")
 
-	// Add scroll indicator if there are more clients
 	var scrollInfo string
 	if len(m.clients) > visibleRows {
 		totalPages := (len(m.clients) + visibleRows - 1) / visibleRows
@@ -189,11 +181,9 @@ func (m *TUIModel) renderDetailView() string {
 	var b strings.Builder
 	client := m.clientDetail
 
-	// Header
 	b.WriteString(headerStyle.Render(fmt.Sprintf("Client Details: %s", formatID(client.ID))))
 	b.WriteString("\n\n")
 
-	// Basic information
 	b.WriteString(fmt.Sprintf("ID: %s\n", client.ID))
 	b.WriteString(fmt.Sprintf("User: %s\n", client.User))
 	b.WriteString(fmt.Sprintf("Virtual Host: %s\n", client.VirtualHost))
@@ -207,7 +197,6 @@ func (m *TUIModel) renderDetailView() string {
 		formatDuration(time.Since(client.ConnectedAt))))
 	b.WriteString(fmt.Sprintf("Client Banner: %s\n", client.ClientBanner))
 
-	// Client Properties
 	if len(client.ClientProperties) > 0 {
 		b.WriteString("\nClient Properties:\n")
 
@@ -226,7 +215,6 @@ func (m *TUIModel) renderDetailView() string {
 		}
 	}
 
-	// Statistics
 	if client.Stats != nil {
 		stats := client.Stats
 		b.WriteString("\nStatistics:\n")
@@ -237,7 +225,6 @@ func (m *TUIModel) renderDetailView() string {
 		b.WriteString(fmt.Sprintf("  Sent Frames: %s\n", formatNumber(stats.SentFrames)))
 		b.WriteString(fmt.Sprintf("  Total Frames: %s\n", formatNumber(stats.TotalFrames)))
 
-		// Method breakdown
 		if len(stats.Methods) > 0 {
 			b.WriteString("\nMethod Statistics:\n")
 
@@ -270,26 +257,22 @@ func (m *TUIModel) renderDetailView() string {
 	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • p probe • Shift+K shutdown"
 	b.WriteString(helpStyle.Render(helpText))
 
-	// Implement scrolling
 	content := b.String()
 	lines := strings.Split(content, "\n")
 
 	// Calculate available height (subtract some for header/footer margins)
 	availableHeight := max(m.height-4, 10)
 
-	// Limit scroll position
 	maxScroll := max(len(lines)-availableHeight, 0)
 	if m.detailScroll > maxScroll {
 		m.detailScroll = maxScroll
 	}
 
-	// Apply scrolling
 	startLine := m.detailScroll
 	endLine := min(startLine+availableHeight, len(lines))
 
 	scrolledLines := lines[startLine:endLine]
 
-	// Add scroll indicator if content is scrollable
 	result := strings.Join(scrolledLines, "\n")
 	if maxScroll > 0 {
 		scrollInfo := fmt.Sprintf(" [%d/%d]", m.detailScroll+1, maxScroll+1)
@@ -324,7 +307,6 @@ func (m *TUIModel) getVisibleRows() int {
 	headerLines := 3 // header + spacing
 	helpLines := 2   // help + spacing
 
-	// Calculate log pane lines dynamically
 	logPaneLines := m.estimateLogPaneLines()
 
 	marginLines := 4 // various margins and spacing
@@ -350,9 +332,7 @@ func (m *TUIModel) estimateLogPaneLines() int {
 
 	for i := startIdx; i < len(m.logEntries); i++ {
 		entry := m.logEntries[i]
-		// Estimate lines for this entry
 		logText := m.formatLogEntry(entry, false)
-		// Count newlines in formatted log
 		lineCount += strings.Count(logText, "\n") + 1
 	}
 
@@ -366,7 +346,6 @@ func (m *TUIModel) renderProbeView() string {
 	}
 	var b strings.Builder
 
-	// Header
 	headerText := fmt.Sprintf("Probe Logs: %s", formatID(m.probeState.clientID))
 	b.WriteString(headerStyle.Render(headerText))
 	b.WriteString("\n\n")
@@ -381,7 +360,6 @@ func (m *TUIModel) renderProbeView() string {
 	b.WriteString(statusDimStyle.Render(statusText))
 	b.WriteString("\n\n")
 
-	// Render logs
 	if logCount == 0 {
 		b.WriteString("Waiting for probe logs...\n")
 		// Debug: Show probe state details
@@ -398,7 +376,6 @@ func (m *TUIModel) renderProbeView() string {
 	} else {
 		maxDisplayLines := m.getProbeVisibleRows()
 
-		// Use common rendering function
 		result := renderLogsWithWrapping(
 			logCount,
 			maxDisplayLines,
@@ -414,13 +391,11 @@ func (m *TUIModel) renderProbeView() string {
 			},
 		)
 
-		// Write rendered logs
 		for _, logLine := range result.renderedLines {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
-		// Add scroll indicator
 		if logCount > len(result.renderedLines) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
 				result.startIdx+1, result.endIdx, logCount)
@@ -428,7 +403,6 @@ func (m *TUIModel) renderProbeView() string {
 		}
 	}
 
-	// Help text
 	b.WriteString("\n")
 	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page • SPACE pause • s save"
 	if m.probeState != nil {
@@ -440,13 +414,11 @@ func (m *TUIModel) renderProbeView() string {
 	}
 	b.WriteString(helpStyle.Render(helpText))
 
-	// Show error messages
 	if m.err != nil && time.Since(m.errorTime) < errorToastDuration {
 		errMsg := fmt.Sprintf("Error: %v", m.err)
 		b.WriteString("\n" + errorStyle.Render(errMsg))
 	}
 
-	// Show success messages (short toast)
 	if m.successMsg != "" && time.Since(m.successTime) < successToastDuration {
 		b.WriteString("\n" + successStyle.Render(m.successMsg))
 	}
@@ -471,19 +443,16 @@ func (m *TUIModel) formatProbeLogLine(log probeLogEntry) string {
 		}
 	}
 
-	// Calculate available width for wrapping
 	width := m.width - 2 // -2 for margins
 	if width <= 0 {
 		width = 80 // default width
 	}
 
-	// Combine and wrap the full text
 	fullText := mainText
 	if attrStr != "" {
 		fullText += " " + attrStr
 	}
 
-	// Wrap to screen width
 	lines := wrapText(fullText, width)
 
 	// Apply styling to the attrs portion of the first line and subsequent wrapped lines
@@ -533,7 +502,6 @@ func renderLogsWithWrapping(
 		return renderResult{}
 	}
 
-	// Clamp inputs
 	startIdx := max(scrollPos, 0)
 	if startIdx >= logCount {
 		startIdx = logCount - 1
@@ -574,7 +542,6 @@ func renderLogsWithWrapping(
 			break
 		}
 
-		// Re-format with selection styling if this is the selected entry
 		if i == selectedIdx {
 			logLine = formatFunc(i, true)
 		}
@@ -672,7 +639,6 @@ func wrapText(text string, width int) []string {
 			ch := runes[i]
 			rw := runewidth.RuneWidth(ch)
 
-			// If adding this rune would exceed width, wrap here
 			if lineWidth+rw > width {
 				out = append(out, string(runes[start:i]))
 				start = i
@@ -682,7 +648,6 @@ func wrapText(text string, width int) []string {
 			lineWidth += rw
 		}
 
-		// Flush remainder
 		if start < len(runes) {
 			out = append(out, string(runes[start:]))
 		}
@@ -726,19 +691,16 @@ func (m *TUIModel) formatLogEntry(entry LogEntry, isSelected bool) string {
 
 	attrStr := entry.AttrJSON
 
-	// Calculate available width for wrapping
 	width := m.width - 2 // -2 for margins
 	if width <= 0 {
 		width = 80 // default width
 	}
 
-	// Combine and wrap the full text
 	fullText := mainText
 	if attrStr != "" {
 		fullText += " " + attrStr
 	}
 
-	// Wrap to screen width
 	lines := wrapText(fullText, width)
 
 	// Apply styling to the level and attrs portions
@@ -830,7 +792,6 @@ func (m *TUIModel) adjustScrollForSelection() {
 func (m *TUIModel) renderServerLogsView() string {
 	var b strings.Builder
 
-	// Header
 	headerText := fmt.Sprintf("Server Logs (%d total)", len(m.logEntries))
 	if m.droppedLogs > 0 {
 		headerText += fmt.Sprintf(" • dropped %d", m.droppedLogs)
@@ -845,7 +806,6 @@ func (m *TUIModel) renderServerLogsView() string {
 		logCount := len(m.logEntries)
 		maxDisplayLines := m.getServerLogsVisibleRows()
 
-		// Use common rendering function
 		result := renderLogsWithWrapping(
 			logCount,
 			maxDisplayLines,
@@ -857,13 +817,11 @@ func (m *TUIModel) renderServerLogsView() string {
 			},
 		)
 
-		// Write rendered logs
 		for _, logLine := range result.renderedLines {
 			b.WriteString(logLine)
 			b.WriteString("\n")
 		}
 
-		// Add scroll indicator
 		if logCount > len(result.renderedLines) {
 			scrollInfo := fmt.Sprintf(" [%d-%d of %d logs]",
 				result.startIdx+1, result.endIdx, logCount)
@@ -872,7 +830,6 @@ func (m *TUIModel) renderServerLogsView() string {
 		}
 	}
 
-	// Help text
 	b.WriteString("\n")
 	helpText := "Press ESC/q to go back • ↑↓/kj to scroll • Home/End • PgUp/PgDn page"
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))
@@ -909,7 +866,6 @@ func (m *TUIModel) renderSaveConfirmView() string {
 		b.WriteString(fmt.Sprintf("Logs to save: %d entries\n\n", len(m.probeState.logs)))
 	}
 
-	// Help text
 	if m.saveState.editing {
 		helpText := "Type to edit path • ESC to stop editing • ENTER to confirm"
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(helpText))

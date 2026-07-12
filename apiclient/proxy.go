@@ -81,7 +81,6 @@ func (c *Client) ShutdownClient(ctx context.Context, clientID, reason string) er
 		return err
 	}
 
-	// Add reason as query parameter if provided
 	if reason != "" {
 		query := fullURL.Query()
 		query.Set("reason", reason)

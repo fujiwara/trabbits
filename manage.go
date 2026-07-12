@@ -137,13 +137,13 @@ func manageClientInfo(ctx context.Context, opt *CLI) error {
 	return nil
 }
 
-// runTUI starts the TUI using the new tui package
+// runTUI starts the TUI
 func runTUI(ctx context.Context, opt *CLI) error {
 	client := apiclient.New(opt.APISocket)
 	return tui.Run(ctx, client)
 }
 
-// manageProxyProbe streams real-time probe logs for a specific proxy
+// manageClientProbe streams real-time probe logs for a specific proxy
 func manageClientProbe(ctx context.Context, opt *CLI) error {
 	client := apiclient.New(opt.APISocket)
 	proxyID := opt.Manage.Clients.Probe.ProxyID
@@ -176,7 +176,6 @@ func formatProbeLogEntry(entry *types.ProbeLogEntry, format string) error {
 		}
 		fmt.Println(string(data))
 	} else {
-		// Default text format
 		attrs, _ := json.Marshal(entry.Attrs)
 		fmt.Printf("%s %s %s\n",
 			entry.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),

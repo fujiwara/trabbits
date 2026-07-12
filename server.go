@@ -43,24 +43,22 @@ var (
 	DefaultProcessTimeout         = 5 * time.Minute // Long timeout for process loop (low-frequency clients)
 	DefaultConnectionCloseTimeout = 1 * time.Second
 
-	// Shutdown messages
 	ShutdownMsgServerShutdown = "Server shutting down"
 	ShutdownMsgConfigUpdate   = "Configuration updated, please reconnect"
 	ShutdownMsgDefault        = "Connection closed"
 
-	// ProbeLog retention
 	ProbeLogBufferSize    = 100  // Number of logs to keep per proxy
 	ProbeLogRetentionSize = 1000 // Number of proxies to retain logs for (LRU)
 )
 
 var Debug bool
 
-// Server represents a trabbits server instance
 type proxyEntry struct {
 	proxy  *Proxy
 	cancel context.CancelFunc
 }
 
+// Server represents a trabbits server instance
 type Server struct {
 	configMu          sync.RWMutex
 	config            *config.Config
@@ -69,9 +67,9 @@ type Server struct {
 	retainedProbeLogs *lru.Cache[string, *ProbeLogBuffer] // LRU cache for disconnected proxies' probe logs
 	healthManagers    sync.Map                            // upstream name -> *health.Manager
 	logger            *slog.Logger
-	apiSocket         string // API socket path
+	apiSocket         string
 	metricsStore      *metrics.Store
-	logBuffer         *LogBuffer // Buffer for server logs
+	logBuffer         *LogBuffer
 }
 
 // ServerOption configures a Server.
@@ -142,7 +140,6 @@ func (s *Server) UpdateConfig(config *config.Config) {
 func (s *Server) NewProxy(conn net.Conn) *Proxy {
 	id := generateID()
 
-	// Get config with timeout values
 	config := s.GetConfig()
 
 	// Create a probe log buffer for this proxy (will be added to LRU in RegisterProxy)
@@ -158,12 +155,12 @@ func (s *Server) NewProxy(conn net.Conn) *Proxy {
 		handshakeTimeout:       config.HandshakeTimeout.ToDuration(),
 		processTimeout:         DefaultProcessTimeout,
 		connectionCloseTimeout: config.ConnectionCloseTimeout.ToDuration(),
-		shutdownMessage:        ShutdownMsgDefault,       // default shutdown message
-		connectedAt:            time.Now(),               // timestamp when the client connected
-		stats:                  NewProxyStats(),          // initialize statistics
-		probeChan:              make(chan probeLog, 100), // buffered channel for probe logs
-		probeLogBuffer:         probeLogBuffer,           // buffer for probe log retention
-		metrics:                s.Metrics(),              // metrics instance from server
+		shutdownMessage:        ShutdownMsgDefault,
+		connectedAt:            time.Now(),
+		stats:                  NewProxyStats(),
+		probeChan:              make(chan probeLog, 100),
+		probeLogBuffer:         probeLogBuffer,
+		metrics:                s.Metrics(),
 		tuned: tuned{
 			channelMax: ChannelMax,
 			frameMax:   FrameMax,
@@ -204,7 +201,6 @@ func (s *Server) RegisterProxy(proxy *Proxy, cancel context.CancelFunc) {
 func (s *Server) UnregisterProxy(proxy *Proxy) {
 	s.activeProxies.Delete(proxy.id)
 
-	// Mark buffer as inactive and add to LRU for retention after disconnection
 	if proxy.probeLogBuffer != nil {
 		proxy.probeLogBuffer.MarkInactive()
 		s.retainedProbeLogs.Add(proxy.id, proxy.probeLogBuffer)
@@ -214,12 +210,10 @@ func (s *Server) UnregisterProxy(proxy *Proxy) {
 // GetProbeLogBuffer returns the probe log buffer for a given proxy ID
 // First checks active proxies, then falls back to LRU cache for disconnected proxies
 func (s *Server) GetProbeLogBuffer(proxyID string) (*ProbeLogBuffer, bool) {
-	// First, try to get from active proxy (which always has its buffer)
 	if value, ok := s.activeProxies.Load(proxyID); ok {
 		entry := value.(*proxyEntry)
 		return entry.proxy.probeLogBuffer, true
 	}
-	// Fall back to LRU cache for disconnected proxies
 	return s.retainedProbeLogs.Get(proxyID)
 }
 
@@ -237,7 +231,6 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 		srv.activeProxies.Range(func(key, value any) bool {
 			entry := value.(*proxyEntry)
 			if filter(entry.proxy) {
-				// Set the shutdown message for this proxy
 				entry.proxy.setShutdownMessage(shutdownMessage)
 				targetProxies = append(targetProxies, entry.proxy)
 				targetCancels = append(targetCancels, entry.cancel)
@@ -247,37 +240,30 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 
 		disconnectedCount := len(targetProxies)
 		if disconnectedCount == 0 {
-			// No target proxies found, return immediately
 			resultChan <- 0
 			return
 		}
 		slog.Info(reason, "count", disconnectedCount)
 
-		// Rate limiter: use configured values
 		// In test environment, use higher rate for faster tests
 		rateLimitValue := rate.Limit(rateLimit)
-		if disconnectedCount <= 10 { // Small number for tests
-			rateLimitValue = rate.Limit(1000) // 1000/sec for small tests
+		if disconnectedCount <= 10 {
+			rateLimitValue = rate.Limit(1000)
 			burstSize = 100
 		}
 		limiter := rate.NewLimiter(rateLimitValue, burstSize)
 
-		// Number of worker goroutines for parallel processing
 		const numWorkers = 10
 
-		// Channel to distribute work to workers
 		cancelChan := make(chan context.CancelFunc, len(targetCancels))
 
-		// Send all cancel functions to the channel
 		for _, cancel := range targetCancels {
 			cancelChan <- cancel
 		}
 		close(cancelChan)
 
-		// Use sync.WaitGroup to wait for all worker goroutines to complete
 		var wg sync.WaitGroup
 
-		// Start worker goroutines
 		for i := range numWorkers {
 			wg.Add(1)
 			go func(workerID int) {
@@ -285,7 +271,6 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 				defer wg.Done()
 
 				for cancel := range cancelChan {
-					// Wait for rate limiter
 					if err := limiter.Wait(context.Background()); err != nil {
 						slog.Warn("Rate limiter context cancelled", "error", err)
 						continue
@@ -298,7 +283,6 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 			}(i)
 		}
 
-		// Wait for all workers to complete with appropriate timeout
 		// Calculate timeout based on proxy count and rate limit
 		actualRate := float64(rateLimitValue)
 		expectedDuration := float64(disconnectedCount)/actualRate + 1 // Plus 1 second buffer
@@ -316,16 +300,13 @@ func (srv *Server) disconnectProxies(reason string, shutdownMessage string, maxT
 
 		select {
 		case <-done:
-			// All disconnections completed successfully
 			slog.Info("All proxy disconnections completed", "count", disconnectedCount)
 		case <-time.After(timeoutDuration):
-			// Timeout - some disconnections might be hanging
 			slog.Warn("Timeout waiting for proxy disconnections to complete",
 				"timeout", timeoutDuration,
 				"expected_duration", fmt.Sprintf("%.1fs", float64(disconnectedCount)/actualRate))
 		}
 
-		// Send the count of disconnected proxies
 		resultChan <- disconnectedCount
 	}()
 
@@ -393,7 +374,6 @@ func run(ctx context.Context, opt *CLI) error {
 		}
 	}()
 
-	// Create server instance
 	server := NewServer(cfg, opt.APISocket, WithMetricsStore(metricsStore))
 
 	// Setup server log handler to capture logs for API streaming,
@@ -403,7 +383,6 @@ func run(ctx context.Context, opt *CLI) error {
 	serverLogHandler := NewServerLogHandler(server.logBuffer, metricHandler)
 	slog.SetDefault(slog.New(serverLogHandler))
 
-	// Write PID file if specified
 	if opt.Run.PidFile != "" {
 		if err := writePidFile(opt.Run.PidFile); err != nil {
 			return fmt.Errorf("failed to write PID file: %w", err)
@@ -411,7 +390,6 @@ func run(ctx context.Context, opt *CLI) error {
 		defer removePidFile(opt.Run.PidFile)
 	}
 
-	// Initialize health check managers for cluster upstreams
 	if err := server.initHealthManagers(ctx); err != nil {
 		return fmt.Errorf("failed to init health managers: %w", err)
 	}
@@ -422,7 +400,6 @@ func run(ctx context.Context, opt *CLI) error {
 	}
 	defer cancelAPI()
 
-	// Setup SIGHUP handler for config reload
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
 	go func() {
@@ -481,7 +458,6 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 		}
 		slog.Info("Listener closed, no new connections will be accepted")
 
-		// Then gracefully disconnect all active connections
 		disconnectChan := srv.disconnectAllProxies()
 		cfg := srv.GetConfig()
 		select {
@@ -520,7 +496,6 @@ func (srv *Server) boot(ctx context.Context, listener net.Listener) error {
 
 // initHealthManagers initializes health check managers for cluster upstreams
 func (srv *Server) initHealthManagers(ctx context.Context) error {
-	// Stop existing health managers
 	srv.healthManagers.Range(func(key, value any) bool {
 		if mgr, ok := value.(*health.Manager); ok {
 			mgr.Stop()
@@ -529,7 +504,6 @@ func (srv *Server) initHealthManagers(ctx context.Context) error {
 		return true
 	})
 
-	// Create new health managers for cluster upstreams
 	cfg := srv.GetConfig()
 	for _, upstream := range cfg.Upstreams {
 		if upstream.Cluster != nil && upstream.HealthCheck != nil {
@@ -574,8 +548,7 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}()
 
 	slog.Info("new connection", "client_addr", conn.RemoteAddr().String(), "handshake_timeout", srv.config.HandshakeTimeout)
-	conn.SetReadDeadline(time.Now().Add(srv.config.HandshakeTimeout.ToDuration())) // Set read deadline for handshake
-	// AMQP プロトコルヘッダー受信
+	conn.SetReadDeadline(time.Now().Add(srv.config.HandshakeTimeout.ToDuration()))
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		slog.Warn("Failed to read AMQP header:", "error", err)
@@ -602,7 +575,6 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	p.logger.Debug("handshake completed")
 
-	// subCtx is used for client connection depends on parent context
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -618,20 +590,17 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	p.initHeartbeatTimer()
 	go p.runHeartbeat(subCtx)
 
-	// wait for client frames
 	for {
 		select {
-		case <-ctx.Done(): // parent (server) context is done
-			p.shutdown(subCtx) // graceful shutdown
-			return             // subCtx will be canceled by defer ^
+		case <-ctx.Done():
+			p.shutdown(subCtx)
+			return // subCtx will be canceled by defer ^
 		case <-subCtx.Done():
-			p.shutdown(subCtx) // graceful shutdown when context is cancelled
+			p.shutdown(subCtx)
 			return
 		case upstreamName := <-p.upstreamDisconnect:
-			// An upstream connection was lost
 			p.logger.Error("Upstream connection lost, closing client connection",
 				"upstream", upstreamName)
-			// Send Connection.Close to client with connection-forced error
 			p.sendConnectionError(NewError(amqp091.ConnectionForced,
 				fmt.Sprintf("Upstream connection lost: %s", upstreamName)))
 			return
@@ -672,13 +641,11 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 	clients := make([]types.ClientInfo, 0) // Initialize as empty slice instead of nil
 	activeProxyIDs := make(map[string]bool)
 
-	// First, add all active proxies
 	s.activeProxies.Range(func(key, value any) bool {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
 		activeProxyIDs[proxy.id] = true
 
-		// Determine status based on shutdown message
 		status := types.ClientStatusActive
 		shutdownReason := ""
 		if proxy.shutdownMessage != ShutdownMsgDefault {
@@ -698,7 +665,6 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 			ShutdownReason:   shutdownReason,
 		}
 
-		// Add statistics summary if available
 		if proxy.stats != nil {
 			snapshot := proxy.stats.Snapshot()
 			clientInfo.Stats = &types.StatsSummary{
@@ -713,9 +679,7 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 		return true
 	})
 
-	// Then, add disconnected proxies from LRU cache
 	for _, proxyID := range s.retainedProbeLogs.Keys() {
-		// Skip if already in active proxies
 		if activeProxyIDs[proxyID] {
 			continue
 		}
@@ -725,7 +689,6 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 			continue
 		}
 
-		// Get proxy info from buffer
 		clientAddr, user, virtualHost, clientBanner, connectedAt := buffer.GetProxyInfo()
 
 		clientInfo := types.ClientInfo{
@@ -742,7 +705,6 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 		clients = append(clients, clientInfo)
 	}
 
-	// Sort clients by connection time (oldest first)
 	sort.Slice(clients, func(i, j int) bool {
 		return clients[i].ConnectedAt.Before(clients[j].ConnectedAt)
 	})
@@ -752,13 +714,11 @@ func (s *Server) GetClientsInfo() []types.ClientInfo {
 
 // GetClientInfo returns full client information including ClientProperties and complete stats
 func (s *Server) GetClientInfo(proxyID string) (*types.FullClientInfo, bool) {
-	// First, try to find in active proxies
 	value, ok := s.activeProxies.Load(proxyID)
 	if ok {
 		entry := value.(*proxyEntry)
 		proxy := entry.proxy
 
-		// Determine status based on shutdown message
 		status := types.ClientStatusActive
 		shutdownReason := ""
 		if proxy.shutdownMessage != ShutdownMsgDefault {
@@ -778,7 +738,6 @@ func (s *Server) GetClientInfo(proxyID string) (*types.FullClientInfo, bool) {
 			ShutdownReason:   shutdownReason,
 		}
 
-		// Add complete statistics if available
 		if proxy.stats != nil {
 			snapshot := proxy.stats.Snapshot()
 			clientInfo.Stats = &types.FullStatsSummary{
@@ -795,13 +754,11 @@ func (s *Server) GetClientInfo(proxyID string) (*types.FullClientInfo, bool) {
 		return clientInfo, true
 	}
 
-	// If not active, try to find in disconnected proxies
 	buffer, ok := s.retainedProbeLogs.Get(proxyID)
 	if !ok || buffer.IsActive() {
 		return nil, false
 	}
 
-	// Get proxy info from buffer
 	clientAddr, user, virtualHost, clientBanner, connectedAt := buffer.GetProxyInfo()
 
 	clientInfo := &types.FullClientInfo{
@@ -840,7 +797,6 @@ func (s *Server) ShutdownProxy(proxyID string, shutdownReason string) bool {
 		"vhost", proxy.VirtualHost,
 		"reason", shutdownReason)
 
-	// Set custom shutdown message
 	proxy.shutdownMessage = shutdownReason
 	// Trigger graceful shutdown
 	entry.cancel()
