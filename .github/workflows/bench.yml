@@ -24,6 +24,22 @@ jobs:
         run: |
           make -j run-servers-for-bench &
 
+      - name: wait for servers
+        run: |
+          for port in 5672 6672; do
+            for i in $(seq 90); do
+              if (echo > "/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+                echo "port ${port} is ready"
+                break
+              fi
+              if [ "$i" -eq 90 ]; then
+                echo "port ${port} did not become ready" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          done
+
       - name: bench directly
         run: |
           make run-bench-rabbitmq
