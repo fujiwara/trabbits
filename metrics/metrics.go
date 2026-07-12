@@ -124,12 +124,12 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		}
 	}
 	_, err := meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		o.ObserveInt64(clientConnections, m.ClientConnections.load())
-		o.ObserveInt64(clientTotalConnections, m.ClientTotalConnections.load())
-		o.ObserveInt64(clientConnectionErrors, m.ClientConnectionErrors.load())
+		o.ObserveInt64(clientConnections, m.ClientConnections.Value())
+		o.ObserveInt64(clientTotalConnections, m.ClientTotalConnections.Value())
+		o.ObserveInt64(clientConnectionErrors, m.ClientConnectionErrors.Value())
 
-		o.ObserveInt64(clientReceivedFrames, m.ClientReceivedFrames.load())
-		o.ObserveInt64(clientSentFrames, m.ClientSentFrames.load())
+		o.ObserveInt64(clientReceivedFrames, m.ClientReceivedFrames.Value())
+		o.ObserveInt64(clientSentFrames, m.ClientSentFrames.Value())
 
 		m.UpstreamConnections.each(observeVec(o, upstreamConnections, "addr"))
 		m.UpstreamTotalConnections.each(observeVec(o, upstreamTotalConnections, "addr"))
@@ -168,11 +168,11 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 }
 
 // SetHealthyNodes sets the number of healthy nodes for an upstream
-func (m *Metrics) SetHealthyNodes(upstream string, count float64) {
-	m.UpstreamHealthyNodes.WithLabelValues(upstream).Set(count)
+func (m *Metrics) SetHealthyNodes(upstream string, count int) {
+	m.UpstreamHealthyNodes.WithLabelValues(upstream).Set(int64(count))
 }
 
 // SetUnhealthyNodes sets the number of unhealthy nodes for an upstream
-func (m *Metrics) SetUnhealthyNodes(upstream string, count float64) {
-	m.UpstreamUnhealthyNodes.WithLabelValues(upstream).Set(count)
+func (m *Metrics) SetUnhealthyNodes(upstream string, count int) {
+	m.UpstreamUnhealthyNodes.WithLabelValues(upstream).Set(int64(count))
 }

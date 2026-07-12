@@ -327,7 +327,7 @@ func (p *Proxy) sortNodesByLeastConnections(nodes []string) []string {
 
 	var nodeInfos []nodeInfo
 	for _, addr := range nodes {
-		connections := int64(p.metrics.UpstreamConnections.WithLabelValues(addr).Value())
+		connections := p.metrics.UpstreamConnections.WithLabelValues(addr).Value()
 		nodeInfos = append(nodeInfos, nodeInfo{addr: addr, connections: connections})
 	}
 

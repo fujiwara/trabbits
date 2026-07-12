@@ -39,7 +39,7 @@ func TestRecoverFromPanic(t *testing.T) {
 	expectedCount := initialCount + 1
 
 	if finalCount != expectedCount {
-		t.Errorf("Expected panic recovery metric to be %f, got %f", expectedCount, finalCount)
+		t.Errorf("Expected panic recovery metric to be %d, got %d", expectedCount, finalCount)
 	}
 
 	// Verify log output contains expected information
@@ -89,7 +89,7 @@ func TestRecoverFromPanicNoPanic(t *testing.T) {
 	finalCount := metrics.PanicRecoveries.WithLabelValues(functionName).Value()
 
 	if finalCount != initialCount {
-		t.Errorf("Expected panic recovery metric to remain %f, got %f", initialCount, finalCount)
+		t.Errorf("Expected panic recovery metric to remain %d, got %d", initialCount, finalCount)
 	}
 
 	// Verify no panic-related log output
@@ -136,11 +136,11 @@ func TestRecoverFromPanicDifferentFunctions(t *testing.T) {
 	finalCount2 := metrics.PanicRecoveries.WithLabelValues(function2).Value()
 
 	if finalCount1 != initialCount1+1 {
-		t.Errorf("Expected %s metric to be %f, got %f", function1, initialCount1+1, finalCount1)
+		t.Errorf("Expected %s metric to be %d, got %d", function1, initialCount1+1, finalCount1)
 	}
 
 	if finalCount2 != initialCount2+1 {
-		t.Errorf("Expected %s metric to be %f, got %f", function2, initialCount2+1, finalCount2)
+		t.Errorf("Expected %s metric to be %d, got %d", function2, initialCount2+1, finalCount2)
 	}
 
 	// Verify both function names appear in logs
