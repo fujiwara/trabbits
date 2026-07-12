@@ -74,22 +74,36 @@ type Server struct {
 	logBuffer         *LogBuffer // Buffer for server logs
 }
 
+// ServerOption configures a Server.
+type ServerOption func(*Server)
+
+// WithMetricsStore sets the metrics store for the server.
+func WithMetricsStore(ms *metrics.Store) ServerOption {
+	return func(s *Server) { s.metricsStore = ms }
+}
+
 // NewServer creates a new Server instance
-func NewServer(config *config.Config, apiSocket string) *Server {
+func NewServer(config *config.Config, apiSocket string, opts ...ServerOption) *Server {
 	logBuffer := NewLogBuffer(200) // Keep last 200 log entries
 	probeLogCache, err := lru.New[string, *ProbeLogBuffer](ProbeLogRetentionSize)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create LRU cache: %v", err))
 	}
-	return &Server{
+	s := &Server{
 		config:            config,
 		configHash:        config.Hash(),
 		logger:            slog.Default(),
 		apiSocket:         apiSocket,
-		metricsStore:      metrics.NewStore(),
 		logBuffer:         logBuffer,
 		retainedProbeLogs: probeLogCache,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if s.metricsStore == nil {
+		s.metricsStore = metrics.NewTestStore()
+	}
+	return s
 }
 
 // GetConfig returns the current config (thread-safe)
@@ -363,12 +377,30 @@ func run(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create server instance
-	server := NewServer(cfg, opt.APISocket)
+	// Setup metrics store (exporter is configured via OTEL_* environment variables)
+	metricsStore, err := metrics.NewStore(ctx,
+		metrics.WithServiceVersion(Version),
+		metrics.WithAttributes(cfg.Metrics.GetAttributes()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsStore.Shutdown(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown metrics store", "error", err)
+		}
+	}()
 
-	// Setup server log handler to capture logs for API streaming
+	// Create server instance
+	server := NewServer(cfg, opt.APISocket, WithMetricsStore(metricsStore))
+
+	// Setup server log handler to capture logs for API streaming,
+	// counting log records by level as metrics
 	originalHandler := slog.Default().Handler()
-	serverLogHandler := NewServerLogHandler(server.logBuffer, originalHandler)
+	metricHandler := NewMetricSlogHandler(originalHandler, server.Metrics().LoggerStats)
+	serverLogHandler := NewServerLogHandler(server.logBuffer, metricHandler)
 	slog.SetDefault(slog.New(serverLogHandler))
 
 	// Write PID file if specified
@@ -389,12 +421,6 @@ func run(ctx context.Context, opt *CLI) error {
 		return fmt.Errorf("failed to start API server: %w", err)
 	}
 	defer cancelAPI()
-
-	cancelMetrics, err := server.MetricsStore().RunServer(ctx, opt.MetricsPort)
-	if err != nil {
-		return fmt.Errorf("failed to start metrics server: %w", err)
-	}
-	defer cancelMetrics()
 
 	// Setup SIGHUP handler for config reload
 	sigChan := make(chan os.Signal, 1)

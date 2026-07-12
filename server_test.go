@@ -109,7 +109,6 @@ func TestMain(m *testing.M) {
 	defer cancel()
 	m.Run()
 
-	// dumpMetrics()
 }
 
 func TestProxyConnect(t *testing.T) {

@@ -114,8 +114,8 @@ type Config struct {
 
 // MetricsReporter interface for reporting health metrics
 type MetricsReporter interface {
-	SetHealthyNodes(upstream string, count float64)
-	SetUnhealthyNodes(upstream string, count float64)
+	SetHealthyNodes(upstream string, count int)
+	SetUnhealthyNodes(upstream string, count int)
 }
 
 // Manager manages health checking for cluster nodes
@@ -290,8 +290,8 @@ func (m *Manager) checkAllNodes() {
 
 	// Update metrics
 	if m.metrics != nil {
-		m.metrics.SetHealthyNodes(m.name, float64(healthy))
-		m.metrics.SetUnhealthyNodes(m.name, float64(unhealthy))
+		m.metrics.SetHealthyNodes(m.name, healthy)
+		m.metrics.SetUnhealthyNodes(m.name, unhealthy)
 	}
 }
 
@@ -323,8 +323,8 @@ func (m *Manager) checkAllNodesInitial() {
 
 	// Update metrics
 	if m.metrics != nil {
-		m.metrics.SetHealthyNodes(m.name, float64(healthy))
-		m.metrics.SetUnhealthyNodes(m.name, float64(unhealthy))
+		m.metrics.SetHealthyNodes(m.name, healthy)
+		m.metrics.SetUnhealthyNodes(m.name, unhealthy)
 	}
 }
 

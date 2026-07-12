@@ -83,7 +83,7 @@ func TestSortNodesByLeastConnections(t *testing.T) {
 			// Set up connection counts
 			for addr, count := range tt.connectionCounts {
 				gauge := server.Metrics().UpstreamConnections.WithLabelValues(addr)
-				gauge.Set(float64(count))
+				gauge.Set(int64(count))
 			}
 
 			result := proxy.SortNodesByLeastConnections(tt.nodes)
@@ -140,7 +140,7 @@ func TestSortNodesByLeastConnectionsOrder(t *testing.T) {
 	server.Metrics().UpstreamConnections.Reset()
 	for addr, count := range connectionCounts {
 		gauge := server.Metrics().UpstreamConnections.WithLabelValues(addr)
-		gauge.Set(float64(count))
+		gauge.Set(int64(count))
 	}
 
 	// Run multiple times to check randomization of same-count nodes

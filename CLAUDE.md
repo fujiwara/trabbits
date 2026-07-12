@@ -53,7 +53,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 
 ### API and Monitoring
 - Unix socket API for configuration management
-- Prometheus metrics on port 16692
+- OpenTelemetry metrics (OTLP push, configured via standard OTEL_* environment variables)
 - CLI management via `trabbits manage config`
 
 ### Protocol Support
@@ -64,7 +64,7 @@ This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project i
 ### Common Tasks
 - Add new AMQP method support in `methods.go` and `amqp091/`
 - Extend routing patterns in `pattern.go`
-- Add metrics in `metrics.go`
+- Add metrics in `metrics/metrics.go` (define the value holder and register an observable instrument in the callback)
 - Configuration changes require `conf.go` updates
 
 ### Design Patterns and Best Practices

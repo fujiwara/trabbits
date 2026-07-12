@@ -8,7 +8,6 @@ import (
 
 	"github.com/fujiwara/trabbits"
 	"github.com/fujiwara/trabbits/config"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestRecoverFromPanic(t *testing.T) {
@@ -27,7 +26,7 @@ func TestRecoverFromPanic(t *testing.T) {
 	panicMessage := "test panic message"
 
 	// Get initial metric value
-	initialCount := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(functionName))
+	initialCount := metrics.PanicRecoveries.WithLabelValues(functionName).Value()
 
 	// Test panic recovery
 	func() {
@@ -36,11 +35,11 @@ func TestRecoverFromPanic(t *testing.T) {
 	}()
 
 	// Verify metric was incremented
-	finalCount := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(functionName))
+	finalCount := metrics.PanicRecoveries.WithLabelValues(functionName).Value()
 	expectedCount := initialCount + 1
 
 	if finalCount != expectedCount {
-		t.Errorf("Expected panic recovery metric to be %f, got %f", expectedCount, finalCount)
+		t.Errorf("Expected panic recovery metric to be %d, got %d", expectedCount, finalCount)
 	}
 
 	// Verify log output contains expected information
@@ -78,7 +77,7 @@ func TestRecoverFromPanicNoPanic(t *testing.T) {
 	functionName := "test_function_no_panic"
 
 	// Get initial metric value
-	initialCount := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(functionName))
+	initialCount := metrics.PanicRecoveries.WithLabelValues(functionName).Value()
 
 	// Test normal execution (no panic)
 	func() {
@@ -87,10 +86,10 @@ func TestRecoverFromPanicNoPanic(t *testing.T) {
 	}()
 
 	// Verify metric was NOT incremented
-	finalCount := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(functionName))
+	finalCount := metrics.PanicRecoveries.WithLabelValues(functionName).Value()
 
 	if finalCount != initialCount {
-		t.Errorf("Expected panic recovery metric to remain %f, got %f", initialCount, finalCount)
+		t.Errorf("Expected panic recovery metric to remain %d, got %d", initialCount, finalCount)
 	}
 
 	// Verify no panic-related log output
@@ -117,8 +116,8 @@ func TestRecoverFromPanicDifferentFunctions(t *testing.T) {
 	function2 := "runHeartbeat"
 
 	// Get initial metric values
-	initialCount1 := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(function1))
-	initialCount2 := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(function2))
+	initialCount1 := metrics.PanicRecoveries.WithLabelValues(function1).Value()
+	initialCount2 := metrics.PanicRecoveries.WithLabelValues(function2).Value()
 
 	// Test panic in function1
 	func() {
@@ -133,15 +132,15 @@ func TestRecoverFromPanicDifferentFunctions(t *testing.T) {
 	}()
 
 	// Verify metrics were incremented correctly for each function
-	finalCount1 := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(function1))
-	finalCount2 := testutil.ToFloat64(metrics.PanicRecoveries.WithLabelValues(function2))
+	finalCount1 := metrics.PanicRecoveries.WithLabelValues(function1).Value()
+	finalCount2 := metrics.PanicRecoveries.WithLabelValues(function2).Value()
 
 	if finalCount1 != initialCount1+1 {
-		t.Errorf("Expected %s metric to be %f, got %f", function1, initialCount1+1, finalCount1)
+		t.Errorf("Expected %s metric to be %d, got %d", function1, initialCount1+1, finalCount1)
 	}
 
 	if finalCount2 != initialCount2+1 {
-		t.Errorf("Expected %s metric to be %f, got %f", function2, initialCount2+1, finalCount2)
+		t.Errorf("Expected %s metric to be %d, got %d", function2, initialCount2+1, finalCount2)
 	}
 
 	// Verify both function names appear in logs
