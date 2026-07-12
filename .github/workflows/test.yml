@@ -73,16 +73,3 @@ jobs:
       - name: test rabbitmq directly
         run: |
           make test TEST_RABBITMQ=t
-
-      - name: test upstreams down and bench upstream up
-        run: |
-          docker compose -f compose.yml down
-          make -j run-servers-for-bench &
-
-      - name: bench directly
-        run: |
-          make run-bench-rabbitmq
-
-      - name: bench via trabbits
-        run: |
-          make run-bench-trabbits
