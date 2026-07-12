@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.19](https://github.com/fujiwara/trabbits/compare/v0.0.18...v0.0.19) - 2026-07-12
+- Send server properties in Connection.Start by @fujiwara in https://github.com/fujiwara/trabbits/pull/135
+- Replace Prometheus exporter with OpenTelemetry OTLP metrics export by @fujiwara in https://github.com/fujiwara/trabbits/pull/134
+- Bump GitHub Actions by @fujiwara in https://github.com/fujiwara/trabbits/pull/138
+- Bump Go dependencies by @fujiwara in https://github.com/fujiwara/trabbits/pull/137
+- Move benchmarks to a separate workflow running on main only by @fujiwara in https://github.com/fujiwara/trabbits/pull/139
+- Wait for servers to start in bench workflow by @fujiwara in https://github.com/fujiwara/trabbits/pull/140
+- Restructure README and add table of contents by @fujiwara in https://github.com/fujiwara/trabbits/pull/141
+- Remove comments that restate what the code does by @fujiwara in https://github.com/fujiwara/trabbits/pull/142
+
 ## [v0.0.18](https://github.com/fujiwara/trabbits/compare/v0.0.17...v0.0.18) - 2026-04-06
 - Add publisher confirm mode support by @fujiwara in https://github.com/fujiwara/trabbits/pull/121
 - Bump Go version and dependencies by @fujiwara in https://github.com/fujiwara/trabbits/pull/123
