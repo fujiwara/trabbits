@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -373,13 +374,29 @@ func (p *Proxy) newUpstream(conn *rabbitmq.Connection, conf config.Upstream, add
 	return NewUpstream(conn, p.logger, conf, address, p.metrics, p.probeLog)
 }
 
+// serverProperties returns the server properties sent to clients in
+// Connection.Start. Some clients read them (e.g. "version") to detect
+// broker features.
+func serverProperties() amqp091.Table {
+	return amqp091.Table{
+		"product":  "trabbits",
+		"version":  strings.TrimPrefix(Version, "v"),
+		"platform": "Go",
+		"capabilities": amqp091.Table{
+			"publisher_confirms": true,
+			"basic.nack":         true,
+		},
+	}
+}
+
 func (p *Proxy) handshake(_ context.Context) error {
 	// Connection.Start 送信
 	start := &amqp091.ConnectionStart{
-		VersionMajor: 0,
-		VersionMinor: 9,
-		Mechanisms:   "PLAIN",
-		Locales:      "en_US",
+		VersionMajor:     0,
+		VersionMinor:     9,
+		ServerProperties: serverProperties(),
+		Mechanisms:       "PLAIN",
+		Locales:          "en_US",
 	}
 	if err := p.send(0, start); err != nil {
 		return fmt.Errorf("failed to write Connection.Start: %w", err)
