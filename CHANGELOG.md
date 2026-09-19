@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.0.20](https://github.com/fujiwara/trabbits/compare/v0.0.19...v0.0.20) - 2026-09-19
+- Rename CLAUDE.md to AGENTS.md by @fujiwara in https://github.com/fujiwara/trabbits/pull/153
+
 ## [v0.0.19](https://github.com/fujiwara/trabbits/compare/v0.0.18...v0.0.19) - 2026-07-12
 - Send server properties in Connection.Start by @fujiwara in https://github.com/fujiwara/trabbits/pull/135
 - Replace Prometheus exporter with OpenTelemetry OTLP metrics export by @fujiwara in https://github.com/fujiwara/trabbits/pull/134
