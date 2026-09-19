@@ -1,4 +1,4 @@
-# trabbits Project Instructions for Claude Code
+# trabbits Project Instructions for AI Coding Agents
 
 ## Project Overview
 This is trabbits, an AMQP proxy server for RabbitMQ written in Go. The project is currently in ALPHA status.
